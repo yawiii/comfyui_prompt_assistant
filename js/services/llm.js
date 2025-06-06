@@ -1,0 +1,357 @@
+/**
+ * 智谱AI GLM-4 API调用服务
+ * 文档：https://www.bigmodel.cn/dev/api/normal-model/glm-4
+ */
+
+import { logger } from '../utils/logger.js';
+import { ResourceManager } from "../utils/resourceManager.js";
+
+class LLMService {
+    // API 配置
+    static API_CONFIG = {
+        BASE_URL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
+        MODEL: 'glm-4-flash-250414',
+        SYSTEM_MESSAGE: null, // 将从配置文件加载
+        TRANSLATE_SYSTEM_MESSAGE: {
+            TO_EN: null, // 翻译成英文的系统提示词
+            TO_ZH: null  // 翻译成中文的系统提示词
+        }
+    };
+
+    // 错误码映射
+    static ERROR_CODES = {
+        '401': '认证失败，请检查API密钥是否正确',
+        '429': '请求超过频率限制',
+        '500': '服务器内部错误',
+        '503': '服务不可用',
+    };
+
+    constructor() {
+        this.API_URL = LLMService.API_CONFIG.BASE_URL;
+        this.MODEL = LLMService.API_CONFIG.MODEL;
+    }
+
+    /**
+     * 获取错误信息
+     * @param {string} code 错误码
+     * @returns {string} 错误信息
+     */
+    static getErrorMessage(code) {
+        return this.ERROR_CODES[code] || `未知错误(错误码:${code})`;
+    }
+
+    /**
+     * 获取API密钥
+     * @returns {string} API密钥
+     */
+    static getApiKey() {
+        return localStorage.getItem("PromptAssistant_Settings_llm_api_key") || '';
+    }
+
+    /**
+     * 生成API请求头
+     * @param {string} apiKey - API密钥，如果不传则使用默认配置
+     * @returns {Object} 请求头对象
+     */
+    generateHeaders(apiKey = null) {
+        const key = apiKey || LLMService.getApiKey();
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${key}`
+        };
+    }
+
+    /**
+     * 构建请求体
+     * @param {Object} params - 请求参数
+     * @returns {Object} 格式化的请求体
+     */
+    async buildRequestBody({
+        messages,
+        temperature = 0.7,
+        top_p = 0.7,
+        max_tokens = 1500,
+        tools = null,
+        tool_choice = "auto",
+        operation_type = 'expand' // 新增参数，用于区分操作类型：expand/translate
+    }) {
+        // 根据操作类型加载对应的系统提示词
+        if (operation_type === 'expand') {
+            // 扩写操作使用原有的系统提示词
+            if (!LLMService.API_CONFIG.SYSTEM_MESSAGE) {
+                const systemPrompts = await ResourceManager.loadSystemPrompts();
+                if (!systemPrompts?.expand_prompt) {
+                    throw new Error('扩写系统提示词加载失败');
+                }
+                LLMService.API_CONFIG.SYSTEM_MESSAGE = systemPrompts.expand_prompt;
+            }
+        } else if (operation_type === 'translate') {
+            // 翻译操作加载翻译系统提示词
+            if (!LLMService.API_CONFIG.TRANSLATE_SYSTEM_MESSAGE.TO_EN || !LLMService.API_CONFIG.TRANSLATE_SYSTEM_MESSAGE.TO_ZH) {
+                const systemPrompts = await ResourceManager.loadSystemPrompts();
+                if (!systemPrompts?.translate_prompts) {
+                    throw new Error('翻译系统提示词加载失败');
+                }
+                LLMService.API_CONFIG.TRANSLATE_SYSTEM_MESSAGE = systemPrompts.translate_prompts;
+            }
+        }
+
+        // 根据操作类型选择系统提示词
+        let systemMessage;
+        if (operation_type === 'expand') {
+            systemMessage = LLMService.API_CONFIG.SYSTEM_MESSAGE;
+        } else if (operation_type === 'translate') {
+            // 从消息中获取目标语言
+            const targetLang = messages[0]?.targetLang || 'zh';
+            systemMessage = targetLang === 'en'
+                ? LLMService.API_CONFIG.TRANSLATE_SYSTEM_MESSAGE.TO_EN
+                : LLMService.API_CONFIG.TRANSLATE_SYSTEM_MESSAGE.TO_ZH;
+        }
+
+        if (!systemMessage) {
+            throw new Error(`系统提示词未找到，操作类型: ${operation_type}`);
+        }
+
+        // 处理消息数组
+        const processedMessages = messages.map(msg => {
+            // 创建新的消息对象，只保留必要的字段
+            const { role, content } = msg;
+            return { role, content };
+        });
+
+        // 添加系统提示词到消息开头
+        const messagesWithSystem = [
+            systemMessage,
+            ...processedMessages
+        ];
+
+        const body = {
+            model: this.MODEL,
+            messages: messagesWithSystem,
+            temperature,
+            top_p,
+            max_tokens
+        };
+
+        if (tools) {
+            body.tools = tools;
+            body.tool_choice = tool_choice;
+        }
+
+        return body;
+    }
+
+    /**
+     * 发送API请求
+     * @param {Object} params - 请求参数
+     * @param {string} apiKey - API密钥，可选
+     * @returns {Promise} API响应
+     */
+    async sendRequest(params, apiKey = null) {
+        if (!params.request_id) {
+            throw new Error('请求ID不能为空');
+        }
+
+        try {
+            // 获取提示词类型
+            const promptType = params.operation_type === 'translate'
+                ? (params.messages[0]?.targetLang === 'en' ? 'TO_EN' : 'TO_ZH')
+                : 'expand_prompt';
+
+            logger.debug(`发起LLM翻译请求 | 请求ID:${params.request_id} | 参数:${JSON.stringify({ ...params, prompt_type: promptType })}`);
+
+            const headers = this.generateHeaders(apiKey);
+            const body = await this.buildRequestBody(params);
+
+            const response = await fetch(this.API_URL, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+                const errorMessage = LLMService.getErrorMessage(response.status);
+                throw new Error(errorMessage);
+            }
+
+            const result = await response.json();
+            logger.debug(`LLM 翻译请求成功 | 请求ID:${params.request_id} | 结果:${JSON.stringify(result)}`);
+
+            return {
+                success: true,
+                data: result
+            };
+
+        } catch (error) {
+            logger.error(`LLM 翻译请求失败 | 请求ID:${params.request_id} | 错误:${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * 扩写提示词
+     * @param {string} prompt 原始提示词
+     * @param {string} request_id 请求ID
+     * @returns {Promise<Object>} 扩写结果
+     */
+    async expandPrompt(prompt, request_id) {
+        try {
+            logger.debug(`发起LLM扩写请求 | 请求ID:${request_id} | 原文:${prompt}`);
+
+            const params = {
+                messages: [
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ],
+                operation_type: 'expand',
+                request_id
+            };
+
+            const result = await this.sendRequest(params);
+
+            if (result.success) {
+                const expandedText = result.data.choices[0].message.content;
+                logger.debug(`LLM扩写请求成功 | 请求ID:${request_id} | 结果:${expandedText}`);
+
+                return {
+                    success: true,
+                    data: {
+                        original: prompt,
+                        expanded: expandedText
+                    }
+                };
+            } else {
+                throw new Error(result.error || '扩写请求失败');
+            }
+        } catch (error) {
+            logger.error(`LLM 扩写请求失败 | 请求ID:${request_id} | 错误:${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * 翻译文本
+     * @param {string} text 待翻译文本
+     * @param {string} from 源语言
+     * @param {string} to 目标语言
+     * @param {string} request_id 请求ID
+     * @returns {Promise<Object>} 翻译结果
+     */
+    async translate(text, from = 'auto', to = 'zh', request_id) {
+        try {
+            logger.debug(`发起翻译请求 | 请求ID:${request_id} | 原文:${text} | 方向:${from}->${to}`);
+
+            // 验证API密钥
+            const apiKey = LLMService.getApiKey();
+            if (!apiKey) {
+                throw new Error('请先配置 LLM API 密钥');
+            }
+
+            const params = {
+                messages: [
+                    {
+                        role: "user",
+                        content: text,
+                        targetLang: to // 添加目标语言标记
+                    }
+                ],
+                operation_type: 'translate',
+                request_id
+            };
+
+            const result = await this.sendRequest(params);
+
+            if (!result.success) {
+                throw new Error(result.error || '翻译请求失败');
+            }
+
+            if (!result.data?.choices?.[0]?.message?.content) {
+                throw new Error('翻译结果格式错误');
+            }
+
+            const translatedText = result.data.choices[0].message.content;
+            logger.debug(`翻译请求成功 | 请求ID:${request_id} | 结果:${translatedText}`);
+
+            return {
+                success: true,
+                data: {
+                    from: from,
+                    to: to,
+                    original: text,
+                    translated: translatedText
+                }
+            };
+        } catch (error) {
+            logger.error(`翻译请求失败  | 请求ID:${request_id} | 错误:${error.message}`);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * 设置 API 配置
+     * @param {Object} config 配置对象
+     */
+    static setConfig(config) {
+        try {
+            // 验证必要的配置项
+            if (config.API_KEY) {
+                this.API_CONFIG = {
+                    ...this.API_CONFIG,
+                    ...config
+                };
+                logger.debug('API配置更新成功');
+                return true;
+            } else {
+                throw new Error('API_KEY 是必需的配置项');
+            }
+        } catch (error) {
+            logger.error(`API配置更新失败 | 错误:${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 设置系统提示词
+     * @param {Object} systemMessage 系统提示词对象
+     */
+    static setSystemMessage(systemMessage) {
+        try {
+            if (typeof systemMessage !== 'string' || !systemMessage.trim()) {
+                throw new Error('系统提示词不能为空');
+            }
+
+            this.API_CONFIG.SYSTEM_MESSAGE = {
+                role: "system",
+                content: systemMessage
+            };
+
+            logger.debug('系统提示词更新成功');
+            return true;
+        } catch (error) {
+            logger.error(`系统提示词更新失败 | 错误:${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 获取当前 API 配置
+     * @returns {Object} API 配置对象
+     */
+    static getConfig() {
+        return { ...this.API_CONFIG };
+    }
+}
+
+// 导出LLM服务实例
+export const llmService = new LLMService(); 

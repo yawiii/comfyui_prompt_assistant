@@ -1,0 +1,759 @@
+/**
+ * UI工具包
+ * 提供通用的UI操作工具函数，供各模块共用
+ */
+
+import { logger } from './logger.js';
+import { ResourceManager } from "./resourceManager.js";
+
+class UIToolkit {
+    // 中央按钮状态管理器 - 记录激活状态的按钮
+    static #activeButtonInfo = null; // {widget, buttonId, popupInstance}
+
+    // 状态提示管理器 - 记录每个按钮的状态提示元素
+    static #statusTips = new Map(); // Map<buttonElement, tipElement>
+
+    // 支持的输入字段ID
+    static VALID_INPUT_IDS = ["text", "text_positive", "text_negative", "text_g", "text_l"];
+
+    // 状态文本管理
+    static STATUS_TEXTS = {
+        translate: {
+            loading: '翻译中',
+            // success: (from, to) => `翻译完成 (${from} → ${to})`,
+            success: (from, to) => '翻译完成',
+            error: (msg) => msg || '翻译失败'
+        },
+        expand: {
+            loading: '扩写中',
+            success: '扩写完成',
+            error: (msg) => msg || '扩写失败'
+        }
+    };
+
+    /**
+     * 检查输入控件是否为有效的文本输入
+     * @param {Object} widget 输入控件对象
+     * @returns {boolean} 是否为有效的文本输入
+     */
+    static isValidInput(widget) {
+        // 简化检测逻辑：直接判断是否有TEXTAREA
+        let isValid = false;
+
+        // 标准文本输入控件
+        if (widget.inputEl && widget.inputEl.tagName === "TEXTAREA" &&
+            this.VALID_INPUT_IDS.includes(widget.name)) {
+            isValid = true;
+        }
+        // Note节点特殊输入
+        else if (widget.element && widget.element.tagName === "TEXTAREA") {
+            isValid = true;
+        }
+
+        return isValid;
+    }
+
+    /**
+     * 显示状态提示
+     * @param {HTMLElement} anchorElement 锚点元素
+     * @param {string} type 提示类型
+     * @param {string} message 提示消息
+     * @param {Object|string|null} position 位置信息
+     */
+    static showStatusTip(anchorElement, type, message, position = null) {
+        // 移除同一按钮上的旧提示
+        this.removeStatusTip(anchorElement);
+
+        // 创建提示元素
+        const tipElement = document.createElement('div');
+        tipElement.className = `statustip ${type}`;
+        tipElement.textContent = message;
+        document.body.appendChild(tipElement);
+
+        // 设置位置和样式
+        const { posX, posY } = this._calculateTipPosition(anchorElement, position);
+        tipElement.style.left = `${posX}px`;
+        tipElement.style.top = `${posY}px`;
+
+        // 根据position类型调整transform
+        if (position === 'top') {
+            tipElement.style.transform = 'translate(-50%, -100%) translateY(-12px)';
+        } else {
+            tipElement.style.transform = 'translate(-50%, -100%) translateY(-8px)';
+        }
+
+        tipElement.classList.add('statustip-show');
+
+        // 记录提示元素
+        this.#statusTips.set(anchorElement, tipElement);
+
+        // 设置自动消失
+        this._setupTipAutoHide(tipElement, anchorElement);
+
+        return tipElement;
+    }
+
+    /**
+     * 移除指定按钮的状态提示
+     * @param {HTMLElement} anchorElement 锚点元素
+     */
+    static removeStatusTip(anchorElement) {
+        const existingTip = this.#statusTips.get(anchorElement);
+        if (existingTip) {
+            // 移除动画类
+            existingTip.classList.remove('statustip-show');
+            // 立即移除元素
+            existingTip.parentNode?.removeChild(existingTip);
+            // 从管理器中移除记录
+            this.#statusTips.delete(anchorElement);
+        }
+    }
+
+    /**
+     * 计算提示气泡位置
+     * @private
+     */
+    static _calculateTipPosition(anchorElement, position) {
+        let posX, posY;
+
+        if (typeof position === 'object' && position !== null) {
+            // 如果position是对象，直接使用其x,y值
+            posX = position.x;
+            posY = position.y;
+        } else if (position === 'top') {
+            // 如果position是'top'，将提示放在元素上方中央
+            const rect = anchorElement.getBoundingClientRect();
+            posX = rect.left + rect.width / 2;
+            posY = rect.top;
+        } else {
+            // 默认情况，使用元素的位置
+            const rect = anchorElement.getBoundingClientRect();
+            posX = rect.left + rect.width / 2;
+            posY = rect.top;
+        }
+
+        return { posX, posY };
+    }
+
+    /**
+     * 设置提示自动隐藏
+     * @private
+     */
+    static _setupTipAutoHide(tipElement, anchorElement) {
+        // 增加显示时间到2秒
+        setTimeout(() => {
+            // 检查提示是否仍然存在
+            if (this.#statusTips.get(anchorElement) === tipElement) {
+                tipElement.classList.remove('statustip-show');
+                tipElement.classList.add('statustip-hide');
+
+                setTimeout(() => {
+                    // 再次检查提示是否仍然存在
+                    if (this.#statusTips.get(anchorElement) === tipElement) {
+                        tipElement.parentNode?.removeChild(tipElement);
+                        this.#statusTips.delete(anchorElement);
+                    }
+                }, 400); // 这是提示框淡出动画的时长
+            }
+        }, 1000); // 显示1秒
+    }
+
+    /**
+     * 为按钮添加图标
+     * @param {HTMLElement} button 按钮元素
+     * @param {string} icon 图标名称
+     * @param {string} alt 替代文本
+     */
+    static addIconToButton(button, icon, alt) {
+        if (!icon) return;
+
+        try {
+            // 获取图标名称（确保带有.svg后缀）
+            const iconName = icon.endsWith('.svg') ? icon : `${icon}.svg`;
+
+            // 从ResourceManager获取图标
+            const cachedImg = ResourceManager.getIcon(iconName);
+            if (cachedImg) {
+                // 清空按钮并添加图片
+                button.innerHTML = '';
+                button.appendChild(cachedImg);
+                cachedImg.alt = alt || '';
+                cachedImg.draggable = false;
+            } else {
+                logger.warn(`图标加载 | 结果:失败 | 图标: ${icon}, 原因: 未找到缓存`);
+            }
+        } catch (error) {
+            logger.warn(`图标加载 | 结果:失败 | 图标: ${icon}, 错误: ${error.message}`);
+        }
+    }
+
+    /**
+     * 判断元素是否可见
+     * @param {HTMLElement} element 要检查的元素
+     * @returns {boolean} 是否可见
+     */
+    static isElementVisible(element) {
+        return element &&
+            element.style.display !== 'none' &&
+            element.style.visibility !== 'hidden';
+    }
+
+    /**
+     * 创建并添加DOM元素
+     * @param {string} tagName 标签名
+     * @param {Object} props 属性对象
+     * @param {HTMLElement} parent 父元素
+     * @returns {HTMLElement} 创建的元素
+     */
+    static createElement(tagName, props = {}, parent = null) {
+        const element = document.createElement(tagName);
+
+        // 设置属性
+        Object.entries(props).forEach(([key, value]) => {
+            if (key === 'className') {
+                element.className = value;
+            } else if (key === 'style') {
+                Object.assign(element.style, value);
+            } else if (key === 'content') {
+                element.textContent = value;
+            } else {
+                element[key] = value;
+            }
+        });
+
+        // 添加到父元素
+        if (parent) {
+            parent.appendChild(element);
+        }
+
+        return element;
+    }
+
+    // ====================== 按钮状态管理 ======================
+
+    /**
+     * 获取当前激活的按钮信息
+     * @returns {Object|null} 当前激活的按钮信息
+     */
+    static getActiveButtonInfo() {
+        return this.#activeButtonInfo;
+    }
+
+    /**
+     * 设置当前激活的按钮信息
+     * @param {Object|null} buttonInfo 按钮信息对象或null（清除当前激活按钮）
+     */
+    static setActiveButton(buttonInfo) {
+        // 如果新旧按钮信息相同，不做任何处理
+        if (this.#activeButtonInfo && buttonInfo &&
+            this.#activeButtonInfo.widget === buttonInfo.widget &&
+            this.#activeButtonInfo.buttonId === buttonInfo.buttonId) {
+            return;
+        }
+
+        // 清理旧的激活按钮状态
+        if (this.#activeButtonInfo) {
+            const oldInfo = this.#activeButtonInfo;
+            // 重置旧按钮状态
+            this.setButtonState(oldInfo.widget, oldInfo.buttonId, 'active', false);
+            logger.debug(`按钮状态重置 | 按钮:${oldInfo.buttonId} | 节点:${oldInfo.widget.nodeId}`);
+        }
+
+        // 设置新的激活按钮
+        this.#activeButtonInfo = buttonInfo;
+
+        // 如果有新的按钮信息，设置其状态为激活
+        if (buttonInfo) {
+            this.setButtonState(buttonInfo.widget, buttonInfo.buttonId, 'active', true);
+            logger.debug(`按钮激活 | 按钮:${buttonInfo.buttonId} | 节点:${buttonInfo.widget.nodeId}`);
+        }
+    }
+
+    /**
+     * 检查按钮是否为当前激活按钮
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     * @returns {boolean} 是否为当前激活按钮
+     */
+    static isActiveButton(widget, buttonId) {
+        return this.#activeButtonInfo &&
+            this.#activeButtonInfo.widget === widget &&
+            this.#activeButtonInfo.buttonId === buttonId;
+    }
+
+    /**
+     * 处理弹窗相关按钮点击
+     * @param {Event} e 事件对象
+     * @param {Object} widget 小助手实例 
+     * @param {string} buttonId 按钮ID
+     * @param {Function} showPopupFn 显示弹窗的函数
+     * @param {Function} hidePopupFn 隐藏弹窗的函数
+     */
+    static handlePopupButtonClick(e, widget, buttonId, showPopupFn, hidePopupFn) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        logger.debug(`弹窗按钮点击 | 按钮: ${buttonId} | 节点: ${widget.nodeId}`);
+
+        // 检查当前按钮状态
+        const isCurrentActive = this.isActiveButton(widget, buttonId);
+
+        // 如果当前按钮已激活，则关闭弹窗
+        if (isCurrentActive) {
+            // 重置按钮状态并隐藏弹窗
+            this.setActiveButton(null);
+            hidePopupFn();
+            return;
+        }
+
+        // 设置新的激活按钮状态
+        const buttonInfo = {
+            widget,
+            buttonId,
+            timestamp: Date.now()
+        };
+
+        // 先设置按钮状态
+        this.setActiveButton(buttonInfo);
+
+        // 显示弹窗
+        showPopupFn({
+            anchorButton: e.currentTarget,
+            nodeId: widget.nodeId,
+            inputId: widget.inputId,
+            buttonInfo: buttonInfo,
+            onClose: () => {
+                // 弹窗关闭时，如果当前按钮仍为激活状态，则重置
+                if (this.isActiveButton(widget, buttonId)) {
+                    this.setActiveButton(null);
+                }
+
+                // 确保按钮状态恢复默认
+                this.setButtonState(widget, buttonId, 'active', false);
+
+                // 触发额外的回调
+                if (typeof widget.onPopupClosed === 'function') {
+                    widget.onPopupClosed(buttonId);
+                }
+            }
+        });
+    }
+
+    /**
+     * 获取按钮当前状态
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     * @returns {Object} 按钮状态对象
+     */
+    static getButtonState(widget, buttonId) {
+        if (!widget || !widget.buttons || !widget.buttons[buttonId]) {
+            logger.error(`按钮状态获取 | 结果:失败 | 原因:按钮未找到 | 按钮ID:${buttonId}`);
+            return null;
+        }
+
+        const button = widget.buttons[buttonId];
+
+        return {
+            active: button.classList.contains('button-active'),
+            processing: button.classList.contains('button-processing'),
+            disabled: button.classList.contains('button-disabled')
+        };
+    }
+
+    /**
+     * 设置按钮状态
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     * @param {string} stateType 状态类型
+     * @param {boolean} value 状态值
+     */
+    static setButtonState(widget, buttonId, stateType, value = true) {
+        try {
+            const button = widget.buttons[buttonId];
+            if (!button) return;
+
+            const stateClass = `button-${stateType}`;
+
+            if (value) {
+                button.classList.add(stateClass);
+                // 如果是禁用状态，添加disabled属性
+                if (stateType === 'disabled') {
+                    button.setAttribute('disabled', 'disabled');
+                }
+            } else {
+                button.classList.remove(stateClass);
+                // 如果取消禁用状态，移除disabled属性
+                if (stateType === 'disabled') {
+                    button.removeAttribute('disabled');
+                }
+            }
+
+            // 更新按钮可点击状态
+            this._updateButtonClickability(button);
+
+        } catch (error) {
+            logger.error(`按钮状态 | 设置失败 | 按钮:${buttonId} | 状态:${stateType} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 更新按钮可点击状态
+     * @private
+     */
+    static _updateButtonClickability(button) {
+        // 检查按钮是否处于禁用或处理中状态
+        const isDisabled = button.classList.contains('button-disabled');
+        const isProcessing = button.classList.contains('button-processing');
+
+        if (isDisabled || isProcessing) {
+            // 如果按钮被禁用或正在处理中，阻止点击事件
+            button.style.pointerEvents = 'none';
+        } else {
+            // 恢复点击事件
+            button.style.pointerEvents = 'auto';
+        }
+    }
+
+    /**
+     * 重置按钮状态
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     */
+    static resetButtonState(widget, buttonId = null) {
+        try {
+            const resetButton = (button, id) => {
+                if (button) {
+                    // 移除所有状态类
+                    button.classList.remove('button-active', 'button-processing', 'button-disabled');
+                    // 移除disabled属性
+                    button.removeAttribute('disabled');
+                    // 恢复点击事件
+                    button.style.pointerEvents = 'auto';
+                }
+            };
+
+            if (buttonId) {
+                // 重置指定按钮
+                const button = widget.buttons[buttonId];
+                resetButton(button, buttonId);
+            } else {
+                // 重置所有按钮
+                Object.entries(widget.buttons).forEach(([id, button]) => {
+                    resetButton(button, id);
+                });
+            }
+        } catch (error) {
+            logger.error(`按钮状态 | 重置失败 | 按钮:${buttonId || 'all'} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 更新撤销/重做按钮状态
+     * @param {Object} widget 小助手实例
+     * @param {Object} LocalHistoryService 历史服务对象
+     */
+    static updateUndoRedoButtonState(widget, LocalHistoryService) {
+        // 更新撤销按钮状态
+        const undoButton = widget.buttons['undo'];
+        if (undoButton) {
+            const canUndo = LocalHistoryService.canUndo(widget.nodeId, widget.inputId);
+            this.setButtonState(widget, 'undo', 'disabled', !canUndo);
+        }
+
+        // 更新重做按钮状态
+        const redoButton = widget.buttons['redo'];
+        if (redoButton) {
+            const canRedo = LocalHistoryService.canRedo(widget.nodeId, widget.inputId);
+            this.setButtonState(widget, 'redo', 'disabled', !canRedo);
+        }
+    }
+
+    /**
+     * 处理按钮点击操作
+     * @param {Event} e 事件对象
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     * @param {Function} operation 操作函数
+     * @param {Object} LocalHistoryService 历史服务对象
+     */
+    static handleButtonOperation(e, widget, buttonId, operation, LocalHistoryService) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 获取按钮状态
+        const state = this.getButtonState(widget, buttonId);
+
+        // 如果按钮已禁用或正在处理中，不执行操作
+        if (!state || state.disabled || state.processing) {
+            logger.debug(`按钮操作 | 结果:跳过 | 按钮:${buttonId} | 原因:${state.disabled ? '已禁用' : '处理中'}`);
+            return;
+        }
+
+        // 设置按钮为处理中状态
+        this.setButtonState(widget, buttonId, 'processing', true);
+        logger.debug(`按钮操作 | 动作:开始 | 按钮:${buttonId}`);
+
+        // 执行操作（接收一个回调函数用于处理操作完成后的逻辑）
+        try {
+            const callback = (success = true, error = null) => {
+                // 重置按钮状态
+                this.setButtonState(widget, buttonId, 'processing', false);
+
+                // 如果操作成功且有结果，将结果写入历史记录
+                if (success && widget.inputEl && widget.inputEl.value) {
+                    // 添加到历史
+                    logger.debug(`准备写入历史｜ ${buttonId}操作完成｜ node_id=${widget.nodeId}`);
+                    LocalHistoryService.addHistory({
+                        workflow_id: '',
+                        node_id: widget.nodeId,
+                        input_id: widget.inputId,
+                        content: widget.inputEl.value,
+                        operation_type: buttonId, // 使用按钮ID作为操作类型
+                    });
+                }
+
+                if (error) {
+                    logger.error(`按钮操作完成 | 结果:失败 | 按钮:${buttonId} | 错误:${error}`);
+                    this.showStatusTip(
+                        e.currentTarget,
+                        'error',
+                        `操作失败: ${error?.message || '未知错误'}`,
+                        null
+                    );
+                } else {
+                    logger.debug(`按钮操作完成 | 结果:${success ? '成功' : '失败'} | 按钮:${buttonId}`);
+                    this.showStatusTip(
+                        e.currentTarget,
+                        'success',
+                        `${e.currentTarget.title || buttonId} 操作完成`,
+                        null
+                    );
+                }
+            };
+
+            // 执行操作并传入回调
+            logger.debug(`历史缓存 ｜ 按钮操作准备执行 node_id=${widget.nodeId} input_id=${widget.inputId} type=${buttonId}`);
+            operation(callback);
+        } catch (error) {
+            // 出现异常时重置按钮状态
+            this.setButtonState(widget, buttonId, 'processing', false);
+            logger.error(`按钮操作 | 结果:异常 | 按钮:${buttonId} | 错误:${error.message}`);
+            this.showStatusTip(
+                e.currentTarget,
+                'error',
+                `操作异常: ${error.message}`,
+                null
+            );
+        }
+    }
+
+    /**
+     * 处理按钮点击
+     * 显示状态提示信息
+     */
+    static handleButtonClick(e, widget, message, type) {
+        const btnRect = e.target.getBoundingClientRect();
+        this.showStatusTip(
+            e.target,
+            type,
+            message,
+            { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
+        );
+    }
+
+    /**
+     * 写入内容到输入框
+     * @param {string} content 要写入的内容
+     * @param {string} nodeId 节点ID
+     * @param {string} inputId 输入框ID
+     * @param {Object} options 配置选项
+     * @param {boolean} options.highlight 是否添加高亮效果
+     * @param {boolean} options.focus 是否聚焦输入框
+     * @returns {boolean} 是否写入成功
+     */
+    static writeToInput(content, nodeId, inputId, options = { highlight: true, focus: false }) {
+        const mappingKey = `${nodeId}_${inputId}`;
+        const mapping = window.PromptAssistantInputWidgetMap?.[mappingKey];
+
+        if (mapping && mapping.inputEl) {
+            const inputEl = mapping.inputEl;
+
+            // 将内容写入输入框
+            inputEl.value = content;
+
+            // 触发input事件，确保UI和数据同步
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 添加高亮效果
+            if (options.highlight) {
+                this._highlightInput(inputEl);
+            }
+
+            // 聚焦输入框
+            if (options.focus) {
+                inputEl.focus();
+            }
+
+            logger.debug(`内容写入 | 结果:成功 | 节点:${nodeId} | 输入框:${inputId}`);
+            return true;
+        } else {
+            logger.error(`内容写入 | 结果:失败 | 节点:${nodeId} | 输入框:${inputId} | 原因:找不到输入框`);
+            return false;
+        }
+    }
+
+    /**
+     * 在光标位置插入内容
+     * @param {string} content 要插入的内容
+     * @param {string} nodeId 节点ID
+     * @param {string} inputId 输入框ID
+     * @param {Object} options 配置选项
+     * @param {boolean} options.highlight 是否添加高亮效果
+     * @param {boolean} options.keepFocus 是否保持输入框焦点（默认为true）
+     * @returns {boolean} 是否插入成功
+     */
+    static insertAtCursor(content, nodeId, inputId, options = { highlight: true, keepFocus: true }) {
+        const mappingKey = `${nodeId}_${inputId}`;
+        const mapping = window.PromptAssistantInputWidgetMap?.[mappingKey];
+
+        if (mapping && mapping.inputEl) {
+            const inputEl = mapping.inputEl;
+            const currentValue = inputEl.value;
+            const cursorPos = inputEl.selectionStart;
+            const beforeText = currentValue.substring(0, cursorPos);
+            const afterText = currentValue.substring(inputEl.selectionEnd);
+
+            // 插入内容
+            const newValue = beforeText + content + afterText;
+            inputEl.value = newValue;
+
+            // 触发事件
+            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 更新光标位置
+            const newPos = cursorPos + content.length;
+            inputEl.setSelectionRange(newPos, newPos);
+
+            // 添加高亮效果
+            if (options.highlight) {
+                this._highlightInput(inputEl);
+            }
+
+            // 根据参数决定是否保持焦点
+            if (options.keepFocus) {
+                inputEl.focus();
+            }
+
+            logger.debug(`内容插入 | 结果:成功 | 节点:${nodeId} | 输入框:${inputId}`);
+            return true;
+        } else {
+            logger.error(`内容插入 | 结果:失败 | 节点:${nodeId} | 输入框:${inputId} | 原因:找不到输入框`);
+            return false;
+        }
+    }
+
+    /**
+     * 为输入框添加高亮动画效果
+     * @private
+     * @param {HTMLElement} inputEl 输入框元素
+     */
+    static _highlightInput(inputEl) {
+        // 移除可能存在的旧动画类
+        inputEl.classList.remove('input-highlight');
+
+        // 强制重绘
+        void inputEl.offsetWidth;
+
+        // 添加动画类
+        inputEl.classList.add('input-highlight');
+
+        // 动画结束后移除类
+        setTimeout(() => {
+            inputEl.classList.remove('input-highlight');
+        }, 800); // 与CSS中的动画时长匹配
+    }
+
+    /**
+     * 处理异步按钮操作
+     * @param {Object} widget 小助手实例
+     * @param {string} buttonId 按钮ID
+     * @param {HTMLElement} buttonElement 按钮元素
+     * @param {Function} asyncOperation 异步操作函数
+     */
+    static async handleAsyncButtonOperation(widget, buttonId, buttonElement, asyncOperation) {
+        const statusConfig = this.STATUS_TEXTS[buttonId] || {
+            loading: '处理中',
+            success: '完成',
+            error: (msg) => msg || '操作失败'
+        };
+
+        try {
+            // 设置当前按钮为处理中状态
+            this.setButtonState(widget, buttonId, 'processing', true);
+
+            // 禁用其他按钮
+            Object.keys(widget.buttons).forEach(id => {
+                if (id !== buttonId) {
+                    this.setButtonState(widget, id, 'disabled', true);
+                }
+            });
+
+            // 执行异步操作
+            const result = await asyncOperation();
+
+            // 根据操作结果显示不同的提示
+            if (result && result.success) {
+                const btnRect = buttonElement.getBoundingClientRect();
+                const tipPosition = { x: btnRect.left + btnRect.width / 2, y: btnRect.top };
+
+                if (result.useCache && result.tipType && result.tipMessage) {
+                    // 处理缓存结果的提示
+                    this.showStatusTip(
+                        result.buttonElement || buttonElement, // 使用传入的按钮元素或当前按钮
+                        result.tipType,
+                        result.tipMessage,
+                        tipPosition
+                    );
+                } else if (!result.useCache) {
+                    // 非缓存操作时显示默认的成功提示
+                    this.showStatusTip(
+                        buttonElement,
+                        'success',
+                        typeof statusConfig.success === 'function'
+                            ? statusConfig.success(result.from, result.to)
+                            : statusConfig.success,
+                        tipPosition
+                    );
+                }
+            } else {
+                throw new Error(statusConfig.error(result?.error));
+            }
+
+        } catch (error) {
+            // 显示错误提示
+            const btnRect = buttonElement.getBoundingClientRect();
+            this.showStatusTip(
+                buttonElement,
+                'error',
+                error.message,
+                { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
+            );
+            logger.error(`按钮操作失败 | 按钮:${buttonId} | 错误:${error.message}`);
+
+        } finally {
+            // 重置当前按钮状态
+            this.setButtonState(widget, buttonId, 'processing', false);
+
+            // 恢复其他按钮状态
+            Object.keys(widget.buttons).forEach(id => {
+                if (id !== buttonId) {
+                    this.setButtonState(widget, id, 'disabled', false);
+                }
+            });
+        }
+    }
+}
+
+export { UIToolkit }; 

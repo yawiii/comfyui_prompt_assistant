@@ -1,0 +1,123 @@
+/**
+ * 通用样式及动画库
+ * 提供全局共享的动画效果和基础样式
+ */
+
+/* ======== 动画定义 ======== */
+
+/* 向上淡入动画 */
+@keyframes clipFadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 向下淡入动画 */
+@keyframes clipFadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(1);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* 向上淡出动画 */
+@keyframes clipFadeOutUp {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(1);
+    }
+}
+
+/* 向下淡出动画 */
+@keyframes clipFadeOutDown {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(-10px) scale(1);
+    }
+}
+
+/* 淡入动画 */
+@keyframes clipFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* 按钮呼吸缩放动画 */
+@keyframes buttonBreathing {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(100, 100, 255, 0);
+    }
+
+    50% {
+        transform: scale(1.15);
+        box-shadow: 0 0 8px rgba(100, 100, 255, 0.6);
+    }
+
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 rgba(100, 100, 255, 0);
+    }
+}
+
+/* 状态提示浮动效果 - 向上淡出 */
+@keyframes tipFloatUp {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -100%) translateY(-8px);
+    }
+
+    20% {
+        opacity: 0.9;
+        transform: translate(-50%, -100%) translateY(-15px);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -100%) translateY(-40px);
+    }
+}
+
+/* 状态提示缩放出现动画 */
+@keyframes tipScaleIn {
+    0% {
+        opacity: 0;
+        transform: translate(-50%, -100%) translateY(-8px) scale(0.8);
+    }
+
+    70% {
+        opacity: 1;
+        transform: translate(-50%, -100%) translateY(-8px) scale(1.05);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translate(-50%, -100%) translateY(-8px) scale(1);
+    }
+}
