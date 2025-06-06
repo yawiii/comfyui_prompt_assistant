@@ -1516,13 +1516,13 @@
             "建筑废墟": "rubble_ruins"
         },
         "室内装饰": {
-            "室内泳池": "indoor pool,",
+            "室内泳池": "indoor pool",
             "混合控制台": "mixing_console",
             "汽车驾驶室内": "car_seat,_seatbelt",
             "更衣室": "locker_room",
             "在泳池边": "poolside",
             "洗衣店": "on laundry",
-            "在房间内": "in the room,",
+            "在房间内": "in the room",
             "研究所": "on laboratory",
             "灯笼环境": "lantern_floating",
             "豪华房间内": "mansion",
