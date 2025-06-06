@@ -612,7 +612,7 @@ export function registerSettings() {
 
                         // GitHub 徽标
                         const authorTag = document.createElement("a");
-                        authorTag.href = "https://github.com/yawiii/comfyui_prompt_widget";
+                        authorTag.href = "https://github.com/yawiii/comfyui_prompt_assistant";
                         authorTag.target = "_blank";
                         authorTag.style.textDecoration = "none";
                         authorTag.style.display = "flex";
@@ -638,7 +638,7 @@ export function registerSettings() {
                         cell.appendChild(introText);
                         // B站徽标
                         const biliTag = document.createElement("a");
-                        biliTag.href = "https://space.bilibili.com/3493083790025838";
+                        biliTag.href = "https://space.bilibili.com/520680644";
                         biliTag.target = "_blank";
                         biliTag.style.textDecoration = "none";
                         biliTag.style.display = "flex";
