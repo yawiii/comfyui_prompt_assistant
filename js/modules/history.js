@@ -498,36 +498,6 @@ class HistoryManager {
                         // 主动关闭 tooltip
                         this._hideTooltip();
 
-                        // 特殊处理图像节点的历史记录
-                        if (item.input_id === "image") {
-                            // 复制内容到剪贴板
-                            try {
-                                navigator.clipboard.writeText(item.content).then(() => {
-                                    // 显示成功提示
-                                    app.extensionManager.toast.add({
-                                        severity: "success",
-                                        summary: "复制成功",
-                                        detail: "图像提示词已复制到剪贴板",
-                                        life: 3000
-                                    });
-
-                                    // 隐藏历史弹窗
-                                    this.hideHistoryPopup();
-                                });
-                            } catch (error) {
-                                logger.error(`复制到剪贴板失败: ${error.message}`);
-
-                                // 显示错误提示
-                                app.extensionManager.toast.add({
-                                    severity: "error",
-                                    summary: "复制失败",
-                                    detail: error.message,
-                                    life: 3000
-                                });
-                            }
-                            return;
-                        }
-
                         // 使用UIToolkit写入内容到输入框
                         const success = UIToolkit.writeToInput(item.content, this.currentNodeId, this.currentInputId, {
                             highlight: true,

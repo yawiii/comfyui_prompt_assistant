@@ -209,25 +209,37 @@ class PromptFormatter {
             // 记录原始文本用于日志
             const originalText = text;
 
-            // 使用映射表替换所有中文标点
-            let formattedText = text;
-            for (const [cnPunct, enPunct] of Object.entries(this.PUNCTUATION_MAP)) {
-                formattedText = formattedText.split(cnPunct).join(enPunct);
-            }
+            // 保留换行符，按行处理文本
+            const lines = text.split('\n');
+            const formattedLines = lines.map(line => {
+                // 使用映射表替换所有中文标点
+                let formattedLine = line;
+                for (const [cnPunct, enPunct] of Object.entries(this.PUNCTUATION_MAP)) {
+                    formattedLine = formattedLine.split(cnPunct).join(enPunct);
+                }
 
-            // 处理连续的点号（超过3个的情况）
-            formattedText = formattedText.replace(/\.{3,}/g, '...');
+                // 处理连续的点号（超过3个的情况）
+                formattedLine = formattedLine.replace(/\.{3,}/g, '...');
 
-            // 处理多余的空格
-            formattedText = formattedText
-                .replace(/\s+/g, ' ')           // 多个空格转换为单个空格
-                .replace(/\s*,\s*/g, ', ')      // 统一逗号后的空格
-                // .replace(/\s*\.\s*/g, '. ')     // 统一句号后的空格
-                .trim();                        // 去除首尾空格
+                // 处理多余的空格
+                formattedLine = formattedLine
+                    .replace(/\s+/g, ' ')           // 多个空格转换为单个空格
+                    .replace(/\s*,\s*/g, ', ')      // 统一逗号后的空格
+                    .trim();                        // 去除首尾空格
+
+                return formattedLine;
+            });
+
+            // 合并处理后的行，保留原始换行符
+            const formattedText = formattedLines.join('\n');
 
             // 记录日志
             if (originalText !== formattedText) {
-                logger.debug(`标点符号转换 | 结果:成功 | 原文本:"${originalText}" | 转换后:"${formattedText}"`);
+                const logOriginal = originalText.length > 100 ?
+                    originalText.substring(0, 100) + '...' : originalText;
+                const logFormatted = formattedText.length > 100 ?
+                    formattedText.substring(0, 100) + '...' : formattedText;
+                logger.debug(`标点符号转换 | 结果:成功 | 原行数:${lines.length} | 转换后行数:${formattedLines.length} | 样例:"${logFormatted}"`);
             }
 
             return formattedText;

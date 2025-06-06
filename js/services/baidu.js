@@ -69,6 +69,58 @@ class BaiduTranslateService {
     }
 
     /**
+     * 处理长文本 - 按段落分割文本
+     * 解决JSONP请求时长文本被截断的问题
+     */
+    static splitTextByParagraphs(text, maxLength = 2000) {
+        if (!text) return [];
+
+        // 按段落分割
+        const paragraphs = text.split(/\n+/);
+        const chunks = [];
+        let currentChunk = "";
+
+        for (const paragraph of paragraphs) {
+            // 如果当前段落本身超过最大长度，需要再次分割
+            if (paragraph.length > maxLength) {
+                // 如果currentChunk不为空，先添加到chunks
+                if (currentChunk) {
+                    chunks.push(currentChunk);
+                    currentChunk = "";
+                }
+
+                // 分割长段落
+                let remainingText = paragraph;
+                while (remainingText.length > 0) {
+                    const chunkText = remainingText.slice(0, maxLength);
+                    chunks.push(chunkText);
+                    remainingText = remainingText.slice(maxLength);
+                }
+            }
+            // 如果添加当前段落会超出长度限制，先保存当前chunk
+            else if (currentChunk && (currentChunk.length + paragraph.length + 1 > maxLength)) {
+                chunks.push(currentChunk);
+                currentChunk = paragraph;
+            }
+            // 否则，添加到当前chunk
+            else {
+                if (currentChunk) {
+                    currentChunk += "\n" + paragraph;
+                } else {
+                    currentChunk = paragraph;
+                }
+            }
+        }
+
+        // 添加最后一个chunk
+        if (currentChunk) {
+            chunks.push(currentChunk);
+        }
+
+        return chunks;
+    }
+
+    /**
      * 使用 JSONP 方式发送请求
      */
     static jsonp(params) {
@@ -133,40 +185,86 @@ class BaiduTranslateService {
             // 记录请求开始
             logger.debug(`发起百度API请求 | 请求ID:${request_id} | API:baidu_translate | 参数:${JSON.stringify({ text, from, to })}`);
 
-            // 生成随机数
-            const salt = Date.now().toString();
-            // 生成签名
-            const sign = this.generateSign(text, salt);
+            // 处理长文本 - 按段落分割
+            const textChunks = this.splitTextByParagraphs(text);
+            let translatedText = '';
 
-            // 构建请求参数
-            const params = {
-                q: text,
-                from: from,
-                to: to,
-                appid: this.getAppId(),
-                salt: salt,
-                sign: sign
-            };
+            // 如果文本被分割成多个段落，依次翻译
+            if (textChunks.length > 1) {
+                logger.debug(`文本分段处理 | 请求ID:${request_id} | 总段数:${textChunks.length}`);
 
-            // 发送 JSONP 请求
-            const result = await this.jsonp(params);
+                for (let i = 0; i < textChunks.length; i++) {
+                    const chunk = textChunks[i];
+                    logger.debug(`翻译文本段落 | 请求ID:${request_id} | 段落:${i+1}/${textChunks.length} | 长度:${chunk.length}`);
 
-            // 检查是否有错误码
-            if (result.error_code) {
-                const errorMessage = this.getErrorMessage(result.error_code);
-                throw new Error(`错误：${errorMessage}`);
+                    // 翻译当前段落
+                    const salt = Date.now().toString();
+                    const sign = this.generateSign(chunk, salt);
+
+                    const params = {
+                        q: chunk,
+                        from: from,
+                        to: to,
+                        appid: this.getAppId(),
+                        salt: salt,
+                        sign: sign
+                    };
+
+                    const result = await this.jsonp(params);
+
+                    if (result.error_code) {
+                        const errorMessage = this.getErrorMessage(result.error_code);
+                        throw new Error(`错误：${errorMessage}`);
+                    }
+
+                    // 合并翻译结果
+                    if (result.trans_result && result.trans_result.length > 0) {
+                        const chunkTranslated = result.trans_result.map(item => item.dst).join('\n');
+                        translatedText += (i > 0 ? '\n' : '') + chunkTranslated;
+                    }
+                }
+
+                logger.debug(`分段翻译完成 | 请求ID:${request_id} | 合并后长度:${translatedText.length}`);
+            } else {
+                // 单段文本处理 - 原有逻辑
+                const salt = Date.now().toString();
+                const sign = this.generateSign(text, salt);
+
+                // 构建请求参数
+                const params = {
+                    q: text,
+                    from: from,
+                    to: to,
+                    appid: this.getAppId(),
+                    salt: salt,
+                    sign: sign
+                };
+
+                // 发送 JSONP 请求
+                const result = await this.jsonp(params);
+
+                // 检查是否有错误码
+                if (result.error_code) {
+                    const errorMessage = this.getErrorMessage(result.error_code);
+                    throw new Error(`错误：${errorMessage}`);
+                }
+
+                // 合并所有翻译结果，而不仅仅是第一个
+                if (result.trans_result && result.trans_result.length > 0) {
+                    translatedText = result.trans_result.map(item => item.dst).join('\n');
+                }
             }
 
             // 记录请求成功
-            logger.debug(`百度API请求成功 | 请求ID:${request_id} | API:baidu_translate | 结果:${JSON.stringify({ from: result.from, to: result.to, translated: result.trans_result[0].dst })}`);
+            logger.debug(`百度API请求成功 | 请求ID:${request_id} | API:baidu_translate | 结果:${JSON.stringify({ from: from, to: to, translatedLength: translatedText.length })}`);
 
             return {
                 success: true,
                 data: {
-                    from: result.from,
-                    to: result.to,
+                    from: from,
+                    to: to,
                     original: text,
-                    translated: result.trans_result[0].dst
+                    translated: translatedText
                 }
             };
 
