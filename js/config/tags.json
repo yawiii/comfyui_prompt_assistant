@@ -353,7 +353,7 @@
                     "斜刘海": "swept bangs",
                     "不对称刘海": "asymmetric bangs"
                 },
-                "其他发型": {
+                "其他": {
                     "眼睛之间的头发": "hair between eyes",
                     "头发覆盖一只眼": "hair over one eye",
                     "头发遮住眉毛": "hair over one eyebrow",
@@ -392,7 +392,7 @@
                     "尖刺的头发": "spiked hair"
                 }
             },
-            "眼睛相关": {
+            "眼睛": {
                 "眼袋": "bags under eyes",
                 "缠着绷带的单眼": "bandage over one eye",
                 "遮眼|眼罩": "blindfold",
@@ -1080,7 +1080,7 @@
                 "躺着的": "lying",
                 "胎儿姿势(躺)": "fetal position"
             },
-            "多人姿态": {
+            "多人互动": {
                 "胸部互碰|胸顶着胸": "asymmetrical docking",
                 "背对背": "back-to-back",
                 "眼对眼（对视）": "eye contact",
@@ -1102,7 +1102,7 @@
                 "小舌头|口盖垂|悬雍垂": "uvula",
                 "咬耳朵": "ear biting"
             },
-            "手部动作": {
+            "手部": {
                 "手放在嘴边": "hand to mouth",
                 "爪手势": "claw pose",
                 "招财猫手势(下弯手腕)": "paw pose",
@@ -1144,7 +1144,7 @@
                 "展现魅力的姿势": "curvy",
                 "手持辫子": "bunching hair"
             },
-            "腿部动作": {
+            "腿部": {
                 "张腿": "spread legs",
                 "两腿并拢": "legs together",
                 "二郎腿": "crossed legs",
@@ -1175,7 +1175,7 @@
                 "高踢": "high kick",
                 "泡脚": "soaking feet"
             },
-            "眼部动作": {
+            "眼神": {
                 "面向镜头": "facing_viewer",
                 "看向镜头": "looking_at_viewer",
                 "眼神接触": "eye-contact",
@@ -1195,7 +1195,7 @@
                 "照镜子": "looking_at_mirror"
             },
             "表情": {
-                "正面的表情": {
+                "正面情绪": {
                     "微笑": "smile",
                     "善良的微笑": "kind smile",
                     "大笑": "laughing",
@@ -1216,7 +1216,7 @@
                     "开心的眼泪": "happy tears",
                     "情人节快乐": "happy valentine"
                 },
-                "负面情绪表情": {
+                "负面情绪": {
                     "阿黑颜": "ahegao",
                     "忍耐的表情": "endured face",
                     "忍耐": "restrained",
@@ -1274,7 +1274,7 @@
                     "绝望": "despair",
                     "疼痛": "pain"
                 },
-                "其他表情": {
+                "其他": {
                     "面无表情": "embarrass",
                     "困乏的": "sleepy",
                     "喝醉的": "drunk",
@@ -1300,7 +1300,7 @@
                     "紧张的": "nervous",
                     "捂脸": "facepalm"
                 },
-                "嘴部表情": {
+                "嘴型": {
                     "张嘴": "open mouth",
                     "喘气（张大嘴）": "gasping",
                     "嘴巴微微张开": "Slightly open mouth",
@@ -1403,7 +1403,7 @@
         }
     },
     "场景": {
-        "自然环境": {
+        "自然": {
             "大海": "ocean",
             "海滩": "beach",
             "湖泊": "lake",
@@ -1442,7 +1442,7 @@
             "冬": "winter",
             "夏": "summer"
         },
-        "室外场景": {
+        "室外": {
             "公园": "park",
             "吊架；秋千": "Trapeze",
             "面包店": "bakery",
@@ -1475,7 +1475,7 @@
             "意大利_威尼斯": "venice",
             "铁路": "railway"
         },
-        "城市风景": {
+        "城市": {
             "天际线": "city",
             "城市风景": "cityscape",
             "街道": "street",
@@ -1515,7 +1515,7 @@
             "废墟堆": "remains",
             "建筑废墟": "rubble_ruins"
         },
-        "室内环境及装饰": {
+        "室内装饰": {
             "室内泳池": "indoor pool,",
             "混合控制台": "mixing_console",
             "汽车驾驶室内": "car_seat,_seatbelt",
@@ -1554,7 +1554,7 @@
             "毛绒兔子": "stuffed_bunny",
             "小熊": "koakuma"
         },
-        "简单背景": {
+        "背景": {
             "单色背景": "monochrome_background",
             "简单的背景": "simple_background",
             "无背景|平铺的背景": "flats",
