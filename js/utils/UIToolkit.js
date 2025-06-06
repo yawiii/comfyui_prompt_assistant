@@ -33,8 +33,6 @@ class UIToolkit {
 
     /**
      * 检查输入控件是否为有效的文本输入
-     * @param {Object} widget 输入控件对象
-     * @returns {boolean} 是否为有效的文本输入
      */
     static isValidInput(widget) {
         // 简化检测逻辑：直接判断是否有TEXTAREA
@@ -55,10 +53,6 @@ class UIToolkit {
 
     /**
      * 显示状态提示
-     * @param {HTMLElement} anchorElement 锚点元素
-     * @param {string} type 提示类型
-     * @param {string} message 提示消息
-     * @param {Object|string|null} position 位置信息
      */
     static showStatusTip(anchorElement, type, message, position = null) {
         // 移除同一按钮上的旧提示
@@ -95,7 +89,6 @@ class UIToolkit {
 
     /**
      * 移除指定按钮的状态提示
-     * @param {HTMLElement} anchorElement 锚点元素
      */
     static removeStatusTip(anchorElement) {
         const existingTip = this.#statusTips.get(anchorElement);
@@ -111,7 +104,6 @@ class UIToolkit {
 
     /**
      * 计算提示气泡位置
-     * @private
      */
     static _calculateTipPosition(anchorElement, position) {
         let posX, posY;
@@ -137,7 +129,6 @@ class UIToolkit {
 
     /**
      * 设置提示自动隐藏
-     * @private
      */
     static _setupTipAutoHide(tipElement, anchorElement) {
         // 增加显示时间到2秒
@@ -160,9 +151,6 @@ class UIToolkit {
 
     /**
      * 为按钮添加图标
-     * @param {HTMLElement} button 按钮元素
-     * @param {string} icon 图标名称
-     * @param {string} alt 替代文本
      */
     static addIconToButton(button, icon, alt) {
         if (!icon) return;
@@ -189,8 +177,6 @@ class UIToolkit {
 
     /**
      * 判断元素是否可见
-     * @param {HTMLElement} element 要检查的元素
-     * @returns {boolean} 是否可见
      */
     static isElementVisible(element) {
         return element &&
@@ -200,10 +186,6 @@ class UIToolkit {
 
     /**
      * 创建并添加DOM元素
-     * @param {string} tagName 标签名
-     * @param {Object} props 属性对象
-     * @param {HTMLElement} parent 父元素
-     * @returns {HTMLElement} 创建的元素
      */
     static createElement(tagName, props = {}, parent = null) {
         const element = document.createElement(tagName);
@@ -233,7 +215,6 @@ class UIToolkit {
 
     /**
      * 获取当前激活的按钮信息
-     * @returns {Object|null} 当前激活的按钮信息
      */
     static getActiveButtonInfo() {
         return this.#activeButtonInfo;
@@ -241,7 +222,6 @@ class UIToolkit {
 
     /**
      * 设置当前激活的按钮信息
-     * @param {Object|null} buttonInfo 按钮信息对象或null（清除当前激活按钮）
      */
     static setActiveButton(buttonInfo) {
         // 如果新旧按钮信息相同，不做任何处理
@@ -271,9 +251,6 @@ class UIToolkit {
 
     /**
      * 检查按钮是否为当前激活按钮
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
-     * @returns {boolean} 是否为当前激活按钮
      */
     static isActiveButton(widget, buttonId) {
         return this.#activeButtonInfo &&
@@ -283,11 +260,6 @@ class UIToolkit {
 
     /**
      * 处理弹窗相关按钮点击
-     * @param {Event} e 事件对象
-     * @param {Object} widget 小助手实例 
-     * @param {string} buttonId 按钮ID
-     * @param {Function} showPopupFn 显示弹窗的函数
-     * @param {Function} hidePopupFn 隐藏弹窗的函数
      */
     static handlePopupButtonClick(e, widget, buttonId, showPopupFn, hidePopupFn) {
         e.preventDefault();
@@ -341,9 +313,6 @@ class UIToolkit {
 
     /**
      * 获取按钮当前状态
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
-     * @returns {Object} 按钮状态对象
      */
     static getButtonState(widget, buttonId) {
         if (!widget || !widget.buttons || !widget.buttons[buttonId]) {
@@ -362,10 +331,6 @@ class UIToolkit {
 
     /**
      * 设置按钮状态
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
-     * @param {string} stateType 状态类型
-     * @param {boolean} value 状态值
      */
     static setButtonState(widget, buttonId, stateType, value = true) {
         try {
@@ -398,7 +363,6 @@ class UIToolkit {
 
     /**
      * 更新按钮可点击状态
-     * @private
      */
     static _updateButtonClickability(button) {
         // 检查按钮是否处于禁用或处理中状态
@@ -416,8 +380,6 @@ class UIToolkit {
 
     /**
      * 重置按钮状态
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
      */
     static resetButtonState(widget, buttonId = null) {
         try {
@@ -449,8 +411,6 @@ class UIToolkit {
 
     /**
      * 更新撤销/重做按钮状态
-     * @param {Object} widget 小助手实例
-     * @param {Object} LocalHistoryService 历史服务对象
      */
     static updateUndoRedoButtonState(widget, LocalHistoryService) {
         // 更新撤销按钮状态
@@ -470,11 +430,6 @@ class UIToolkit {
 
     /**
      * 处理按钮点击操作
-     * @param {Event} e 事件对象
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
-     * @param {Function} operation 操作函数
-     * @param {Object} LocalHistoryService 历史服务对象
      */
     static handleButtonOperation(e, widget, buttonId, operation, LocalHistoryService) {
         e.preventDefault();
@@ -563,13 +518,6 @@ class UIToolkit {
 
     /**
      * 写入内容到输入框
-     * @param {string} content 要写入的内容
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {Object} options 配置选项
-     * @param {boolean} options.highlight 是否添加高亮效果
-     * @param {boolean} options.focus 是否聚焦输入框
-     * @returns {boolean} 是否写入成功
      */
     static writeToInput(content, nodeId, inputId, options = { highlight: true, focus: false }) {
         const mappingKey = `${nodeId}_${inputId}`;
@@ -605,13 +553,6 @@ class UIToolkit {
 
     /**
      * 在光标位置插入内容
-     * @param {string} content 要插入的内容
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {Object} options 配置选项
-     * @param {boolean} options.highlight 是否添加高亮效果
-     * @param {boolean} options.keepFocus 是否保持输入框焦点（默认为true）
-     * @returns {boolean} 是否插入成功
      */
     static insertAtCursor(content, nodeId, inputId, options = { highlight: true, keepFocus: true }) {
         const mappingKey = `${nodeId}_${inputId}`;
@@ -656,8 +597,6 @@ class UIToolkit {
 
     /**
      * 为输入框添加高亮动画效果
-     * @private
-     * @param {HTMLElement} inputEl 输入框元素
      */
     static _highlightInput(inputEl) {
         // 移除可能存在的旧动画类
@@ -677,10 +616,6 @@ class UIToolkit {
 
     /**
      * 处理异步按钮操作
-     * @param {Object} widget 小助手实例
-     * @param {string} buttonId 按钮ID
-     * @param {HTMLElement} buttonElement 按钮元素
-     * @param {Function} asyncOperation 异步操作函数
      */
     static async handleAsyncButtonOperation(widget, buttonId, buttonElement, asyncOperation) {
         const statusConfig = this.STATUS_TEXTS[buttonId] || {
@@ -756,4 +691,4 @@ class UIToolkit {
     }
 }
 
-export { UIToolkit }; 
+export { UIToolkit };

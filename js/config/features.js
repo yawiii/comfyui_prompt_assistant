@@ -128,9 +128,6 @@ export const FEATURES = {
 
 /**
  * 处理功能开关状态变化
- * @param {string} featureName
- * @param {boolean} value
- * @param {boolean} oldValue
  */
 export function handleFeatureChange(featureName, value, oldValue) {
     if (!PromptAssistant || !promptAssistant) return;
@@ -190,4 +187,4 @@ export function handleFeatureChange(featureName, value, oldValue) {
             imageCaption.cleanup();
         }
     }
-} 
+}

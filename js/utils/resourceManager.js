@@ -17,7 +17,6 @@ class ResourceManager {
 
     /**
      * 初始化资源管理器
-     * @returns {boolean} 初始化是否成功
      */
     static init() {
         // 已经初始化过，直接返回
@@ -52,8 +51,6 @@ class ResourceManager {
 
     /**
      * 获取资源的绝对URL
-     * @param {string} relativePath 相对路径
-     * @returns {string} 绝对URL
      */
     static getResourceUrl(relativePath) {
         return new URL(relativePath, import.meta.url).href;
@@ -61,8 +58,6 @@ class ResourceManager {
 
     /**
      * 获取CSS文件的URL
-     * @param {string} cssFileName CSS文件名
-     * @returns {string} CSS文件的URL
      */
     static getCssUrl(cssFileName) {
         return this.getResourceUrl(`../css/${cssFileName}`);
@@ -70,8 +65,6 @@ class ResourceManager {
 
     /**
      * 获取资源目录中的资源URL
-     * @param {string} assetFileName 资源文件名
-     * @returns {string} 资源文件的URL
      */
     static getAssetUrl(assetFileName) {
         return this.getResourceUrl(`../assets/${assetFileName}`);
@@ -138,8 +131,6 @@ class ResourceManager {
 
     /**
      * 获取缓存的图标
-     * @param {string} iconName 图标名称
-     * @returns {HTMLElement|null} 包含SVG内容的DOM元素
      */
     static getIcon(iconName) {
         const svgContent = this.#iconCache.get(iconName);
@@ -194,9 +185,6 @@ class ResourceManager {
 
     /**
      * 加载单个样式表
-     * @private
-     * @param {string} id 样式表ID
-     * @param {string} file 样式表文件名
      */
     static #loadStyle(id, file) {
         // 检查是否已存在
@@ -225,7 +213,6 @@ class ResourceManager {
 
     /**
      * 获取标签数据文件的URL
-     * @returns {string} 标签数据文件的URL
      */
     static getTagUrl() {
         return this.getResourceUrl('../config/tags.json');
@@ -233,9 +220,6 @@ class ResourceManager {
 
     /**
      * 统计标签数据
-     * @private
-     * @param {Object} data 标签数据
-     * @returns {Object} 统计信息
      */
     static #getTagStats(data) {
         const stats = {
@@ -245,7 +229,6 @@ class ResourceManager {
 
         /**
          * 递归统计标签数据
-         * @param {Object} obj 当前层级的数据对象
          */
         const countRecursively = (obj) => {
             // 遍历当前层级的所有键
@@ -272,7 +255,6 @@ class ResourceManager {
 
     /**
      * 刷新标签数据
-     * @returns {Promise} 返回一个Promise，加载完成后resolve
      */
     static refreshTagData() {
         return new Promise((resolve, reject) => {
@@ -301,8 +283,6 @@ class ResourceManager {
 
     /**
      * 加载标签数据
-     * @private
-     * @returns {Promise} 返回一个Promise，加载完成后resolve
      */
     static #loadTagData() {
         return this.refreshTagData();
@@ -310,8 +290,6 @@ class ResourceManager {
 
     /**
      * 获取标签数据
-     * @param {boolean} [refresh=false] 是否强制刷新数据
-     * @returns {Promise<Object>} 标签数据
      */
     static async getTagData(refresh = false) {
         if (refresh || !this.#tagCache) {
@@ -327,7 +305,6 @@ class ResourceManager {
 
     /**
      * 获取标签统计数据
-     * @returns {Promise<number>} 标签总数
      */
     static async getTagStats() {
         const tagData = await this.getTagData();
@@ -337,7 +314,6 @@ class ResourceManager {
 
     /**
      * 检查是否已初始化
-     * @returns {boolean} 是否已初始化
      */
     static isInitialized() {
         return this.#initialized;
@@ -347,7 +323,6 @@ class ResourceManager {
 
     /**
      * 清理所有资源
-     * @returns {Promise<void>}
      */
     static async cleanup() {
         // 清理图标缓存
@@ -376,8 +351,6 @@ class ResourceManager {
 
     /**
      * 加载外部脚本
-     * @param {string} url 脚本URL
-     * @returns {Promise<void>}
      */
     static async loadScript(url) {
         try {
@@ -406,7 +379,6 @@ class ResourceManager {
 
     /**
      * 获取 CryptoJS 实例
-     * @returns {Object} CryptoJS 对象
      */
     static async getCryptoJS() {
         try {
@@ -432,7 +404,6 @@ class ResourceManager {
 
     /**
      * 获取系统提示词配置文件的URL
-     * @returns {string} 系统提示词配置文件的URL
      */
     static getSystemPromptsUrl() {
         return this.getResourceUrl('../config/system_prompts.json');
@@ -440,8 +411,6 @@ class ResourceManager {
 
     /**
      * 加载系统提示词配置
-     * @param {boolean} [forceRefresh=true] 是否强制刷新，不使用缓存
-     * @returns {Promise<Object>} 系统提示词配置
      */
     static async loadSystemPrompts(forceRefresh = true) {
         try {

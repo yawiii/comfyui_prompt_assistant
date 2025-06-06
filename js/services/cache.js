@@ -37,8 +37,6 @@ const CACHE_CONFIG = {
 class CacheService {
     /**
      * 从localStorage获取数据
-     * @param {string} key 缓存键
-     * @returns {any} 解析后的数据
      */
     static get(key) {
         try {
@@ -52,9 +50,6 @@ class CacheService {
 
     /**
      * 将数据存储到localStorage
-     * @param {string} key 缓存键
-     * @param {any} value 要存储的数据
-     * @returns {boolean} 是否成功
      */
     static set(key, value) {
         try {
@@ -68,7 +63,6 @@ class CacheService {
 
     /**
      * 从localStorage删除数据
-     * @param {string} key 缓存键
      */
     static remove(key) {
         try {
@@ -80,7 +74,6 @@ class CacheService {
 
     /**
      * 清除指定前缀的所有缓存
-     * @param {string} prefix 键前缀
      */
     static clearByPrefix(prefix) {
         try {
@@ -100,7 +93,6 @@ class CacheService {
 
     /**
      * 迁移旧的缓存键名到新的键名格式
-     * @returns {Object} 迁移统计信息
      */
     static migrateCache() {
         try {
@@ -169,7 +161,6 @@ class HistoryCacheService {
 
     /**
      * 获取所有历史记录
-     * @returns {Array} 所有历史记录
      */
     static getAllHistory() {
         const key = `${CACHE_CONFIG.HISTORY_KEY_PREFIX}all`;
@@ -178,7 +169,6 @@ class HistoryCacheService {
 
     /**
      * 保存所有历史记录
-     * @param {Array} history 历史记录数组
      */
     static saveAllHistory(history) {
         const key = `${CACHE_CONFIG.HISTORY_KEY_PREFIX}all`;
@@ -187,10 +177,6 @@ class HistoryCacheService {
 
     /**
      * 获取历史记录列表
-     * @param {object} options 查询选项
-     * @param {string} options.nodeId 当前节点ID，用于置顶显示
-     * @param {number} options.limit 限制条数，默认50
-     * @returns {Array} 历史记录数组
      */
     static getHistoryList({ nodeId = null, limit = 50 } = {}) {
         try {
@@ -235,10 +221,6 @@ class HistoryCacheService {
 
     /**
      * 获取指定节点和输入框的历史记录
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {boolean} oldToNew 是否按照从旧到新排序
-     * @returns {Array} 历史记录数组
      */
     static getInputHistory(nodeId, inputId, oldToNew = false) {
         try {
@@ -259,11 +241,6 @@ class HistoryCacheService {
 
     /**
      * 检查是否为重复的翻译记录
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} content 当前内容
-     * @param {string} operationType 操作类型
-     * @returns {boolean} 是否为重复记录
      */
     static isRepeatedTranslation(nodeId, inputId, content, operationType) {
         try {
@@ -310,8 +287,6 @@ class HistoryCacheService {
 
     /**
      * 添加历史记录
-     * @param {Object} historyItem 历史记录对象
-     * @returns {boolean} 是否添加成功
      */
     static addHistory(historyItem) {
         try {
@@ -404,9 +379,6 @@ class HistoryCacheService {
 
     /**
      * 初始化撤销状态
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} currentContent 当前内容
      */
     static initUndoState(nodeId, inputId, currentContent) {
         try {
@@ -433,9 +405,6 @@ class HistoryCacheService {
 
     /**
      * 执行撤销操作
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {string|null} 撤销后的内容
      */
     static undo(nodeId, inputId) {
         try {
@@ -478,9 +447,6 @@ class HistoryCacheService {
 
     /**
      * 执行重做操作
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {string|null} 重做后的内容
      */
     static redo(nodeId, inputId) {
         try {
@@ -523,9 +489,6 @@ class HistoryCacheService {
 
     /**
      * 检查是否可以撤销
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {boolean} 是否可以撤销
      */
     static canUndo(nodeId, inputId) {
         try {
@@ -540,9 +503,6 @@ class HistoryCacheService {
 
     /**
      * 检查是否可以重做
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {boolean} 是否可以重做
      */
     static canRedo(nodeId, inputId) {
         try {
@@ -575,7 +535,6 @@ class HistoryCacheService {
 
     /**
      * 清除指定节点的历史记录
-     * @param {string} nodeId 节点ID
      */
     static clearNodeHistory(nodeId) {
         try {
@@ -599,11 +558,6 @@ class HistoryCacheService {
 
     /**
      * 添加历史记录并更新撤销状态
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} content 内容
-     * @param {string} operationType 操作类型
-     * @returns {boolean} 是否添加成功
      */
     static addHistoryAndUpdateUndoState(nodeId, inputId, content, operationType = 'input') {
         // 首先尝试添加历史记录
@@ -643,7 +597,6 @@ class HistoryCacheService {
 
     /**
      * 获取历史记录统计信息
-     * @returns {Object} 统计信息对象，包含总数和每个节点的数量
      */
     static getHistoryStats() {
         try {
@@ -671,11 +624,6 @@ class HistoryCacheService {
 
     /**
      * 修改历史记录项的操作类型
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {number} timestamp 时间戳，用于标识特定历史记录
-     * @param {string} newType 新的操作类型
-     * @returns {boolean} 是否修改成功
      */
     static updateHistoryItemType(nodeId, inputId, timestamp, newType) {
         try {
@@ -710,11 +658,6 @@ class HistoryCacheService {
 
     /**
      * 更新历史记录项
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {number} timestamp 时间戳，用于标识特定历史记录
-     * @param {Object} updates 要更新的字段
-     * @returns {boolean} 是否修改成功
      */
     static updateHistoryItem(nodeId, inputId, timestamp, updates) {
         try {
@@ -750,8 +693,6 @@ class HistoryCacheService {
 
     /**
      * 根据请求ID获取相关联的历史记录
-     * @param {string} requestId 请求ID
-     * @returns {Array} 相关联的历史记录数组
      */
     static getHistoryByRequestId(requestId) {
         try {
@@ -775,8 +716,6 @@ class HistoryCacheService {
 class TagCacheService {
     /**
      * 获取或创建标签格式
-     * @param {string} rawTag 原始标签
-     * @returns {Object} 标签格式对象
      */
     static getOrCreateFormats(rawTag) {
         return PromptFormatter.formatTag(rawTag);
@@ -784,9 +723,6 @@ class TagCacheService {
 
     /**
      * 获取标签缓存
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {Map|null} 标签缓存Map
      */
     static getTagCache(nodeId, inputId) {
         try {
@@ -804,11 +740,6 @@ class TagCacheService {
 
     /**
      * 添加标签到缓存
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @param {Object} formats 标签格式对象
-     * @returns {boolean} 是否添加成功
      */
     static addTag(nodeId, inputId, rawTag, formats) {
         try {
@@ -840,10 +771,6 @@ class TagCacheService {
 
     /**
      * 从缓存中移除标签
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @returns {boolean} 是否移除成功
      */
     static removeTag(nodeId, inputId, rawTag) {
         try {
@@ -862,11 +789,6 @@ class TagCacheService {
 
     /**
      * 检查标签是否在输入框中
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @param {string} inputValue 输入框值
-     * @returns {boolean} 是否存在
      */
     static isTagInInput(nodeId, inputId, rawTag, inputValue) {
         try {
@@ -895,10 +817,6 @@ class TagCacheService {
 
     /**
      * 获取标签的所有格式
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @returns {Object|null} 标签格式对象
      */
     static getTagFormats(nodeId, inputId, rawTag) {
         try {
@@ -912,10 +830,6 @@ class TagCacheService {
 
     /**
      * 获取标签的插入格式
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @returns {string|null} 插入的格式
      */
     static getInsertedFormat(nodeId, inputId, rawTag) {
         try {
@@ -929,9 +843,6 @@ class TagCacheService {
 
     /**
      * 获取所有原始标签
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {Array} 原始标签数组
      */
     static getAllRawTags(nodeId, inputId) {
         try {
@@ -945,8 +856,6 @@ class TagCacheService {
 
     /**
      * 清除标签缓存
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
      */
     static clearCache(nodeId, inputId) {
         try {
@@ -959,10 +868,6 @@ class TagCacheService {
 
     /**
      * 保存标签缓存
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {Map} cache 缓存Map
-     * @private
      */
     static _saveTagCache(nodeId, inputId, cache) {
         const key = `${CACHE_CONFIG.TAG_KEY_PREFIX}${nodeId}_${inputId}`;
@@ -972,9 +877,6 @@ class TagCacheService {
 
     /**
      * 移除标签缓存
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @private
      */
     static _removeTagCache(nodeId, inputId) {
         const key = `${CACHE_CONFIG.TAG_KEY_PREFIX}${nodeId}_${inputId}`;
@@ -983,7 +885,6 @@ class TagCacheService {
 
     /**
      * 获取标签统计信息
-     * @returns {Object} 统计信息对象，包含总数和每个节点的数量
      */
     static getTagStats() {
         try {
@@ -1019,11 +920,6 @@ class TagCacheService {
 
     /**
      * 更新标签的插入格式
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {string} rawTag 原始标签
-     * @param {string} insertedFormat 新的插入格式
-     * @returns {boolean} 是否更新成功
      */
     static updateInsertedFormat(nodeId, inputId, rawTag, insertedFormat) {
         try {
@@ -1056,7 +952,6 @@ class TagCacheService {
 class TranslateCacheService {
     /**
      * 获取所有翻译缓存
-     * @returns {Map} 翻译缓存Map，key为原文，value为译文
      */
     static getAllTranslateCache() {
         try {
@@ -1073,7 +968,6 @@ class TranslateCacheService {
 
     /**
      * 保存所有翻译缓存
-     * @param {Map} cache 翻译缓存Map
      */
     static saveAllTranslateCache(cache) {
         try {
@@ -1087,9 +981,6 @@ class TranslateCacheService {
 
     /**
      * 添加翻译缓存
-     * @param {string} sourceText 原文
-     * @param {string} translatedText 译文
-     * @returns {boolean} 是否添加成功
      */
     static addTranslateCache(sourceText, translatedText) {
         try {
@@ -1128,8 +1019,6 @@ class TranslateCacheService {
 
     /**
      * 查询翻译缓存
-     * @param {string} text 要查询的文本
-     * @returns {Object|null} 查询结果，包含匹配类型和文本
      */
     static queryTranslateCache(text) {
         try {
@@ -1183,7 +1072,6 @@ class TranslateCacheService {
 
     /**
      * 获取翻译缓存统计信息
-     * @returns {Object} 统计信息对象
      */
     static getTranslateCacheStats() {
         try {
@@ -1209,4 +1097,4 @@ class TranslateCacheService {
     }
 }
 
-export { CacheService, HistoryCacheService, TagCacheService, TranslateCacheService, CACHE_CONFIG }; 
+export { CacheService, HistoryCacheService, TagCacheService, TranslateCacheService, CACHE_CONFIG };

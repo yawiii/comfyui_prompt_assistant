@@ -24,12 +24,6 @@ class PopupManager {
 
     /**
      * 显示弹窗，确保同时只有一个弹窗显示
-     * @param {Object} options 弹窗选项
-     * @param {HTMLElement} options.popup 弹窗元素
-     * @param {HTMLElement} options.anchorButton 触发按钮元素
-     * @param {Object} options.buttonInfo 按钮信息 {widget, buttonId}
-     * @param {Function} options.onClose 关闭回调
-     * @param {Array<string>} options.preventCloseOnElementTypes 阻止关闭弹窗的元素类名数组
      */
     static showPopup(options) {
         const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [] } = options;
@@ -79,7 +73,6 @@ class PopupManager {
 
     /**
      * 显示新弹窗的内部方法
-     * @private
      */
     static _showNewPopup(options) {
         const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [] } = options;
@@ -149,7 +142,6 @@ class PopupManager {
 
     /**
      * 设置拖动事件
-     * @param {HTMLElement} popup 弹窗元素
      */
     static setupDragEvents(popup) {
         const titleBar = popup.querySelector('.popup_title_bar');
@@ -239,8 +231,6 @@ class PopupManager {
 
     /**
      * 定位弹窗
-     * @param {HTMLElement} popup 弹窗元素
-     * @param {HTMLElement} anchorButton 触发按钮元素
      */
     static positionPopup(popup, anchorButton) {
         try {
@@ -311,8 +301,6 @@ class PopupManager {
 
     /**
      * 设置关闭事件
-     * @param {HTMLElement} popup 弹窗元素
-     * @param {Function} onClose 关闭回调
      */
     static setupCloseEvents(popup, onClose) {
         // 清理之前的事件监听器
@@ -493,8 +481,6 @@ class PopupManager {
 
     /**
      * 隐藏弹窗
-     * @param {HTMLElement} popup 弹窗元素
-     * @param {Function} onClose 关闭回调
      */
     static hidePopup(popup, onClose) {
         if (!popup) return;
@@ -629,9 +615,6 @@ class PopupManager {
 
     /**
      * 写入内容到输入框
-     * @param {string} content 要写入的内容
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
      */
     static writeToInput(content, nodeId, inputId) {
         return UIToolkit.writeToInput(content, nodeId, inputId, { highlight: true, focus: false });
@@ -639,13 +622,10 @@ class PopupManager {
 
     /**
      * 在光标位置插入内容
-     * @param {string} content 要插入的内容
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
      */
     static insertAtCursor(content, nodeId, inputId) {
         return UIToolkit.insertAtCursor(content, nodeId, inputId, { highlight: true });
     }
 }
 
-export { PopupManager }; 
+export { PopupManager };

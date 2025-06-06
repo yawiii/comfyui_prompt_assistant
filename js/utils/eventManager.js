@@ -18,7 +18,6 @@ class EventManager {
 
     /**
      * 初始化事件管理器
-     * @returns {boolean} 初始化是否成功
      */
     static init() {
         // 严格检查避免重复初始化
@@ -90,9 +89,6 @@ class EventManager {
 
     /**
      * 添加事件监听器
-     * @param {string} eventKey 事件名称
-     * @param {string} id 监听器ID
-     * @param {Function} callback 回调函数
      */
     static on(eventKey, id, callback) {
         // 参数验证
@@ -120,8 +116,6 @@ class EventManager {
 
     /**
      * 移除事件监听器
-     * @param {string} eventKey 事件名称
-     * @param {string} id 监听器ID
      */
     static off(eventKey, id) {
         // 参数验证
@@ -143,8 +137,6 @@ class EventManager {
 
     /**
      * 触发事件
-     * @param {string} eventKey 事件名称
-     * @param  {...any} args 传递给监听器的参数
      */
     static emit(eventKey, ...args) {
         if (!eventKey) return false;
@@ -215,7 +207,6 @@ class EventManager {
 
     /**
      * 清理事件管理器
-     * @param {boolean} keepGlobalEvents 是否保留全局事件
      */
     static cleanup(keepGlobalEvents = true) {
         if (keepGlobalEvents) {
@@ -243,4 +234,4 @@ class EventManager {
     }
 }
 
-export { EventManager }; 
+export { EventManager };

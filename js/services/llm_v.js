@@ -87,8 +87,6 @@ class LLMVisionService {
 
     /**
      * 获取错误信息
-     * @param {string} code 错误码
-     * @returns {string} 错误信息
      */
     static getErrorMessage(code) {
         return this.ERROR_CODES[code] || `未知错误(错误码:${code})`;
@@ -96,7 +94,6 @@ class LLMVisionService {
 
     /**
      * 获取API密钥
-     * @returns {string} API密钥
      */
     static getApiKey() {
         return localStorage.getItem("PromptAssistant_Settings_llm_api_key") || '';
@@ -104,8 +101,6 @@ class LLMVisionService {
 
     /**
      * 生成API请求头
-     * @param {string} apiKey - API密钥，如果不传则使用默认配置
-     * @returns {Object} 请求头对象
      */
     generateHeaders(apiKey = null) {
         const key = apiKey || LLMVisionService.getApiKey();
@@ -117,8 +112,6 @@ class LLMVisionService {
 
     /**
      * 将图片转换为Base64格式
-     * @param {HTMLImageElement} img - 图片元素
-     * @returns {Promise<string>} Base64格式的图片数据
      */
     async imageToBase64(img) {
         return new Promise((resolve, reject) => {
@@ -143,8 +136,6 @@ class LLMVisionService {
 
     /**
      * 构建请求体
-     * @param {Object} params - 请求参数
-     * @returns {Object} 格式化的请求体
      */
     buildRequestBody({
         messages,
@@ -165,9 +156,6 @@ class LLMVisionService {
 
     /**
      * 发送API请求
-     * @param {Object} params - 请求参数
-     * @param {string} apiKey - API密钥，可选
-     * @returns {Promise} API响应
      */
     async sendRequest(params, apiKey = null) {
         if (!params.request_id) {
@@ -217,10 +205,6 @@ class LLMVisionService {
 
     /**
      * 分析图片
-     * @param {HTMLImageElement} image - 图片元素
-     * @param {string} request_id - 请求ID
-     * @param {string} lang - 语言类型，'zh' 或 'en'
-     * @returns {Promise<Object>} 分析结果
      */
     async analyzeImage(image, request_id, lang = 'zh') {
         try {
@@ -318,7 +302,6 @@ class LLMVisionService {
 
     /**
      * 设置 API 配置
-     * @param {Object} config 配置对象
      */
     static setConfig(config) {
         try {
@@ -341,7 +324,6 @@ class LLMVisionService {
 
     /**
      * 获取当前 API 配置
-     * @returns {Object} API 配置对象
      */
     static getConfig() {
         return { ...this.API_CONFIG };
@@ -349,4 +331,4 @@ class LLMVisionService {
 }
 
 // 导出LLM视觉服务实例
-export const llmVisionService = new LLMVisionService(); 
+export const llmVisionService = new LLMVisionService();

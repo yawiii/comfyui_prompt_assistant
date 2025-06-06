@@ -27,10 +27,6 @@ class TagManager {
 
     /**
      * 检查标签是否已插入到输入框中
-     * @param {string} tagValue 标签值
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @returns {boolean} 是否已插入
      */
     static isTagUsed(tagValue, nodeId, inputId) {
         const mappingKey = `${nodeId}_${inputId}`;
@@ -44,8 +40,6 @@ class TagManager {
 
     /**
      * 更新标签状态
-     * @param {HTMLElement} tagElement 标签元素
-     * @param {boolean} isUsed 是否使用中
      */
     static updateTagState(tagElement, isUsed) {
         if (isUsed) {
@@ -57,10 +51,6 @@ class TagManager {
 
     /**
      * 处理标签点击
-     * @param {HTMLElement} tagElement 标签元素
-     * @param {string} tagName 标签名称
-     * @param {string} tagValue 标签值
-     * @param {Event} e 事件对象
      */
     static handleTagClick(tagElement, tagName, tagValue, e) {
         // 阻止事件冒泡，确保弹窗不会关闭
@@ -161,10 +151,6 @@ class TagManager {
 
     /**
      * 从输入框中移除标签
-     * @param {string} tagValue 标签值
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {boolean} keepFocus 是否保持焦点，默认为true
      */
     static removeTag(tagValue, nodeId, inputId, keepFocus = true) {
         const mappingKey = `${nodeId}_${inputId}`;
@@ -241,11 +227,6 @@ class TagManager {
 
     /**
      * 检查标签移除是否有效
-     * @param {string} value 当前输入框的值
-     * @param {number} index 标签开始位置
-     * @param {string} format 标签格式
-     * @returns {boolean} 是否是有效的移除
-     * @private
      */
     static _isValidTagRemoval(value, index, format) {
         // 获取标签前后的字符
@@ -260,10 +241,6 @@ class TagManager {
 
     /**
      * 清理标签移除后的文本
-     * @param {string} text 要清理的文本
-     * @param {number} removePosition 标签移除的位置
-     * @param {number} removeLength 移除的长度
-     * @returns {string} 清理后的文本
      */
     static _cleanupAfterRemoval(text, removePosition, removeLength) {
         // 获取移除位置前后的一小段文本进行清理
@@ -302,8 +279,6 @@ class TagManager {
 
     /**
      * 创建并显示tooltip
-     * @param {HTMLElement} target 目标元素
-     * @param {string} text tooltip文本
      */
     static _showTooltip(target, text) {
         // 移除已存在的tooltip
@@ -343,9 +318,6 @@ class TagManager {
 
     /**
      * 递归创建标签结构
-     * @param {Object} data 当前层级的数据
-     * @param {string} level 当前层级（用于样式调整）
-     * @returns {HTMLElement} 创建的DOM元素
      */
     static _createAccordionContent(data, level = '0') {
         // 如果是顶级（一级分类），则创建标签页结构
@@ -730,10 +702,6 @@ class TagManager {
 
     /**
      * 为二级分类创建手风琴元素
-     * @param {string} key 分类名称
-     * @param {Object} value 分类内容
-     * @param {string} level 当前层级
-     * @returns {HTMLElement} 手风琴元素
      */
     static _createAccordionElement(key, value, level) {
         const accordion = document.createElement('div');
@@ -820,9 +788,6 @@ class TagManager {
 
     /**
      * 为二级分类创建内容
-     * @param {Object} data 分类数据
-     * @param {string} level 当前层级
-     * @returns {HTMLElement} 内容元素
      */
     static _createInnerAccordion(data, level) {
         const container = document.createElement('div');
@@ -960,10 +925,6 @@ class TagManager {
 
     /**
      * 比对输入框内容与标签缓存，更新标签状态
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
-     * @param {boolean} updateUI 是否更新UI状态
-     * @returns {Object} 比对结果，包含缓存数量和匹配数量
      */
     static compareInputWithCache(nodeId, inputId, updateUI = true) {
         const startTime = performance.now();
@@ -1020,7 +981,6 @@ class TagManager {
 
     /**
      * 显示标签弹窗
-     * @param {Object} options 配置选项
      */
     static async showTagPopup(options) {
         const {
@@ -1249,7 +1209,6 @@ class TagManager {
 
     /**
      * 处理搜索
-     * @param {string} searchText 搜索文本
      */
     static _handleSearch(searchText) {
         const tagItems = document.querySelectorAll('.tag_item');
@@ -1425,8 +1384,6 @@ class TagManager {
 
     /**
      * 更新所有标签的状态
-     * @param {string} nodeId 节点ID
-     * @param {string} inputId 输入框ID
      */
     static updateAllTagsState(nodeId, inputId) {
         const mappingKey = `${nodeId}_${inputId}`;
@@ -1473,8 +1430,6 @@ class TagManager {
 
     /**
      * 添加辅助方法：统计标签总数
-     * @param {Object} tagData 标签数据
-     * @returns {number} 标签总数
      */
     static _countTags(tagData) {
         let count = 0;
@@ -1492,4 +1447,4 @@ class TagManager {
     }
 }
 
-export { TagManager }; 
+export { TagManager };

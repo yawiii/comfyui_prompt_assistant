@@ -19,9 +19,6 @@ let isFirstLoad = true;
 
 /**
  * 创建加载按钮
- * @param {string} text - 按钮文本
- * @param {Function} onClick - 点击回调函数
- * @returns {HTMLButtonElement} 按钮元素
  */
 function createLoadingButton(text, onClick) {
     const button = document.createElement('button');
@@ -679,4 +676,4 @@ export function registerSettings() {
         logger.error(`小助手设置注册失败: ${error.message}`);
         return false;
     }
-} 
+}

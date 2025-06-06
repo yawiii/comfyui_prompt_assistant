@@ -33,8 +33,6 @@ class LLMService {
 
     /**
      * 获取错误信息
-     * @param {string} code 错误码
-     * @returns {string} 错误信息
      */
     static getErrorMessage(code) {
         return this.ERROR_CODES[code] || `未知错误(错误码:${code})`;
@@ -42,7 +40,6 @@ class LLMService {
 
     /**
      * 获取API密钥
-     * @returns {string} API密钥
      */
     static getApiKey() {
         return localStorage.getItem("PromptAssistant_Settings_llm_api_key") || '';
@@ -50,8 +47,6 @@ class LLMService {
 
     /**
      * 生成API请求头
-     * @param {string} apiKey - API密钥，如果不传则使用默认配置
-     * @returns {Object} 请求头对象
      */
     generateHeaders(apiKey = null) {
         const key = apiKey || LLMService.getApiKey();
@@ -63,8 +58,6 @@ class LLMService {
 
     /**
      * 构建请求体
-     * @param {Object} params - 请求参数
-     * @returns {Object} 格式化的请求体
      */
     async buildRequestBody({
         messages,
@@ -143,9 +136,6 @@ class LLMService {
 
     /**
      * 发送API请求
-     * @param {Object} params - 请求参数
-     * @param {string} apiKey - API密钥，可选
-     * @returns {Promise} API响应
      */
     async sendRequest(params, apiKey = null) {
         if (!params.request_id) {
@@ -193,9 +183,6 @@ class LLMService {
 
     /**
      * 扩写提示词
-     * @param {string} prompt 原始提示词
-     * @param {string} request_id 请求ID
-     * @returns {Promise<Object>} 扩写结果
      */
     async expandPrompt(prompt, request_id) {
         try {
@@ -239,11 +226,6 @@ class LLMService {
 
     /**
      * 翻译文本
-     * @param {string} text 待翻译文本
-     * @param {string} from 源语言
-     * @param {string} to 目标语言
-     * @param {string} request_id 请求ID
-     * @returns {Promise<Object>} 翻译结果
      */
     async translate(text, from = 'auto', to = 'zh', request_id) {
         try {
@@ -300,7 +282,6 @@ class LLMService {
 
     /**
      * 设置 API 配置
-     * @param {Object} config 配置对象
      */
     static setConfig(config) {
         try {
@@ -323,7 +304,6 @@ class LLMService {
 
     /**
      * 设置系统提示词
-     * @param {Object} systemMessage 系统提示词对象
      */
     static setSystemMessage(systemMessage) {
         try {
@@ -346,7 +326,6 @@ class LLMService {
 
     /**
      * 获取当前 API 配置
-     * @returns {Object} API 配置对象
      */
     static getConfig() {
         return { ...this.API_CONFIG };
@@ -354,4 +333,4 @@ class LLMService {
 }
 
 // 导出LLM服务实例
-export const llmService = new LLMService(); 
+export const llmService = new LLMService();

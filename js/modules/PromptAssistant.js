@@ -20,9 +20,6 @@ import { llmService } from "../services/llm.js";
 
 /**
  * 生成唯一请求ID
- * @param {string} prefix 前缀
- * @param {string} type 请求类型，用于确定前缀
- * @returns {string} 唯一request_id
  */
 function generateRequestId(prefix = 'baidu_trans', type = null) {
     // 如果提供了type，根据type确定前缀
@@ -129,8 +126,6 @@ class PromptAssistant {
     /**
      * 统一控制总开关功能
      * 集中管理所有受总开关控制的服务功能
-     * @param {boolean} enable - 是否启用总开关
-     * @param {boolean} force - 是否强制执行（跳过状态判断）
      */
     async toggleGlobalFeature(enable, force = false) {
         // 更新状态
@@ -233,8 +228,6 @@ class PromptAssistant {
     // ---资源管理功能---
     /**
      * 清理所有资源
-     * @param {string} [nodeId] - 可选的节点ID，如果提供则只清理该节点的实例
-     * @param {boolean} [silent=false] - 是否静默清理（不输出日志）
      */
     cleanup(nodeId = null, silent = false) {
         // 清理特定节点
@@ -1710,9 +1703,6 @@ class PromptAssistant {
 
     /**
      * 清理单个实例的资源
-     * @param {Object} instance - 要清理的实例
-     * @param {string} instanceKey - 实例的键
-     * @param {boolean} [skipRemove=false] - 是否跳过从实例集合中移除
      */
     _cleanupInstance(instance, instanceKey, skipRemove = false) {
         try {

@@ -25,7 +25,6 @@ class HistoryManager {
 
     /**
      * 显示历史记录弹窗
-     * @param {Object} params 显示参数
      */
     static async showHistoryPopup(params) {
         const { anchorButton, nodeId, inputId, onClose } = params;
@@ -110,9 +109,6 @@ class HistoryManager {
 
     /**
      * 格式化历史内容，进行适当的截断和处理
-     * @param {string} content 原始内容
-     * @param {string} operationType 操作类型
-     * @returns {string} 格式化后的内容
      */
     static _formatHistoryContent(content, operationType) {
         // 不再添加操作类型前缀，直接返回内容
@@ -121,8 +117,6 @@ class HistoryManager {
 
     /**
      * 创建并显示tooltip
-     * @param {HTMLElement} target 目标元素
-     * @param {string} text tooltip文本
      */
     static _showTooltip(target, text) {
         // 移除已存在的tooltip
@@ -162,8 +156,6 @@ class HistoryManager {
 
     /**
      * 创建历史记录弹窗
-     * @param {Object} options
-     * @returns {HTMLElement} 弹窗元素
      */
     static _createHistoryPopup({ historyList, nodeId }) {
         const popup = document.createElement('div');
@@ -518,13 +510,13 @@ class HistoryManager {
                                         detail: "图像提示词已复制到剪贴板",
                                         life: 3000
                                     });
-                                    
+
                                     // 隐藏历史弹窗
                                     this.hideHistoryPopup();
                                 });
                             } catch (error) {
                                 logger.error(`复制到剪贴板失败: ${error.message}`);
-                                
+
                                 // 显示错误提示
                                 app.extensionManager.toast.add({
                                     severity: "error",
@@ -620,9 +612,6 @@ class HistoryManager {
 
     /**
      * 按节点分组并排序历史记录
-     * @param {Array} historyList 历史记录列表
-     * @param {string} currentNodeId 当前节点ID
-     * @returns {Object} 包含排序后的节点ID数组和分组后的历史记录
      */
     static _groupAndSortHistoryByNode(historyList, currentNodeId) {
         // 按节点ID分组
@@ -678,4 +667,4 @@ class HistoryManager {
     }
 }
 
-export { HistoryManager }; 
+export { HistoryManager };

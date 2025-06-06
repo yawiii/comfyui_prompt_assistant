@@ -440,8 +440,6 @@ class ImageCaption {
 
     /**
      * 处理图像分析
-     * @param {Object} assistant - 小助手实例
-     * @param {string} lang - 语言类型
      */
     async handleImageAnalysis(assistant, lang) {
         try {
@@ -506,11 +504,11 @@ class ImageCaption {
                 textarea.style.position = 'fixed';
                 textarea.style.opacity = '0';
                 document.body.appendChild(textarea);
-                
+
                 // 选中文本
                 textarea.select();
                 textarea.setSelectionRange(0, 99999);
-                
+
                 // 尝试复制
                 let copySuccess = false;
                 try {
@@ -518,12 +516,12 @@ class ImageCaption {
                 } catch (err) {
                     logger.warn(`execCommand复制失败，尝试使用clipboard API: ${err.message}`);
                 }
-                
+
                 // 如果execCommand失败，尝试使用clipboard API
                 if (!copySuccess) {
                     await navigator.clipboard.writeText(description);
                 }
-                
+
                 // 移除临时元素
                 document.body.removeChild(textarea);
                 logger.debug('文本复制成功');
@@ -612,11 +610,6 @@ class ImageCaption {
 
     /**
      * 设置按钮状态
-     * @private
-     * @param {Object} assistant - 小助手实例
-     * @param {string} buttonId - 按钮ID
-     * @param {string} stateType - 状态类型
-     * @param {boolean} value - 状态值
      */
     _setButtonState(assistant, buttonId, stateType, value = true) {
         try {
@@ -649,8 +642,6 @@ class ImageCaption {
 
     /**
      * 更新按钮可点击状态
-     * @private
-     * @param {HTMLElement} button - 按钮元素
      */
     _updateButtonClickability(button) {
         // 检查按钮是否处于禁用或处理中状态
@@ -668,9 +659,6 @@ class ImageCaption {
 
     /**
      * 检查小助手是否有按钮处于激活状态
-     * @private
-     * @param {Object} assistant - 小助手实例
-     * @returns {boolean} 是否有激活的按钮
      */
     _checkAssistantActiveState(assistant) {
         if (!assistant || !assistant.buttons) return false;
@@ -689,9 +677,6 @@ class ImageCaption {
 
     /**
      * 更新小助手激活状态
-     * @private
-     * @param {Object} assistant - 小助手实例
-     * @param {boolean} isActive - 是否激活
      */
     _updateAssistantActiveState(assistant, isActive) {
         if (!assistant) return;
@@ -916,7 +901,6 @@ class ImageCaption {
 
     /**
      * 设置鼠标事件监听
-     * @private
      */
     _setupMouseEvents(assistant) {
         if (!assistant?.node) return;
@@ -1231,8 +1215,6 @@ class ImageCaption {
 
     /**
      * 清理资源
-     * @param {string} [nodeId] - 可选的节点ID，如果提供则只清理该节点的实例
-     * @param {boolean} [silent=false] - 是否静默清理（不输出日志）
      */
     cleanup(nodeId = null, silent = false) {
         try {
@@ -1308,8 +1290,6 @@ class ImageCaption {
 
     /**
      * 清理单个实例
-     * @param {Object} instance - 要清理的实例
-     * @param {string} instanceKey - 实例的键
      */
     _cleanupInstance(instance, instanceKey) {
         try {
@@ -1422,8 +1402,6 @@ class ImageCaption {
     /**
      * 统一控制总开关功能
      * 集中管理所有受总开关控制的服务功能
-     * @param {boolean} enable - 是否启用总开关
-     * @param {boolean} force - 是否强制执行（跳过状态判断）
      */
     async toggleGlobalFeature(enable, force = false) {
         try {

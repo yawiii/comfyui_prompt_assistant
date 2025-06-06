@@ -34,8 +34,6 @@ class BaiduTranslateService {
 
     /**
      * 获取错误信息
-     * @param {string} code 错误码
-     * @returns {string} 错误信息
      */
     static getErrorMessage(code) {
         return this.ERROR_CODES[code] || `未知错误(错误码:${code})`;
@@ -43,7 +41,6 @@ class BaiduTranslateService {
 
     /**
      * 获取 APP_ID
-     * @returns {string} APP_ID
      */
     static getAppId() {
         return localStorage.getItem("PromptAssistant_Settings_baidu_translate_appid") || '';
@@ -51,7 +48,6 @@ class BaiduTranslateService {
 
     /**
      * 获取 SECRET_KEY
-     * @returns {string} SECRET_KEY
      */
     static getSecretKey() {
         return localStorage.getItem("PromptAssistant_Settings_baidu_translate_secret") || '';
@@ -59,9 +55,6 @@ class BaiduTranslateService {
 
     /**
      * 生成签名
-     * @param {string} query 待翻译文本
-     * @param {string} salt 随机数
-     * @returns {string} 签名
      */
     static generateSign(query, salt) {
         try {
@@ -77,8 +70,6 @@ class BaiduTranslateService {
 
     /**
      * 使用 JSONP 方式发送请求
-     * @param {Object} params 请求参数
-     * @returns {Promise} Promise对象
      */
     static jsonp(params) {
         return new Promise((resolve, reject) => {
@@ -124,11 +115,6 @@ class BaiduTranslateService {
 
     /**
      * 发送翻译请求
-     * @param {string} text 待翻译文本
-     * @param {string} from 源语言，默认自动检测
-     * @param {string} to 目标语言，默认中文
-     * @param {string} request_id 外部传入的唯一请求ID
-     * @returns {Promise<Object>} 翻译结果
      */
     static async translate(text, from = this.API_CONFIG.FROM_LANG, to = this.API_CONFIG.TO_LANG, request_id = null) {
         // 使用外部传入的request_id，如果没有则自动生成
@@ -197,10 +183,6 @@ class BaiduTranslateService {
 
     /**
      * 批量翻译
-     * @param {Array<string>} texts 待翻译文本数组
-     * @param {string} from 源语言
-     * @param {string} to 目标语言
-     * @returns {Promise<Array<Object>>} 翻译结果数组
      */
     static async batchTranslate(texts, from = this.API_CONFIG.FROM_LANG, to = this.API_CONFIG.TO_LANG) {
         try {
@@ -225,7 +207,6 @@ class BaiduTranslateService {
 
     /**
      * 设置 API 配置
-     * @param {Object} config 配置对象
      */
     static setConfig(config) {
         try {
@@ -248,11 +229,10 @@ class BaiduTranslateService {
 
     /**
      * 获取当前 API 配置
-     * @returns {Object} API 配置对象
      */
     static getConfig() {
         return { ...this.API_CONFIG };
     }
 }
 
-export { BaiduTranslateService }; 
+export { BaiduTranslateService };

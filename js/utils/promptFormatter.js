@@ -80,9 +80,6 @@ class PromptFormatter {
 
     /**
      * 在文本中查找最近的标点符号
-     * @param {string} text 要搜索的文本
-     * @param {boolean} searchForward 是否向前搜索
-     * @returns {boolean} 是否找到标点符号
      */
     static findNearestPunctuation(text, searchForward = true) {
         if (!text) return false;
@@ -98,8 +95,6 @@ class PromptFormatter {
 
     /**
      * 格式化标签，生成四种格式
-     * @param {string} tagValue 标签值
-     * @returns {Object} 包含四种格式的对象
      */
     static formatTag(tagValue) {
         try {
@@ -132,9 +127,6 @@ class PromptFormatter {
 
     /**
      * 确定应该使用哪种格式
-     * @param {string} beforeText 光标前的文本
-     * @param {string} afterText 光标后的文本
-     * @returns {number} 应该使用的格式索引 (1, 2, 3, 或 4)
      */
     static determineFormatType(beforeText, afterText) {
         try {
@@ -180,8 +172,6 @@ class PromptFormatter {
 
     /**
      * 格式化提示词用于API调用
-     * @param {string} prompt 原始提示词
-     * @returns {Object} 格式化结果
      */
     static formatPromptForAPI(prompt) {
         // 暂时直接返回原始文本，不做格式化处理
@@ -194,8 +184,6 @@ class PromptFormatter {
 
     /**
      * 获取用于API调用的纯文本
-     * @param {Object} formatInfo 格式化信息
-     * @returns {string} 用于API调用的文本
      */
     static getAPIText(formatInfo) {
         // 直接返回原始文本
@@ -204,9 +192,6 @@ class PromptFormatter {
 
     /**
      * 将API返回的结果恢复为原始格式
-     * @param {string} apiResult API返回的结果
-     * @param {Object} formatInfo 原始格式化信息
-     * @returns {string} 恢复原始格式后的文本
      */
     static restorePromptFormat(apiResult, formatInfo) {
         // 直接返回API结果
@@ -216,8 +201,6 @@ class PromptFormatter {
     /**
      * 格式化翻译后的文本
      * 将中文标点符号转换为英文标点符号
-     * @param {string} text API返回的翻译文本
-     * @returns {string} 格式化后的文本
      */
     static formatTranslatedText(text) {
         try {
@@ -257,8 +240,6 @@ class PromptFormatter {
 
     /**
      * 判断文本的语言类型
-     * @param {string} text 要判断的文本
-     * @returns {Object} 包含语言判断结果的对象
      */
     static detectLanguage(text) {
         try {
@@ -308,4 +289,4 @@ class PromptFormatter {
     }
 }
 
-export { PromptFormatter }; 
+export { PromptFormatter };
