@@ -38,7 +38,7 @@
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
-在Manager中输入“Prompt widget”或“comfyui_prompt_Assistant”，点击Install，选择最新版本安装。
+在Manager中输入“提示词小助手”或“Prompt Assistant”或“comfyui_prompt_Assistant”，点击Install，选择最新版本安装。
 ![从Manager中安装](https://github.com/user-attachments/assets/2c357c5a-ecf2-45ea-8eb0-f76ee975ea6c)
 
 
@@ -82,9 +82,8 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 
 
 ### 填入App id 、密钥、大模型API key
-![image](https://github.com/user-attachments/assets/22aa0cb7-97c9-4a55-8475-9e1d599f2c2b)
 
-
+![设置](https://github.com/user-attachments/assets/c3314682-e304-4406-87b0-123fd93146cf)
 
 
 
