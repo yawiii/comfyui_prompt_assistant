@@ -306,12 +306,14 @@
 .popup_list_item .history_meta {
     display: flex;
     gap: 4px;
-    font-size: 10px;
+    font-size: 11px;
     /* color: rgba(255, 255, 255, 0.5); */
     color: var(--p-text-muted-color);
     flex-shrink: 0;
     min-width: 4px;
     margin-top: 2px;
+    background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 30%);
+    border-radius: 6px;
 }
 
 .popup_list_item .history_meta .node_id,
@@ -319,38 +321,38 @@
 .popup_list_item .history_meta .translated,
 .popup_list_item .history_meta .original,
 .popup_list_item .history_meta .expanded {
-    background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 30%);
+    background-color: var(--comfy-menu-secondary-bg);
     padding: 1px 4px;
     border-radius: 3px;
     font-family: monospace;
 }
 
 .popup_list_item .history_meta .node_id {
-    color: rgba(100, 200, 255, 0.8);
+    color: rgb(100, 200, 255);
 }
 
 .popup_list_item .history_meta .input_id {
-    color: rgba(135, 133, 131, 0.8);
+    color: rgb(135, 133, 131);
 }
 
 /* 译文标签样式 - 紫色 */
 .popup_list_item .history_meta .translated {
-    color: rgba(180, 120, 255, 0.8);
+    color: rgb(180, 120, 255);
 }
 
 /* 反推提示词标签样式 - 蓝色 */
 .popup_list_item .history_meta .caption {
-    color: rgba(64, 158, 255, 0.8);
+    color: rgb(64, 158, 255);
 }
 
 /* 原文标签样式 - 蓝色 */
 .popup_list_item .history_meta .original {
-    color: rgba(100, 160, 255, 0.8);
+    color: rgb(100, 160, 255);
 }
 
 /* 扩写标签样式 - 绿色 */
 .popup_list_item .history_meta .expanded {
-    color: rgba(100, 220, 120, 0.8);
+    color: var(--p-green-500);
 }
 
 /* 历史内容样式 */
