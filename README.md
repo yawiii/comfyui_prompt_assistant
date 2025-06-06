@@ -16,22 +16,34 @@
 
 - 🌐 翻译  
 
-![翻译](https://github.com/user-attachments/assets/25767da7-42bf-47a4-aba0-95db9285a4bf)  
+![翻译](https://github.com/user-attachments/assets/46927bce-760a-481f-86f6-5dd6f179248a)
 
   
 - 💫 提示词扩写和润色  
 
-![扩写2](https://github.com/user-attachments/assets/942f3acc-8d4d-4e79-a7da-8e389f3d8437)
+![扩写](https://github.com/user-attachments/assets/70086124-50f8-4727-a291-78a57714ea73)
 
 
   
-- 📒 提示词预设  
+- 📒 一键插入Tag  
 
-![预设](https://github.com/user-attachments/assets/65becfc3-ddc7-4ab5-946f-12a47cafa4b6)  
+![标签](https://github.com/user-attachments/assets/20846bea-53a5-4e77-bfd4-a2a177a40c2a)
 
-- 🕐 历史记录  
 
-![历史2](https://github.com/user-attachments/assets/e20b60a7-4756-4a54-b6a2-c6253c28bfa0)
+
+- 🌄 图片反推提示词
+
+![反推](https://github.com/user-attachments/assets/5537e28b-7dec-4fc3-b6a9-7d9abb5d5118)
+
+
+- 🕐 历史记录和撤销、重做  
+
+![历史](https://github.com/user-attachments/assets/4efbc29f-43f7-436e-b1b3-d9b02c4991aa)
+
+- 🔧 根据需求，关闭开启功能
+  
+![功能定制](https://github.com/user-attachments/assets/7e8b8e87-7ced-4ec0-a942-c07254e5270b)
+
 
 
 
