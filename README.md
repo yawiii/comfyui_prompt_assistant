@@ -1,8 +1,8 @@
 
 
 
-# ComfyUI Prompt Widget✨提示词小部件
-一个可以在任意多行输入框实现翻译、扩写、预设、历史等功能的提示词小部件。    
+# ComfyUI Prompt Assistant✨提示词小助手
+这是一个无需添加节点，即可实现提示词翻译、扩写、预设Tag插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
 
 <a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
 <a href="https://v.douyin.com/gJnTFSw_tZI/"><img src="https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?style=flat&logo=TikTok&logoColor=%2324292E&labelColor=%23FFFFFF"></a> &ensp;
@@ -38,7 +38,7 @@
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
-在Manager中输入“Prompt widget”或“comfyui_prompt_widget”，点击Install，选择最新版本安装。
+在Manager中输入“Prompt widget”或“comfyui_prompt_Assistant”，点击Install，选择最新版本安装。
 ![从Manager中安装](https://github.com/user-attachments/assets/2c357c5a-ecf2-45ea-8eb0-f76ee975ea6c)
 
 
@@ -52,13 +52,15 @@ cd ComfyUI/custom_nodes
 
 2. 克隆仓库
 ```bash
-git clone https://github.com/yawiii/comfyui_prompt_widget.git
+git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 ```
 
 
 4. 重启 ComfyUI
 
 ## ⚙️ 配置说明
+要使用翻译、扩写、图片反推提示词功能，需要申请相应的API，并在设置界面中填入对应的API id、密钥或API key。
+翻译功可选百度机翻（速度快）或者使用大模型进行翻译。扩写、图片反推提示词必须申请大模型的API才能使用。
 
 ### 翻译功能API申请
 目前翻译使用的是百度，需要自己申请一个API，实名认证后每个月有100万免费字符，能够满足基本使用需求。 然后在开发者信息中查看自己得APP ID和密钥，复制填入设置界面中的对应输入框中并保存即可。   
@@ -69,8 +71,8 @@ git clone https://github.com/yawiii/comfyui_prompt_widget.git
 ![百度](https://github.com/user-attachments/assets/f3fe2d2d-9507-4bff-887e-003f2e13a19c)
 
 
-### 大语言扩写API申请
-扩写目前支持智谱和硅基流动等大模型提供商的API，目前测试了免费的智谱glm-4-flash-250414和硅基流动的Qwen/Qwen2.5-7B-Instruct。都是免费的，大家可以自行选择。 
+### 使用大语言进行翻译、扩写、提示词反推的 API key申请
+目前大模型翻译和扩写，使用的是智谱的免费模型GLM-4-Flash-250414。图片反推使用的是免费的GLM-4V-Flash。申请非常简单。
 
 智谱GLM4申请入口：[智谱glm-4-flash](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
 
@@ -78,34 +80,11 @@ git clone https://github.com/yawiii/comfyui_prompt_widget.git
 ![智谱](https://github.com/user-attachments/assets/d6eb29c0-8624-4bf2-96c4-33e99d096202)
 
 
-硅基流动API申请入口:[硅基流动](https://cloud.siliconflow.cn/models)
 
-![硅基流动](https://github.com/user-attachments/assets/a4cc680a-9c36-4d9e-80be-7b09f5c05842)
-
-
-### 填入App id 、密钥、模型等信息
-如果是智谱的API Base URL填：
-```
-https://open.bigmodel.cn/api/paas/v4/chat/completions
-```
-模型填：
-```
-glm-4-flash-250414
-```
-
-如果是硅基流动API Base URL填：
-```
-https://api.siliconflow.cn/v1/chat/completions
-```
-模型根据自己选择模型填写即可，例如：
-```
-Qwen/Qwen2-7B-Instruct
-THUDM/GLM-4-9B-0414
-deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-```
+### 填入App id 、密钥、大模型API key
+![image](https://github.com/user-attachments/assets/22aa0cb7-97c9-4a55-8475-9e1d599f2c2b)
 
 
-![配置API](https://github.com/user-attachments/assets/0d5cfcad-8f04-4707-8f66-324169665d59)
 
 
 
