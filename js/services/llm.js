@@ -5,16 +5,21 @@
 
 import { logger } from '../utils/logger.js';
 import { ResourceManager } from "../utils/resourceManager.js";
+import { PromptFormatter } from "../utils/promptFormatter.js";
 
 class LLMService {
     // API 配置
     static API_CONFIG = {
         BASE_URL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
         MODEL: 'glm-4-flash-250414',
-        SYSTEM_MESSAGE: null, // 将从配置文件加载
         TRANSLATE_SYSTEM_MESSAGE: {
             TO_EN: null, // 翻译成英文的系统提示词
             TO_ZH: null  // 翻译成中文的系统提示词
+        },
+        EXPAND_SYSTEM_MESSAGE: {
+            // 扩写提示词的系统提示词，将根据语言选择
+            ZH: null, // 中文扩写提示词
+            EN: null  // 英文扩写提示词
         }
     };
 
@@ -70,13 +75,14 @@ class LLMService {
     }) {
         // 根据操作类型加载对应的系统提示词
         if (operation_type === 'expand') {
-            // 扩写操作使用原有的系统提示词
-            if (!LLMService.API_CONFIG.SYSTEM_MESSAGE) {
+            // 加载扩写系统提示词
+            if (!LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.ZH || !LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.EN) {
                 const systemPrompts = await ResourceManager.loadSystemPrompts();
-                if (!systemPrompts?.expand_prompt) {
+                if (!systemPrompts?.expand_prompts) {
                     throw new Error('扩写系统提示词加载失败');
                 }
-                LLMService.API_CONFIG.SYSTEM_MESSAGE = systemPrompts.expand_prompt;
+                // 加载分语言的扩写提示词
+                LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE = systemPrompts.expand_prompts;
             }
         } else if (operation_type === 'translate') {
             // 翻译操作加载翻译系统提示词
@@ -92,7 +98,13 @@ class LLMService {
         // 根据操作类型选择系统提示词
         let systemMessage;
         if (operation_type === 'expand') {
-            systemMessage = LLMService.API_CONFIG.SYSTEM_MESSAGE;
+            // 从消息中获取源语言
+            const sourceLang = messages[0]?.targetLang || 'zh';
+            
+            // 选择对应语言的扩写提示词
+            systemMessage = sourceLang === 'en' 
+                ? LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.EN
+                : LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.ZH;
         } else if (operation_type === 'translate') {
             // 从消息中获取目标语言
             const targetLang = messages[0]?.targetLang || 'zh';
@@ -143,12 +155,23 @@ class LLMService {
         }
 
         try {
-            // 获取提示词类型
-            const promptType = params.operation_type === 'translate'
-                ? (params.messages[0]?.targetLang === 'en' ? 'TO_EN' : 'TO_ZH')
-                : 'expand_prompt';
+            // 获取提示词类型和操作类型
+            const operationType = params.operation_type || 'expand';
+            let promptType;
+            let logPrefix;
+            
+            if (operationType === 'translate') {
+                promptType = params.messages[0]?.targetLang === 'en' ? 'TO_EN' : 'TO_ZH';
+                logPrefix = 'LLM翻译请求';
+            } else if (operationType === 'expand') {
+                promptType = params.messages[0]?.targetLang === 'en' ? 'EXPAND_EN' : 'EXPAND_ZH';
+                logPrefix = 'LLM扩写请求';
+            } else {
+                promptType = 'unknown';
+                logPrefix = 'LLM请求';
+            }
 
-            logger.debug(`发起LLM翻译请求 | 请求ID:${params.request_id} | 参数:${JSON.stringify({ ...params, prompt_type: promptType })}`);
+            logger.debug(`发起${logPrefix} | 请求ID:${params.request_id} | 类型:${promptType} | 参数:${JSON.stringify({ operation_type: operationType })}`);
 
             const headers = this.generateHeaders(apiKey);
             const body = await this.buildRequestBody(params);
@@ -165,7 +188,7 @@ class LLMService {
             }
 
             const result = await response.json();
-            logger.debug(`LLM 翻译请求成功 | 请求ID:${params.request_id} | 结果:${JSON.stringify(result)}`);
+            logger.debug(`${logPrefix}成功 | 请求ID:${params.request_id} | 结果:${JSON.stringify(result)}`);
 
             return {
                 success: true,
@@ -173,7 +196,10 @@ class LLMService {
             };
 
         } catch (error) {
-            logger.error(`LLM 翻译请求失败 | 请求ID:${params.request_id} | 错误:${error.message}`);
+            const operationType = params.operation_type || 'expand';
+            const logPrefix = operationType === 'translate' ? 'LLM翻译请求' : 'LLM扩写请求';
+            
+            logger.error(`${logPrefix}失败 | 请求ID:${params.request_id} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -186,13 +212,16 @@ class LLMService {
      */
     async expandPrompt(prompt, request_id) {
         try {
-            logger.debug(`发起LLM扩写请求 | 请求ID:${request_id} | 原文:${prompt}`);
+            // 使用PromptFormatter检测输入语言
+            const langResult = PromptFormatter.detectLanguage(prompt);
+            logger.debug(`发起LLM扩写请求 | 请求ID:${request_id} | 原文:${prompt} | 检测语言:${langResult.from}`);
 
             const params = {
                 messages: [
                     {
                         role: "user",
-                        content: prompt
+                        content: prompt,
+                        targetLang: langResult.from // 添加源语言标记，让大模型使用相同语言回复
                     }
                 ],
                 operation_type: 'expand',

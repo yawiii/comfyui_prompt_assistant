@@ -240,7 +240,7 @@ export function registerSettings() {
 
                 {
                     id: "PromptAssistant.Settings.ClearCache",
-                    name: "清理缓存",
+                    name: "清理历史、翻译缓存",
                     category: ["✨提示词小助手", "系统设置", "清理缓存"],
                     type: () => {
                         const row = document.createElement("tr");
@@ -596,10 +596,10 @@ export function registerSettings() {
                         // 从全局变量获取版本号
                         if (!window.PromptAssistant_Version) {
                             logger.error("未找到版本号，徽标将无法正确显示");
-                            versionBadge.src = `https://img.shields.io/badge/版本-未知-red?style=flat`;
+                            versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-%E6%9C%AA%E7%9F%A5-red?style=flat`;
                         } else {
                             const version = window.PromptAssistant_Version;
-                            versionBadge.src = `https://img.shields.io/badge/版本-${version}-green?style=flat`;
+                            versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-${version}-green?style=flat`;
                             logger.debug(`版本号徽标已更新: ${version}`);
                         }
 
@@ -622,17 +622,17 @@ export function registerSettings() {
                         authorTag.appendChild(authorBadge);
                         cell.appendChild(authorTag);
                         // 添加分隔符
-                        const separator = document.createElement("div");
-                        separator.style.width = "20px"; // 设置间距宽度
-                        cell.appendChild(separator);
+                        // const separator = document.createElement("div");
+                        // separator.style.width = "20px"; // 设置间距宽度
+                        // cell.appendChild(separator);
 
-                        // 插件介绍文本
-                        const introText = document.createElement("span");
-                        introText.textContent = "插件介绍:";
-                        introText.style.marginRight = "10px"; // 与右侧徽标保持间距
-                        introText.style.fontWeight = "500"; // 稍微加粗
-                        introText.style.color = "var(--p-text-muted-color)"; // 使用系统文本颜色
-                        cell.appendChild(introText);
+                        // // 插件介绍文本
+                        // const introText = document.createElement("span");
+                        // introText.textContent = "插件介绍:";
+                        // introText.style.marginRight = "10px"; // 与右侧徽标保持间距
+                        // introText.style.fontWeight = "500"; // 稍微加粗
+                        // introText.style.color = "var(--p-text-muted-color)"; // 使用系统文本颜色
+                        // cell.appendChild(introText);
                         // B站徽标
                         const biliTag = document.createElement("a");
                         biliTag.href = "https://space.bilibili.com/520680644";
@@ -642,26 +642,26 @@ export function registerSettings() {
                         biliTag.style.alignItems = "center";
                         const biliBadge = document.createElement("img");
                         biliBadge.alt = "Bilibili";
-                        biliBadge.src = "https://img.shields.io/badge/b%E7%AB%99-%23E1E1E2?style=flat&logo=bilibili&logoColor=%2307A3D7";
+                        biliBadge.src = "https://img.shields.io/badge/B%E7%AB%99-%E6%8F%92%E4%BB%B6%E4%BB%8B%E7%BB%8D-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF";
                         biliBadge.style.display = "block";
                         biliBadge.style.height = "20px";
                         biliTag.appendChild(biliBadge);
                         cell.appendChild(biliTag);
 
-                        // 抖音徽标
-                        const douyinTag = document.createElement("a");
-                        douyinTag.href = "https://v.douyin.com/iFhYw6e/";
-                        douyinTag.target = "_blank";
-                        douyinTag.style.textDecoration = "none";
-                        douyinTag.style.display = "flex";
-                        douyinTag.style.alignItems = "center";
-                        const douyinBadge = document.createElement("img");
-                        douyinBadge.alt = "Douyin";
-                        douyinBadge.src = "https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%23E1E1E2?style=flat&logo=TikTok&logoColor=%23161823";
-                        douyinBadge.style.display = "block";
-                        douyinBadge.style.height = "20px";
-                        douyinTag.appendChild(douyinBadge);
-                        cell.appendChild(douyinTag);
+                        // // 抖音徽标
+                        // const douyinTag = document.createElement("a");
+                        // douyinTag.href = "https://v.douyin.com/iFhYw6e/";
+                        // douyinTag.target = "_blank";
+                        // douyinTag.style.textDecoration = "none";
+                        // douyinTag.style.display = "flex";
+                        // douyinTag.style.alignItems = "center";
+                        // const douyinBadge = document.createElement("img");
+                        // douyinBadge.alt = "Douyin";
+                        // douyinBadge.src = "https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%23E1E1E2?style=flat&logo=TikTok&logoColor=%23161823";
+                        // douyinBadge.style.display = "block";
+                        // douyinBadge.style.height = "20px";
+                        // douyinTag.appendChild(douyinBadge);
+                        // cell.appendChild(douyinTag);
 
                         row.appendChild(cell);
                         return row;
