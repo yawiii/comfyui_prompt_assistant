@@ -1,7 +1,7 @@
 [project]
 name = "prompt-assistant"
 version = "1.0.0"
-description = "提示词小助手（Prompt Assistant），是一个无需添加任何节点，即可实现提示词翻译、扩写、图片反推提示词、预设Tag插入、历史记录功能等功能的自定义扩展"
+description = "Prompt Assistant is a custom extension that realizes functions such as prompt translation, expansion, image prompt reverse-engineering, preset Tag insertion, and historical record management without adding any nodes."
 readme = "README.md"
 license = {text = "GNU General Public License v3"}
 classifiers = [
