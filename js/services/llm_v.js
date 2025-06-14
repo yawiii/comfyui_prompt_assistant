@@ -1,6 +1,6 @@
 /**
  * 智谱AI GLM-4V API调用服务
- * 文档：https://www.bigmodel.cn/dev/api/normal-model/glm-4v
+ * 文档：https://open.bigmodel.cn/dev/api/normal-model/glm-4v
  */
 
 import { logger } from '../utils/logger.js';
@@ -10,7 +10,7 @@ class LLMVisionService {
     // API 配置
     static API_CONFIG = {
         BASE_URL: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-        MODEL: 'glm-4v',
+        MODEL: 'glm-4v-flash',
         PROMPTS: null // 将从配置文件加载
     };
 
@@ -20,6 +20,9 @@ class LLMVisionService {
         '429': '请求超过频率限制',
         '500': '服务器内部错误',
         '503': '服务不可用',
+        '1210': 'API调用参数有误，请检查文档',
+        '1214': '消息格式错误',
+        '1000': '请求ID格式错误'
     };
 
     constructor() {
@@ -38,50 +41,19 @@ class LLMVisionService {
                 return LLMVisionService.API_CONFIG.PROMPTS;
             }
 
-            // 设置默认提示词配置
-            const defaultPrompts = {
-                ZH: {
-                    role: "system",
-                    content: "请描述这张图片的内容，关注视觉元素和风格。请提供详细的描述，包括主体、场景、颜色、构图等关键元素。"
-                },
-                EN: {
-                    role: "system",
-                    content: "Please describe this image in detail, focusing on visual elements and style. Include key elements such as subject, scene, colors, composition, and other notable features."
-                }
-            };
-
-            try {
-                // 尝试从配置文件加载
-                const systemPrompts = await ResourceManager.loadSystemPrompts();
-                if (systemPrompts?.vision_prompts) {
-                    LLMVisionService.API_CONFIG.PROMPTS = systemPrompts.vision_prompts;
-                    logger.debug('视觉系统提示词从配置文件加载成功');
-                    return systemPrompts.vision_prompts;
-                }
-            } catch (error) {
-                logger.warn(`视觉系统提示词配置加载失败，使用默认配置: ${error.message}`);
+            // 从配置文件加载
+            const systemPrompts = await ResourceManager.loadSystemPrompts();
+            if (!systemPrompts?.vision_prompts) {
+                throw new Error('视觉系统提示词配置不存在');
             }
 
-            // 如果加载失败，使用默认配置
-            LLMVisionService.API_CONFIG.PROMPTS = defaultPrompts;
-            logger.debug('使用默认视觉系统提示词配置');
-            return defaultPrompts;
+            LLMVisionService.API_CONFIG.PROMPTS = systemPrompts.vision_prompts;
+            logger.debug('视觉系统提示词从配置文件加载成功');
+            return systemPrompts.vision_prompts;
 
         } catch (error) {
             logger.error(`视觉系统提示词加载失败: ${error.message}`);
-            // 确保即使在错误情况下也返回可用的配置
-            const fallbackPrompts = {
-                ZH: {
-                    role: "system",
-                    content: "请描述这张图片的内容。"
-                },
-                EN: {
-                    role: "system",
-                    content: "Please describe this image."
-                }
-            };
-            LLMVisionService.API_CONFIG.PROMPTS = fallbackPrompts;
-            return fallbackPrompts;
+            throw new Error(`视觉系统提示词加载失败: ${error.message}`);
         }
     }
 
@@ -135,59 +107,70 @@ class LLMVisionService {
     }
 
     /**
-     * 构建请求体
+     * 生成符合智谱AI文档要求的请求ID
      */
-    buildRequestBody({
-        messages,
-        temperature = 0.7,
-        top_p = 0.7,
-        max_tokens = 1500,
-        request_id
-    }) {
-        return {
-            model: this.MODEL,
-            messages,
-            temperature,
-            top_p,
-            max_tokens,
-            request_id
-        };
+    generateRequestId() {
+        // 使用时间戳+随机数的组合方式，确保唯一性
+        return `${Date.now()}_${Math.floor(Math.random() * 10000)}`;
     }
 
     /**
      * 发送API请求
      */
     async sendRequest(params, apiKey = null) {
-        if (!params.request_id) {
-            throw new Error('请求ID不能为空');
-        }
-
         try {
+            // 确保请求ID存在
+            if (!params.request_id) {
+                params.request_id = this.generateRequestId();
+                logger.debug(`自动生成请求ID: ${params.request_id}`);
+            }
+
             logger.debug(`发起LLM视觉请求 | 请求ID:${params.request_id}`);
 
             const headers = this.generateHeaders(apiKey);
-            const body = this.buildRequestBody(params);
+            
+            // 创建符合API要求的请求体
+            const requestData = {
+                model: this.MODEL,
+                messages: params.messages,
+                request_id: params.request_id
+            };
 
             // 打印请求体，方便调试
-            logger.debug(`请求体: ${JSON.stringify(body, null, 2)}`);
+            logger.debug(`请求体: ${JSON.stringify(requestData, null, 2)}`);
 
             const response = await fetch(this.API_URL, {
                 method: 'POST',
                 headers,
-                body: JSON.stringify(body)
+                body: JSON.stringify(requestData)
             });
 
             // 获取响应文本，方便调试
             const responseText = await response.text();
             logger.debug(`响应内容: ${responseText}`);
 
-            if (!response.ok) {
-                const errorMessage = LLMVisionService.getErrorMessage(response.status);
-                throw new Error(`${errorMessage} | 响应内容: ${responseText}`);
+            // 检查是否为JSON格式响应
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (e) {
+                throw new Error(`响应格式错误: ${responseText}`);
             }
 
-            const result = JSON.parse(responseText);
-            logger.debug(`LLM视觉请求成功 | 请求ID:${params.request_id} | 结果:${JSON.stringify(result)}`);
+            // 检查API错误
+            if (result.error) {
+                const errorCode = result.error.code;
+                const errorMsg = result.error.message || '未知错误';
+                const errorMessage = LLMVisionService.getErrorMessage(errorCode) || errorMsg;
+                throw new Error(`API调用失败: ${errorMessage}`);
+            }
+
+            // 检查HTTP错误
+            if (!response.ok) {
+                throw new Error(`HTTP错误: ${response.status} ${response.statusText}`);
+            }
+
+            logger.debug(`LLM视觉请求成功 | 请求ID:${params.request_id}`);
 
             return {
                 success: true,
@@ -195,7 +178,7 @@ class LLMVisionService {
             };
 
         } catch (error) {
-            logger.error(`LLM视觉请求失败 | 请求ID:${params.request_id} | 错误:${error.message}`);
+            logger.error(`LLM视觉请求失败 | 请求ID:${params.request_id || 'unknown'} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -216,31 +199,24 @@ class LLMVisionService {
                 throw new Error('请先配置 LLM API 密钥');
             }
 
+            // 确保请求ID不为空
+            if (!request_id) {
+                request_id = this.generateRequestId();
+                logger.debug(`请求ID为空，自动生成请求ID: ${request_id}`);
+            }
+
             // 将图片转换为Base64
             const imageBase64 = await this.imageToBase64(image);
             logger.debug(`图片转换为Base64成功 | 长度:${imageBase64.length}`);
 
-            // 直接从配置文件加载提示词
-            logger.debug(`开始加载系统提示词配置...`);
-            const systemPromptsUrl = ResourceManager.getSystemPromptsUrl();
-            logger.debug(`系统提示词配置URL: ${systemPromptsUrl}`);
-
+            // 加载提示词配置
             const systemPrompts = await ResourceManager.loadSystemPrompts();
-            logger.debug(`系统提示词配置加载结果: ${JSON.stringify(systemPrompts ? '成功' : '失败')}`);
-
-            if (!systemPrompts) {
-                throw new Error('系统提示词配置加载失败');
-            }
-
-            if (!systemPrompts.vision_prompts) {
-                logger.error(`视觉提示词不存在，配置内容: ${JSON.stringify(systemPrompts)}`);
+            if (!systemPrompts?.vision_prompts) {
                 throw new Error('视觉系统提示词加载失败');
             }
 
             // 获取对应语言的提示词
             const langKey = lang.toUpperCase();
-            logger.debug(`尝试获取${langKey}语言提示词，可用语言: ${Object.keys(systemPrompts.vision_prompts).join(', ')}`);
-
             if (!systemPrompts.vision_prompts[langKey]) {
                 throw new Error(`未找到语言 ${lang} 的提示词配置`);
             }
@@ -249,7 +225,7 @@ class LLMVisionService {
             const promptText = systemPrompts.vision_prompts[langKey].content;
             logger.debug(`使用${langKey}语言提示词: ${promptText}`);
 
-            // 构建消息内容
+            // 构建消息内容 - 严格按照智谱AI GLM-4V-Flash的API文档
             const messages = [{
                 role: "user",
                 content: [
@@ -266,24 +242,23 @@ class LLMVisionService {
                 ]
             }];
 
-            const params = {
+            // 发送请求
+            const result = await this.sendRequest({
                 messages,
                 request_id
-            };
-
-            logger.debug(`准备发送API请求...`);
-            const result = await this.sendRequest(params);
+            });
 
             if (!result.success) {
                 throw new Error(result.error || '图像分析请求失败');
             }
 
+            // 检查响应格式
             if (!result.data?.choices?.[0]?.message?.content) {
                 throw new Error('图像分析结果格式错误');
             }
 
             const description = result.data.choices[0].message.content;
-            logger.debug(`图像分析请求成功 | 请求ID:${request_id} | 结果:${description.substring(0, 100)}...`);
+            logger.debug(`图像分析请求成功 | 请求ID:${request_id} | 结果长度:${description.length}`);
 
             return {
                 success: true,
@@ -292,7 +267,7 @@ class LLMVisionService {
                 }
             };
         } catch (error) {
-            logger.error(`图像分析请求失败 | 请求ID:${request_id} | 错误:${error.message}`);
+            logger.error(`图像分析请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message

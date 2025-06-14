@@ -22,11 +22,11 @@
     "vision_prompts": {
         "ZH": {
             "role": "system",
-            "content": "请对图像进行详细描述，包括画面类型（写实、卡通、抽象、超现实等）、主要元素（人物、动物、物品、场景）的特征及细节、色彩、构图、光影效果。注意：请直接输出结果，无需注释、说明。"
+            "content": "请用简洁的语言对图像进行详细准确的描述，包括画面类型（写实、卡通、抽象、超现实等）、主要元素（人物、动物、物品、场景）的特征及细节、色彩、构图、光影效果等描述信息。注意：不要使用结构化格式，无需注释、说明。"
         },
         "EN": {
             "role": "system",
-            "content": "Please provide a detailed description of the image, including the type of scene (realistic, cartoon, abstract, surreal, etc.), the characteristics and details of the main elements (characters, animals, objects, scenes), color, composition, and lighting effects."
+            "content": "Please use concise language to provide a detailed and accurate description of the image, including the painting type (realistic, cartoon, abstract, surreal, etc.), the characteristics and details of the main elements (characters, animals, objects, scenes), color, composition, lighting effects and other descriptive information. Note: Do not use a structured format, and no annotations or explanations are needed."
         }
     }
 }

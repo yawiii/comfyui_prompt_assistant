@@ -497,37 +497,47 @@ class ImageCaption {
             const description = result.data.description;
 
             // 尝试复制到剪贴板
+            let copySuccess = false;
             try {
-                // 创建一个临时的textarea元素
-                const textarea = document.createElement('textarea');
-                textarea.value = description;
-                textarea.style.position = 'fixed';
-                textarea.style.opacity = '0';
-                document.body.appendChild(textarea);
-
-                // 选中文本
-                textarea.select();
-                textarea.setSelectionRange(0, 99999);
-
-                // 尝试复制
-                let copySuccess = false;
-                try {
-                    copySuccess = document.execCommand('copy');
-                } catch (err) {
-                    logger.warn(`execCommand复制失败，尝试使用clipboard API: ${err.message}`);
-                }
-
-                // 如果execCommand失败，尝试使用clipboard API
-                if (!copySuccess) {
+                // 优先使用现代的 Clipboard API
+                if (navigator.clipboard && window.isSecureContext) {
                     await navigator.clipboard.writeText(description);
+                    copySuccess = true;
+                } else {
+                    // 创建一个临时的textarea元素
+                    const textarea = document.createElement('textarea');
+                    textarea.value = description;
+                    textarea.style.position = 'fixed';
+                    textarea.style.left = '0';
+                    textarea.style.top = '0';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+
+                    // 尝试聚焦并选中文本
+                    textarea.focus();
+                    textarea.select();
+                    textarea.setSelectionRange(0, textarea.value.length);
+
+                    // 尝试复制
+                    try {
+                        copySuccess = document.execCommand('copy');
+                    } catch (err) {
+                        logger.warn(`execCommand复制失败: ${err.message}`);
+                    }
+
+                    // 移除临时元素
+                    document.body.removeChild(textarea);
                 }
 
-                // 移除临时元素
-                document.body.removeChild(textarea);
-                logger.debug('文本复制成功');
+                if (copySuccess) {
+                    logger.debug('文本复制成功');
+                } else {
+                    throw new Error('复制到剪贴板操作未能成功执行');
+                }
             } catch (copyError) {
                 logger.warn(`复制到剪贴板失败: ${copyError.message}`);
-                // 即使复制失败也继续执行，不抛出错误
+                // 即使复制失败也继续执行，不抛出错误，但记录状态
+                copySuccess = false;
             }
 
             // 为当前图像节点创建历史记录
@@ -541,13 +551,13 @@ class ImageCaption {
             });
 
             // 显示成功提示
-            const successMessage = lang === 'en'
-                ? "反推完成，已复制到剪贴板"
-                : "反推完成，已复制到剪贴板";
+            const successMessage = copySuccess 
+                ? (lang === 'en' ? "反推完成，已复制到剪贴板" : "反推完成，已复制到剪贴板")
+                : (lang === 'en' ? "反推完成，但复制失败" : "反推完成，但复制失败");
 
             UIToolkit.showStatusTip(
                 buttonElement,
-                'success',
+                copySuccess ? 'success' : 'warning',
                 successMessage,
                 { x: buttonElement.getBoundingClientRect().left + buttonElement.offsetWidth / 2, y: buttonElement.getBoundingClientRect().top }
             );
@@ -560,11 +570,18 @@ class ImageCaption {
 
             // 显示Toast提示
             app.extensionManager.toast.add({
-                severity: "success",
-                summary: lang === 'en' ? "图像反推完成（英文），请使用 ctrl+v 粘贴" : "图像反推完成（中文），请使用 ctrl+v 粘贴",
+                severity: copySuccess ? "success" : "info",
+                summary: copySuccess 
+                    ? (lang === 'en' ? "图像反推完成（英文），请使用 ctrl+v 粘贴" : "图像反推完成（中文），请使用 ctrl+v 粘贴")
+                    : (lang === 'en' ? "图像反推完成（英文），但复制失败，请手动复制" : "图像反推完成（中文），但复制失败，请手动复制"),
                 detail: truncatedDescription,
                 life: 5000
             });
+
+            // 如果复制失败，创建一个对话框显示结果，允许用户手动复制
+            if (!copySuccess) {
+                this._showCopyDialog(description, lang);
+            }
 
         } catch (error) {
             logger.error(`图像分析失败: ${error.message}`);
@@ -606,6 +623,113 @@ class ImageCaption {
             // 更新小助手状态为非激活状态
             this._updateAssistantActiveState(assistant, false);
         }
+    }
+
+    /**
+     * 显示复制对话框
+     * 当剪贴板API失败时，提供一个对话框让用户手动复制内容
+     */
+    _showCopyDialog(content, lang) {
+        // 创建对话框容器
+        const dialogContainer = document.createElement('div');
+        dialogContainer.className = 'prompt-assistant-copy-dialog';
+        dialogContainer.style.position = 'fixed';
+        dialogContainer.style.top = '50%';
+        dialogContainer.style.left = '50%';
+        dialogContainer.style.transform = 'translate(-50%, -50%)';
+        dialogContainer.style.backgroundColor = 'var(--litegraph-bg-color, #333)';
+        dialogContainer.style.color = 'var(--litegraph-node-color, #eee)';
+        dialogContainer.style.padding = '20px';
+        dialogContainer.style.borderRadius = '8px';
+        dialogContainer.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+        dialogContainer.style.zIndex = '9999';
+        dialogContainer.style.maxWidth = '80%';
+        dialogContainer.style.maxHeight = '80%';
+        dialogContainer.style.overflow = 'auto';
+        dialogContainer.style.display = 'flex';
+        dialogContainer.style.flexDirection = 'column';
+        dialogContainer.style.gap = '15px';
+
+        // 创建标题
+        const title = document.createElement('div');
+        title.style.fontSize = '18px';
+        title.style.fontWeight = 'bold';
+        title.style.borderBottom = '1px solid var(--litegraph-node-color, #ccc)';
+        title.style.paddingBottom = '10px';
+        title.textContent = lang === 'en' ? '图像反推结果 (英文)' : '图像反推结果 (中文)';
+        dialogContainer.appendChild(title);
+
+        // 创建内容区域
+        const contentArea = document.createElement('textarea');
+        contentArea.value = content;
+        contentArea.style.width = '100%';
+        contentArea.style.minHeight = '200px';
+        contentArea.style.padding = '10px';
+        contentArea.style.border = '1px solid var(--litegraph-node-title, #666)';
+        contentArea.style.borderRadius = '4px';
+        contentArea.style.backgroundColor = 'var(--litegraph-node-title-color, #444)';
+        contentArea.style.color = 'var(--litegraph-node-color, #eee)';
+        contentArea.readOnly = true;
+        dialogContainer.appendChild(contentArea);
+
+        // 创建按钮容器
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.justifyContent = 'space-between';
+        buttonContainer.style.gap = '10px';
+        dialogContainer.appendChild(buttonContainer);
+
+        // 创建复制按钮
+        const copyButton = document.createElement('button');
+        copyButton.textContent = '复制到剪贴板';
+        copyButton.style.padding = '8px 15px';
+        copyButton.style.backgroundColor = 'var(--litegraph-node-selected-color, #245)';
+        copyButton.style.color = 'var(--litegraph-node-color, white)';
+        copyButton.style.border = 'none';
+        copyButton.style.borderRadius = '4px';
+        copyButton.style.cursor = 'pointer';
+        copyButton.onclick = () => {
+            contentArea.select();
+            try {
+                const success = document.execCommand('copy');
+                if (success) {
+                    copyButton.textContent = '复制成功!';
+                    setTimeout(() => {
+                        copyButton.textContent = '复制到剪贴板';
+                    }, 2000);
+                } else {
+                    copyButton.textContent = '复制失败，请手动选择和复制';
+                    contentArea.focus();
+                }
+            } catch (err) {
+                copyButton.textContent = '复制失败，请手动选择和复制';
+                contentArea.focus();
+            }
+        };
+        buttonContainer.appendChild(copyButton);
+
+        // 创建关闭按钮
+        const closeButton = document.createElement('button');
+        closeButton.textContent = '关闭';
+        closeButton.style.padding = '8px 15px';
+        closeButton.style.backgroundColor = 'var(--litegraph-node-color-terminal, #333)';
+        closeButton.style.color = 'var(--litegraph-node-color, white)';
+        closeButton.style.border = 'none';
+        closeButton.style.borderRadius = '4px';
+        closeButton.style.cursor = 'pointer';
+        closeButton.onclick = () => {
+            document.body.removeChild(dialogContainer);
+        };
+        buttonContainer.appendChild(closeButton);
+
+        // 添加到文档
+        document.body.appendChild(dialogContainer);
+
+        // 聚焦内容区域，使用户可以立即复制
+        setTimeout(() => {
+            contentArea.focus();
+            contentArea.select();
+        }, 100);
     }
 
     /**
