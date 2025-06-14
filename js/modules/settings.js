@@ -222,7 +222,7 @@ export function registerSettings() {
                     id: "PromptAssistant.Settings.LogLevel",
                     name: "日志级别",
                     category: ["✨提示词小助手", "系统设置", "日志级别"],
-                    type: "combo",
+                    type: "hidden",
                     defaultValue: "0",
                     options: [
                         { text: "错误日志", value: "0" },

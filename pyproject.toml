@@ -1,0 +1,21 @@
+[project]
+name = "prompt-assistant"
+version = "1.0.0"
+description = "提示词小助手（Prompt Assistant），是一个无需添加任何节点，即可实现提示词翻译、扩写、图片反推提示词、预设Tag插入、历史记录功能等功能的自定义扩展"
+readme = "README.md"
+license = {text = "GNU General Public License v3"}
+classifiers = [
+    "Operating System :: OS Independent"  
+]
+
+[project.urls]
+Repository = "https://github.com/yawiii/comfyui_prompt_assistant"
+
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.comfy]
+PublisherId = "Yawiii"
+DisplayName = "Prompt Assistant" 
+Icon = "https://example.com/icon.png" 
