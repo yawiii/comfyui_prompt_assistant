@@ -7,7 +7,7 @@
 <a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/QQ%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF&link=https%3A%2F%2Fspace.bilibili.com%2F520680644"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设Tag插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-原comfyui_prompt_widget项目已经更改为Prompt Assistant，如已安装了comfyui_prompt_widget，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
+> 📍原comfyui_prompt_widget项目已经更改为Prompt Assistant，如已安装了comfyui_prompt_widget，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
 
 
 
