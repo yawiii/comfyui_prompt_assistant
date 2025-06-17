@@ -68,7 +68,7 @@
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
-在Manager中输入“提示词小助手”或“Prompt Assistant”或“提示词小助手”，点击Install，选择最新版本安装。
+在Manager中输入“Prompt Assistant”或“提示词小助手”，点击Install，选择最新版本安装。
 
 ![安装](https://github.com/user-attachments/assets/63f0aa9f-9eed-4d9f-bc8a-d3ff769836de)
 
@@ -90,20 +90,11 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 4. 重启 ComfyUI
 
 ## ⚙️ 配置说明
-要使用翻译、扩写、图片反推提示词功能，需要申请相应的API，并在设置界面中填入对应的API id、密钥或API key。
-翻译功可选百度机翻（速度快）或者使用大模型进行翻译。扩写、图片反推提示词必须申请大模型的API才能使用。
-
-### 翻译功能API申请
-目前翻译使用的是百度，需要自己申请一个API，实名认证后每个月有100万免费字符，能够满足基本使用需求。 然后在开发者信息中查看自己得APP ID和密钥，复制填入设置界面中的对应输入框中并保存即可。   
+目前小助手的翻译功能支持百度和智谱两种翻译服务，都是免费的。百度翻译优点是速度快，智谱则是 AI翻译，更加准确。你可以根据自己的需求，进行切换 。而扩写和提示词反推则必须要使用智谱的服务来实现。  
 
 百度翻译申请入口：[通用文本翻译API链接](https://fanyi-api.baidu.com/product/11)   
 
-
 ![百度](https://github.com/user-attachments/assets/f3fe2d2d-9507-4bff-887e-003f2e13a19c)
-
-
-### 使用大语言进行翻译、扩写、提示词反推的 API key申请
-目前大模型翻译和扩写，使用的是智谱的免费模型GLM-4-Flash-250414。图片反推使用的是免费的GLM-4V-Flash。申请非常简单。
 
 智谱API申请入口：[智谱API申请](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
 
