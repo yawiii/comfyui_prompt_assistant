@@ -4,20 +4,20 @@
 # ComfyUI Prompt Assistant✨提示词小助手
 <a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
 <a href="https://v.douyin.com/gJnTFSw_tZI/"><img src="https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?style=flat&logo=TikTok&logoColor=%2324292E&labelColor=%23FFFFFF"></a> &ensp;
-<a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/QQ%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF&link=https%3A%2F%2Fspace.bilibili.com%2F520680644"></a> &ensp;
+<a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设Tag插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-> 📍原comfyui_prompt_widget项目已经更改为Prompt Assistant，如已安装了comfyui_prompt_widget，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
+> 📍原comfyui_prompt_widget项目已弃用，如已安装，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
 
 
 
 ## 📋 计划
 
-🔖计划中：
+🔖研究中...：
 - 本地模型扩写、翻译、反推提示词。支持：JoyCaption Beta One
 - 自动识别lora触发词
 - 标签工具支持设置和识别权重
-- 划词翻译...
+- 划词翻译
 
 ✔️V1.0.0
 - 一键插入tag
@@ -31,24 +31,27 @@
 
 - 🌐 翻译  
 
-![翻译](https://github.com/user-attachments/assets/46927bce-760a-481f-86f6-5dd6f179248a)
+![翻译](https://github.com/user-attachments/assets/de090366-6cc4-4cd0-8d62-1beb4884ff55)
+
 
   
-- 💫 提示词扩写和润色  
+- 💫 扩写和润色  
 
-![扩写](https://github.com/user-attachments/assets/70086124-50f8-4727-a291-78a57714ea73)
+![扩写](https://github.com/user-attachments/assets/b7a3736f-a5a5-4dd8-9b8b-a1eb692f3e35)
 
 
   
 - 📒 一键插入Tag  
 
-![标签](https://github.com/user-attachments/assets/20846bea-53a5-4e77-bfd4-a2a177a40c2a)
+![标签](https://github.com/user-attachments/assets/43d317d6-a6a9-4446-9ebd-f6202c533806)
 
 
 
-- 🌄 图片反推提示词
 
-![反推](https://github.com/user-attachments/assets/5537e28b-7dec-4fc3-b6a9-7d9abb5d5118)
+- 🌄 图片反推
+
+![反推](https://github.com/user-attachments/assets/18a186a4-8410-4133-b7be-d88efa8b9928)
+
 
 
 - 🕐 历史记录和撤销、重做  
@@ -56,8 +59,8 @@
 ![历史](https://github.com/user-attachments/assets/4efbc29f-43f7-436e-b1b3-d9b02c4991aa)
 
 - 🔧 根据需求，关闭开启功能
-  
-![功能定制](https://github.com/user-attachments/assets/7e8b8e87-7ced-4ec0-a942-c07254e5270b)
+
+![功能配置](https://github.com/user-attachments/assets/92a94168-61aa-4403-87b1-a3287c4e51f3)
 
 
 
@@ -65,8 +68,9 @@
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
-在Manager中输入“提示词小助手”或“Prompt Assistant”或“comfyui_prompt_Assistant”，点击Install，选择最新版本安装。
-![从Manager中安装](https://github.com/user-attachments/assets/2c357c5a-ecf2-45ea-8eb0-f76ee975ea6c)
+在Manager中输入“提示词小助手”或“Prompt Assistant”或“提示词小助手”，点击Install，选择最新版本安装。
+
+![安装](https://github.com/user-attachments/assets/63f0aa9f-9eed-4d9f-bc8a-d3ff769836de)
 
 
 
@@ -101,7 +105,7 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 ### 使用大语言进行翻译、扩写、提示词反推的 API key申请
 目前大模型翻译和扩写，使用的是智谱的免费模型GLM-4-Flash-250414。图片反推使用的是免费的GLM-4V-Flash。申请非常简单。
 
-智谱GLM4申请入口：[智谱glm-4-flash](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
+智谱API申请入口：[智谱API申请](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
 
 
 ![智谱](https://github.com/user-attachments/assets/d6eb29c0-8624-4bf2-96c4-33e99d096202)
