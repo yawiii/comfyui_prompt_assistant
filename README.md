@@ -3,7 +3,6 @@
 
 # ComfyUI Prompt Assistant✨提示词小助手
 <a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
-<a href="https://v.douyin.com/gJnTFSw_tZI/"><img src="https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?style=flat&logo=TikTok&logoColor=%2324292E&labelColor=%23FFFFFF"></a> &ensp;
 <a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设Tag插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
@@ -29,36 +28,21 @@
 
 ## ✨ 功能介绍
 
-- 🌐 翻译  
-
 ![翻译](https://github.com/user-attachments/assets/de090366-6cc4-4cd0-8d62-1beb4884ff55)
 
-
-  
-- 💫 扩写和润色  
 
 ![扩写](https://github.com/user-attachments/assets/b7a3736f-a5a5-4dd8-9b8b-a1eb692f3e35)
 
 
-  
-- 📒 一键插入Tag  
-
 ![标签](https://github.com/user-attachments/assets/43d317d6-a6a9-4446-9ebd-f6202c533806)
 
-
-
-
-- 🌄 图片反推
 
 ![反推](https://github.com/user-attachments/assets/18a186a4-8410-4133-b7be-d88efa8b9928)
 
 
 
-- 🕐 历史记录和撤销、重做  
-
 ![历史](https://github.com/user-attachments/assets/4efbc29f-43f7-436e-b1b3-d9b02c4991aa)
 
-- 🔧 根据需求，关闭开启功能
 
 ![功能配置](https://github.com/user-attachments/assets/92a94168-61aa-4403-87b1-a3287c4e51f3)
 
@@ -91,6 +75,7 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 
 ## ⚙️ 配置说明
 目前小助手的翻译功能支持百度和智谱两种翻译服务，都是免费的。百度翻译优点是速度快，智谱则是 AI翻译，更加准确。你可以根据自己的需求，进行切换 。而扩写和提示词反推则必须要使用智谱的服务来实现。  
+申请教程，可查看作者 B 站视频：<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a>
 
 百度翻译申请入口：[通用文本翻译API链接](https://fanyi-api.baidu.com/product/11)   
 
