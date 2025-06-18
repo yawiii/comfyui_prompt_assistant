@@ -9,14 +9,13 @@
 > 📍原comfyui_prompt_widget项目已弃用，如已安装，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
 
 
-
 ## 📋 计划
 
 🔖研究中...：
-- 本地模型扩写、翻译、反推提示词。支持：JoyCaption Beta One
-- 自动识别lora触发词
-- 标签工具支持设置和识别权重
-- 划词翻译
+- 支持本地反推提示词（JoyCaption Beta One）
+- 支持一键识别插入lora触发词
+- 支持划词翻译
+- 标签工具支持调整和识别权重
 
 ✔️V1.0.0
 - 一键插入tag
@@ -28,34 +27,23 @@
 
 ## ✨ 功能介绍
 
-![翻译](https://github.com/user-attachments/assets/de090366-6cc4-4cd0-8d62-1beb4884ff55)
+![810x456-翻译](https://github.com/user-attachments/assets/dd4f282a-f9e3-4f0f-9da3-a141bea03653)
 
+![810x456-扩写](https://github.com/user-attachments/assets/4060c46b-8ece-4917-9679-2e503947a810)
 
-![扩写](https://github.com/user-attachments/assets/b7a3736f-a5a5-4dd8-9b8b-a1eb692f3e35)
+![810x456-反推](https://github.com/user-attachments/assets/38e49900-2375-4fe7-8211-1083e20f5d0d)
 
+![810x456-历史](https://github.com/user-attachments/assets/49b903db-1cfd-40bb-bcb0-c1752474248e)
 
-![标签](https://github.com/user-attachments/assets/43d317d6-a6a9-4446-9ebd-f6202c533806)
-
-
-![反推](https://github.com/user-attachments/assets/18a186a4-8410-4133-b7be-d88efa8b9928)
-
-
-
-![历史](https://github.com/user-attachments/assets/4efbc29f-43f7-436e-b1b3-d9b02c4991aa)
-
-
-![功能配置](https://github.com/user-attachments/assets/92a94168-61aa-4403-87b1-a3287c4e51f3)
-
-
-
+![810x456-配置功能](https://github.com/user-attachments/assets/673e1787-3110-4ed5-897a-eda192e3af3f)
 
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
 在Manager中输入“Prompt Assistant”或“提示词小助手”，点击Install，选择最新版本安装。
 
-![安装](https://github.com/user-attachments/assets/63f0aa9f-9eed-4d9f-bc8a-d3ff769836de)
 
+![安装](https://github.com/user-attachments/assets/8be5cf02-d4ec-4023-b400-84358f46c22c)
 
 
 #### 手动安装
@@ -88,12 +76,17 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 
 
 
-### 填入App id 、密钥、大模型API key
+#### 填入App id 、密钥、大模型API key
 
-![设置](https://github.com/user-attachments/assets/c3314682-e304-4406-87b0-123fd93146cf)
+![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
 
 
 
+## 🫰🏻💖如果插件对你有帮助，不妨请我喝杯咖啡吧~
+
+
+
+![赞赏码](https://github.com/user-attachments/assets/b79d88ec-ebc9-46fd-b904-6bfba2ad73c0)
 
 
 
