@@ -67,15 +67,25 @@ class LLMVisionService {
     /**
      * 获取API密钥
      */
-    static getApiKey() {
-        return localStorage.getItem("PromptAssistant_Settings_llm_api_key") || '';
+    static async getApiKey() {
+        try {
+            const response = await fetch('/prompt_assistant/api/config/llm');
+            if (!response.ok) {
+                throw new Error('获取配置失败');
+            }
+            const config = await response.json();
+            return config.api_key;
+        } catch (error) {
+            logger.error(`获取LLM配置失败: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
      * 生成API请求头
      */
-    generateHeaders(apiKey = null) {
-        const key = apiKey || LLMVisionService.getApiKey();
+    async generateHeaders(apiKey = null) {
+        const key = apiKey || await LLMVisionService.getApiKey();
         return {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${key}`
@@ -127,7 +137,7 @@ class LLMVisionService {
 
             logger.debug(`发起LLM视觉请求 | 请求ID:${params.request_id}`);
 
-            const headers = this.generateHeaders(apiKey);
+            const headers = await this.generateHeaders(apiKey);
 
             // 创建符合API要求的请求体
             const requestData = {
@@ -194,7 +204,7 @@ class LLMVisionService {
             logger.debug(`发起图像分析请求 | 请求ID:${request_id} | 语言:${lang}`);
 
             // 验证API密钥
-            const apiKey = LLMVisionService.getApiKey();
+            const apiKey = await LLMVisionService.getApiKey();
             if (!apiKey) {
                 throw new Error('请先配置 LLM API 密钥');
             }
