@@ -128,7 +128,7 @@ class LLMVisionService {
             logger.debug(`发起LLM视觉请求 | 请求ID:${params.request_id}`);
 
             const headers = this.generateHeaders(apiKey);
-            
+
             // 创建符合API要求的请求体
             const requestData = {
                 model: this.MODEL,

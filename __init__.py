@@ -1,5 +1,7 @@
 import os
 import re
+from server import PromptServer
+from .server import routes
 
 # 读取版本号
 def get_version():
@@ -26,6 +28,9 @@ NODE_DISPLAY_NAME_MAPPINGS = {}
 # 设置Web目录
 WEB_DIRECTORY = "./js"
 
+# 注册API路由
+PromptServer.instance.app.add_routes(routes)
+
 # 将版本号注入到前端全局变量
 def inject_version_to_frontend():
     # 创建包含版本号的JavaScript代码
@@ -42,7 +47,6 @@ window.PromptAssistant_Version = "{VERSION}";
     version_file = os.path.join(js_dir, "version.js")
     with open(version_file, "w", encoding='utf-8') as f:
         f.write(js_code)
-    
 
 # 执行版本号注入
 inject_version_to_frontend()

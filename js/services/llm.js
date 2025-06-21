@@ -46,18 +46,28 @@ class LLMService {
     /**
      * 获取API密钥
      */
-    static getApiKey() {
-        return localStorage.getItem("PromptAssistant_Settings_llm_api_key") || '';
+    static async getApiKey() {
+        try {
+            const response = await fetch('/prompt_assistant/api/config/llm');
+            if (!response.ok) {
+                throw new Error('获取配置失败');
+            }
+            const config = await response.json();
+            return config.api_key;
+        } catch (error) {
+            logger.error(`获取LLM配置失败: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
      * 生成API请求头
      */
-    generateHeaders(apiKey = null) {
-        const key = apiKey || LLMService.getApiKey();
+    async generateHeaders() {
+        const apiKey = await LLMService.getApiKey();
         return {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${key}`
+            'Authorization': `Bearer ${apiKey}`
         };
     }
 
@@ -100,9 +110,9 @@ class LLMService {
         if (operation_type === 'expand') {
             // 从消息中获取源语言
             const sourceLang = messages[0]?.targetLang || 'zh';
-            
+
             // 选择对应语言的扩写提示词
-            systemMessage = sourceLang === 'en' 
+            systemMessage = sourceLang === 'en'
                 ? LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.EN
                 : LLMService.API_CONFIG.EXPAND_SYSTEM_MESSAGE.ZH;
         } else if (operation_type === 'translate') {
@@ -159,7 +169,7 @@ class LLMService {
             const operationType = params.operation_type || 'expand';
             let promptType;
             let logPrefix;
-            
+
             if (operationType === 'translate') {
                 promptType = params.messages[0]?.targetLang === 'en' ? 'TO_EN' : 'TO_ZH';
                 logPrefix = 'LLM翻译请求';
@@ -173,7 +183,7 @@ class LLMService {
 
             logger.debug(`发起${logPrefix} | 请求ID:${params.request_id} | 类型:${promptType} | 参数:${JSON.stringify({ operation_type: operationType })}`);
 
-            const headers = this.generateHeaders(apiKey);
+            const headers = await this.generateHeaders();
             const body = await this.buildRequestBody(params);
 
             const response = await fetch(this.API_URL, {
@@ -198,7 +208,7 @@ class LLMService {
         } catch (error) {
             const operationType = params.operation_type || 'expand';
             const logPrefix = operationType === 'translate' ? 'LLM翻译请求' : 'LLM扩写请求';
-            
+
             logger.error(`${logPrefix}失败 | 请求ID:${params.request_id} | 错误:${error.message}`);
             return {
                 success: false,
@@ -261,7 +271,7 @@ class LLMService {
             logger.debug(`发起翻译请求 | 请求ID:${request_id} | 原文:${text} | 方向:${from}->${to}`);
 
             // 验证API密钥
-            const apiKey = LLMService.getApiKey();
+            const apiKey = await LLMService.getApiKey();
             if (!apiKey) {
                 throw new Error('请先配置 LLM API 密钥');
             }

@@ -40,31 +40,35 @@ class BaiduTranslateService {
     }
 
     /**
-     * 获取 APP_ID
+     * 获取配置信息
      */
-    static getAppId() {
-        return localStorage.getItem("PromptAssistant_Settings_baidu_translate_appid") || '';
-    }
-
-    /**
-     * 获取 SECRET_KEY
-     */
-    static getSecretKey() {
-        return localStorage.getItem("PromptAssistant_Settings_baidu_translate_secret") || '';
+    static async getConfig() {
+        try {
+            const response = await fetch('/prompt_assistant/api/config/baidu_translate');
+            if (!response.ok) {
+                throw new Error('获取配置失败');
+            }
+            const config = await response.json();
+            return config;
+        } catch (error) {
+            logger.error(`获取百度翻译配置失败: ${error.message}`);
+            throw error;
+        }
     }
 
     /**
      * 生成签名
      */
-    static generateSign(query, salt) {
+    static async generateSign(query, salt) {
         try {
+            const config = await this.getConfig();
             // 拼接字符串
-            const str = this.getAppId() + query + salt + this.getSecretKey();
+            const str = config.app_id + query + salt + config.secret_key;
             // 计算 MD5
             return MD5(str);
         } catch (error) {
-            logger.error(`签名生成失败 | 错误: ${error.message}`);
-            return '';
+            logger.error(`签名生成失败: ${error.message}`);
+            throw error;
         }
     }
 
@@ -178,7 +182,15 @@ class BaiduTranslateService {
                 throw new Error('错误：待翻译文本不能为空');
             }
 
-            if (!this.getAppId() || !this.getSecretKey()) {
+            // 获取配置
+            let config;
+            try {
+                config = await this.getConfig();
+                if (!config || !config.app_id || !config.secret_key) {
+                    throw new Error('配置无效');
+                }
+            } catch (error) {
+                logger.error(`获取配置失败: ${error.message}`);
                 throw new Error('错误：请先配置百度翻译 API 的 APP_ID 和 SECRET_KEY');
             }
 
@@ -195,83 +207,60 @@ class BaiduTranslateService {
 
                 for (let i = 0; i < textChunks.length; i++) {
                     const chunk = textChunks[i];
-                    logger.debug(`翻译文本段落 | 请求ID:${request_id} | 段落:${i+1}/${textChunks.length} | 长度:${chunk.length}`);
-
-                    // 翻译当前段落
-                    const salt = Date.now().toString();
-                    const sign = this.generateSign(chunk, salt);
+                    const salt = Date.now();
+                    const sign = await this.generateSign(chunk, salt);
 
                     const params = {
                         q: chunk,
-                        from: from,
-                        to: to,
-                        appid: this.getAppId(),
+                        from,
+                        to,
+                        appid: config.app_id,
                         salt: salt,
                         sign: sign
                     };
 
-                    const result = await this.jsonp(params);
+                    const response = await this.jsonp(params);
+                    translatedText += response.trans_result[0].dst + (i < textChunks.length - 1 ? '\n' : '');
 
-                    if (result.error_code) {
-                        const errorMessage = this.getErrorMessage(result.error_code);
-                        throw new Error(`错误：${errorMessage}`);
-                    }
-
-                    // 合并翻译结果
-                    if (result.trans_result && result.trans_result.length > 0) {
-                        const chunkTranslated = result.trans_result.map(item => item.dst).join('\n');
-                        translatedText += (i > 0 ? '\n' : '') + chunkTranslated;
+                    // 如果还有更多段落，等待一段时间再继续
+                    if (i < textChunks.length - 1) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                 }
-
-                logger.debug(`分段翻译完成 | 请求ID:${request_id} | 合并后长度:${translatedText.length}`);
             } else {
-                // 单段文本处理 - 原有逻辑
-                const salt = Date.now().toString();
-                const sign = this.generateSign(text, salt);
+                const chunk = textChunks[0] || text;
+                const salt = Date.now();
+                const sign = await this.generateSign(chunk, salt);
 
-                // 构建请求参数
                 const params = {
-                    q: text,
-                    from: from,
-                    to: to,
-                    appid: this.getAppId(),
+                    q: chunk,
+                    from,
+                    to,
+                    appid: config.app_id,
                     salt: salt,
                     sign: sign
                 };
 
-                // 发送 JSONP 请求
-                const result = await this.jsonp(params);
-
-                // 检查是否有错误码
-                if (result.error_code) {
-                    const errorMessage = this.getErrorMessage(result.error_code);
-                    throw new Error(`错误：${errorMessage}`);
-                }
-
-                // 合并所有翻译结果，而不仅仅是第一个
-                if (result.trans_result && result.trans_result.length > 0) {
-                    translatedText = result.trans_result.map(item => item.dst).join('\n');
-                }
+                const response = await this.jsonp(params);
+                translatedText = response.trans_result[0].dst;
             }
 
-            // 记录请求成功
-            logger.debug(`百度API请求成功 | 请求ID:${request_id} | API:baidu_translate | 结果:${JSON.stringify({ from: from, to: to, translatedLength: translatedText.length })}`);
+            // 记录请求完成
+            logger.debug(`百度API请求完成 | 请求ID:${request_id}`);
 
+            // 返回统一格式的结果
             return {
                 success: true,
                 data: {
+                    translated: translatedText,
                     from: from,
                     to: to,
-                    original: text,
-                    translated: translatedText
+                    original: text
                 }
             };
 
         } catch (error) {
-            // 记录请求失败
-            logger.error(`百度API请求失败 | 请求ID:${request_id} | API:baidu_translate | 错误:${error.message}`);
-
+            logger.error(`百度API请求失败 | 请求ID:${request_id} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -309,15 +298,16 @@ class BaiduTranslateService {
     static setConfig(config) {
         try {
             // 验证必要的配置项
-            if (config.APP_ID && config.SECRET_KEY) {
+            if (config.app_id && config.secret_key) {
                 this.API_CONFIG = {
                     ...this.API_CONFIG,
-                    ...config
+                    app_id: config.app_id,
+                    secret_key: config.secret_key
                 };
                 logger.debug('API配置更新成功');
                 return true;
             } else {
-                throw new Error('APP_ID 和 SECRET_KEY 是必需的配置项');
+                throw new Error('app_id 和 secret_key 是必需的配置项');
             }
         } catch (error) {
             logger.error(`API配置更新失败 | 错误:${error.message}`);
@@ -328,7 +318,7 @@ class BaiduTranslateService {
     /**
      * 获取当前 API 配置
      */
-    static getConfig() {
+    static getAPIConfig() {
         return { ...this.API_CONFIG };
     }
 }

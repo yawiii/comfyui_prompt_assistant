@@ -361,109 +361,133 @@ export function registerSettings() {
                         const appIdInput = document.createElement("input");
                         appIdInput.type = "text";
                         appIdInput.className = "p-inputtext";
-                        appIdInput.placeholder = "AppID";
-                        appIdInput.value = localStorage.getItem("PromptAssistant_Settings_baidu_translate_appid") || "";
+                        appIdInput.placeholder = "请输入AppID";
                         appIdInput.title = "请输入百度翻译API的AppID";
                         appIdInput.style.flex = "1";
                         appIdInput.style.minWidth = "120px";
-                        appIdInput.addEventListener("change", (e) => {
-                            localStorage.setItem("PromptAssistant_Settings_baidu_translate_appid", e.target.value);
-                            logger.debug("百度翻译AppID已更新");
-                            if (window.app && app.extensionManager && app.extensionManager.toast) {
-                                app.extensionManager.toast.add({
-                                    severity: "success",
-                                    summary: "百度翻译 APP_ID 已更新",
-                                    life: 3000
-                                });
-                            }
-                        });
-
-                        // 密钥输入框容器
-                        const secretContainer = document.createElement("div");
-                        secretContainer.className = "p-password p-component p-inputwrapper";
-                        secretContainer.style.flex = "1";
-                        secretContainer.style.minWidth = "120px";
-                        secretContainer.style.position = "relative";
-                        secretContainer.style.display = "inline-flex";
-                        secretContainer.style.alignItems = "center";
 
                         // 密钥输入框
                         const secretInput = document.createElement("input");
-                        secretInput.type = "password";
-                        secretInput.className = "p-password-input p-inputtext";
-                        secretInput.placeholder = "密钥";
-                        secretInput.value = localStorage.getItem("PromptAssistant_Settings_baidu_translate_secret") || "";
+                        secretInput.type = "text";
+                        secretInput.className = "p-inputtext";
+                        secretInput.placeholder = "请输入密钥";
                         secretInput.title = "请输入百度翻译API的密钥";
-                        secretInput.style.width = "100%";
-                        secretInput.style.paddingRight = "2.5rem";
-                        secretInput.addEventListener("change", (e) => {
-                            localStorage.setItem("PromptAssistant_Settings_baidu_translate_secret", e.target.value);
-                            logger.debug("百度翻译密钥已更新");
-                            if (window.app && app.extensionManager && app.extensionManager.toast) {
+                        secretInput.style.flex = "1";
+                        secretInput.style.minWidth = "120px";
+
+                        // 加载已有配置
+                        fetch('/prompt_assistant/api/config/baidu_translate')
+                            .then(response => response.json())
+                            .then(config => {
+                                if (config.app_id) {
+                                    appIdInput.placeholder = "已配置，重新填写可更新";
+                                }
+                                if (config.secret_key) {
+                                    secretInput.placeholder = "已配置，重新填写可更新";
+                                }
+                            })
+                            .catch(error => {
+                                logger.error("加载百度翻译配置失败:", error);
+                            });
+
+                        // 更新AppID配置的函数
+                        const updateAppId = async () => {
+                            const app_id = appIdInput.value.trim();
+
+                            if (!app_id) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "配置错误",
+                                    detail: "AppID不能为空",
+                                    life: 3000
+                                });
+                                return;
+                            }
+
+                            try {
+                                const response = await fetch('/prompt_assistant/api/config/baidu_translate', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ app_id })
+                                });
+
+                                if (!response.ok) {
+                                    throw new Error('保存配置失败');
+                                }
+
+                                // 清空输入框并更新占位符
+                                appIdInput.value = '';
+                                appIdInput.placeholder = "已配置，重新填写可更新";
+
+                                app.extensionManager.toast.add({
+                                    severity: "success",
+                                    summary: "百度翻译AppID已更新",
+                                    life: 3000
+                                });
+                            } catch (error) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "保存配置失败",
+                                    detail: error.message,
+                                    life: 3000
+                                });
+                            }
+                        };
+
+                        // 更新密钥配置的函数
+                        const updateSecretKey = async () => {
+                            const secret_key = secretInput.value.trim();
+
+                            if (!secret_key) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "配置错误",
+                                    detail: "密钥不能为空",
+                                    life: 3000
+                                });
+                                return;
+                            }
+
+                            try {
+                                const response = await fetch('/prompt_assistant/api/config/baidu_translate', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ secret_key })
+                                });
+
+                                if (!response.ok) {
+                                    throw new Error('保存配置失败');
+                                }
+
+                                // 清空输入框并更新占位符
+                                secretInput.value = '';
+                                secretInput.placeholder = "已配置，重新填写可更新";
+
                                 app.extensionManager.toast.add({
                                     severity: "success",
                                     summary: "百度翻译密钥已更新",
                                     life: 3000
                                 });
+                            } catch (error) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "保存配置失败",
+                                    detail: error.message,
+                                    life: 3000
+                                });
                             }
-                        });
+                        };
 
-                        // 添加密码显示切换图标
-                        const toggleIcon = document.createElement("i");
-                        toggleIcon.className = "p-password-icon";
-                        toggleIcon.style.cursor = "pointer";
-                        toggleIcon.style.position = "absolute";
-                        toggleIcon.style.right = "0.5rem";
-                        toggleIcon.style.top = "50%";
-                        toggleIcon.style.transform = "translateY(-50%)";
-                        toggleIcon.style.display = "flex";
-                        toggleIcon.style.alignItems = "center";
-                        toggleIcon.style.justifyContent = "center";
-                        toggleIcon.style.width = "2rem";
-                        toggleIcon.style.height = "100%";
-                        toggleIcon.style.color = "var(--input-text)";
-                        toggleIcon.style.userSelect = "none";
-                        toggleIcon.style.webkitUserSelect = "none";
-                        toggleIcon.style.msUserSelect = "none";
-                        toggleIcon.innerHTML = `
-                            <svg width="14" height="14" viewBox="0 0 24 24">
-                                <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5s5 2.24 5 5s-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3z"/>
-                            </svg>
-                        `;
-
-                        // 添加切换密码显示的功能
-                        toggleIcon.addEventListener("click", (e) => {
-                            // 阻止事件冒泡和默认行为
-                            e.preventDefault();
-                            e.stopPropagation();
-
-                            if (secretInput.type === "password") {
-                                secretInput.type = "text";
-                                toggleIcon.innerHTML = `
-                                    <svg width="14" height="14" viewBox="0 0 24 24">
-                                        <path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5c0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75c-1.73-4.39-6-7.5-11-7.5c-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28l.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5c1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22L21 20.73L3.27 3L2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65c0 1.66 1.34 3 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53c-2.76 0-5-2.24-5-5c0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15l.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
-                                    </svg>
-                                `;
-                            } else {
-                                secretInput.type = "password";
-                                toggleIcon.innerHTML = `
-                                    <svg width="14" height="14" viewBox="0 0 24 24">
-                                        <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5s5 2.24 5 5s-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3z"/>
-                                    </svg>
-                                `;
-                            }
-                        });
-
-                        // 阻止鼠标按下事件的默认行为
-                        toggleIcon.addEventListener("mousedown", (e) => {
-                            e.preventDefault();
-                        });
-
-                        secretContainer.appendChild(secretInput);
-                        secretContainer.appendChild(toggleIcon);
+                        // 添加事件监听器
+                        appIdInput.addEventListener("change", updateAppId);
+                        secretInput.addEventListener("change", updateSecretKey);
 
                         inputCell.appendChild(appIdInput);
-                        inputCell.appendChild(secretContainer);
+                        inputCell.appendChild(secretInput);
                         row.appendChild(inputCell);
 
                         return row;
@@ -485,89 +509,76 @@ export function registerSettings() {
                         inputCell.style.display = "flex";
                         inputCell.style.alignItems = "center";
 
-                        // 密钥输入框容器
-                        const secretContainer = document.createElement("div");
-                        secretContainer.className = "p-password p-component p-inputwrapper";
-                        secretContainer.style.flex = "1";
-                        secretContainer.style.position = "relative";
-                        secretContainer.style.display = "inline-flex";
-                        secretContainer.style.alignItems = "center";
+                        // API Key输入框
+                        const apiKeyInput = document.createElement("input");
+                        apiKeyInput.type = "text";
+                        apiKeyInput.className = "p-inputtext";
+                        apiKeyInput.placeholder = "请输入API Key";
+                        apiKeyInput.title = "请输入LLM API的密钥";
+                        apiKeyInput.style.width = "406px";
 
-                        // 密钥输入框
-                        const secretInput = document.createElement("input");
-                        secretInput.type = "password";
-                        secretInput.className = "p-password-input p-inputtext";
-                        secretInput.placeholder = "API Key";
-                        secretInput.value = localStorage.getItem("PromptAssistant_Settings_llm_api_key") || "";
-                        secretInput.title = "请输入LLM API的密钥";
-                        secretInput.style.width = "406px";
-                        secretInput.style.paddingRight = "2.5rem";
-                        secretInput.addEventListener("change", (e) => {
-                            localStorage.setItem("PromptAssistant_Settings_llm_api_key", e.target.value);
-                            logger.debug("LLM API密钥已更新");
-                            if (window.app && app.extensionManager && app.extensionManager.toast) {
+                        // 加载已有配置
+                        fetch('/prompt_assistant/api/config/llm')
+                            .then(response => response.json())
+                            .then(config => {
+                                if (config.api_key) {
+                                    apiKeyInput.placeholder = "已配置，重新填写可更新";
+                                }
+                            })
+                            .catch(error => {
+                                logger.error("加载LLM配置失败:", error);
+                            });
+
+                        // 更新配置的函数
+                        const updateLLMConfig = async () => {
+                            const api_key = apiKeyInput.value.trim();
+
+                            if (!api_key) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "配置错误",
+                                    detail: "API Key不能为空",
+                                    life: 3000
+                                });
+                                return;
+                            }
+
+                            try {
+                                const response = await fetch('/prompt_assistant/api/config/llm', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json'
+                                    },
+                                    body: JSON.stringify({ api_key })
+                                });
+
+                                if (!response.ok) {
+                                    throw new Error('保存配置失败');
+                                }
+
+                                // 清空输入框并更新占位符
+                                apiKeyInput.value = '';
+                                apiKeyInput.placeholder = "已配置，重新填写可更新";
+
                                 app.extensionManager.toast.add({
                                     severity: "success",
-                                    summary: "LLM API密钥已更新",
+                                    summary: "LLM配置已更新",
+                                    life: 3000
+                                });
+                            } catch (error) {
+                                app.extensionManager.toast.add({
+                                    severity: "error",
+                                    summary: "保存配置失败",
+                                    detail: error.message,
                                     life: 3000
                                 });
                             }
-                        });
+                        };
 
-                        // 添加密码显示切换图标
-                        const toggleIcon = document.createElement("i");
-                        toggleIcon.className = "p-password-icon";
-                        toggleIcon.style.cursor = "pointer";
-                        toggleIcon.style.position = "absolute";
-                        toggleIcon.style.right = "0.5rem";
-                        toggleIcon.style.top = "50%";
-                        toggleIcon.style.transform = "translateY(-50%)";
-                        toggleIcon.style.display = "flex";
-                        toggleIcon.style.alignItems = "center";
-                        toggleIcon.style.justifyContent = "center";
-                        toggleIcon.style.width = "2rem";
-                        toggleIcon.style.height = "100%";
-                        toggleIcon.style.color = "var(--input-text)";
-                        toggleIcon.style.userSelect = "none";
-                        toggleIcon.style.webkitUserSelect = "none";
-                        toggleIcon.style.msUserSelect = "none";
-                        toggleIcon.innerHTML = `
-                            <svg width="14" height="14" viewBox="0 0 24 24">
-                                <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5s5 2.24 5 5s-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3z"/>
-                            </svg>
-                        `;
+                        // 添加事件监听器
+                        apiKeyInput.addEventListener("change", updateLLMConfig);
 
-                        // 添加切换密码显示的功能
-                        toggleIcon.addEventListener("click", (e) => {
-                            // 阻止事件冒泡和默认行为
-                            e.preventDefault();
-                            e.stopPropagation();
-
-                            if (secretInput.type === "password") {
-                                secretInput.type = "text";
-                                toggleIcon.innerHTML = `
-                                    <svg width="14" height="14" viewBox="0 0 24 24">
-                                        <path fill="currentColor" d="M12 7c2.76 0 5 2.24 5 5c0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75c-1.73-4.39-6-7.5-11-7.5c-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28l.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5c1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22L21 20.73L3.27 3L2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65c0 1.66 1.34 3 3 3c.22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53c-2.76 0-5-2.24-5-5c0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15l.02-.16c0-1.66-1.34-3-3-3l-.17.01z"/>
-                                    </svg>
-                                `;
-                            } else {
-                                secretInput.type = "password";
-                                toggleIcon.innerHTML = `
-                                    <svg width="14" height="14" viewBox="0 0 24 24">
-                                        <path fill="currentColor" d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5s5 2.24 5 5s-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3s3-1.34 3-3s-1.34-3-3-3z"/>
-                                    </svg>
-                                `;
-                            }
-                        });
-
-                        // 阻止鼠标按下事件的默认行为
-                        toggleIcon.addEventListener("mousedown", (e) => {
-                            e.preventDefault();
-                        });
-
-                        secretContainer.appendChild(secretInput);
-                        secretContainer.appendChild(toggleIcon);
-                        inputCell.appendChild(secretContainer);
+                        inputCell.appendChild(apiKeyInput);
                         row.appendChild(inputCell);
 
                         return row;
