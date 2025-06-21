@@ -3,21 +3,19 @@
 
 # ComfyUI Prompt Assistant✨提示词小助手
 <a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
-<a href="https://v.douyin.com/gJnTFSw_tZI/"><img src="https://img.shields.io/badge/%E6%8A%96%E9%9F%B3-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?style=flat&logo=TikTok&logoColor=%2324292E&labelColor=%23FFFFFF"></a> &ensp;
-<a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/QQ%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF&link=https%3A%2F%2Fspace.bilibili.com%2F520680644"></a> &ensp;
+<a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
-这是一个无需添加节点，即可实现提示词翻译、扩写、预设Tag插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-> 📍原comfyui_prompt_widget项目已经更改为Prompt Assistant，如已安装了comfyui_prompt_widget，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
-
+这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
+> 📍原comfyui_prompt_widget项目已弃用，如已安装，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
 
 
 ## 📋 计划
 
-🔖计划中：
-- 本地模型扩写、翻译、反推提示词。支持：JoyCaption Beta One
-- 自动识别lora触发词
-- 标签工具支持设置和识别权重
-- 划词翻译...
+🔖研究中...：
+- 支持本地反推提示词（JoyCaption Beta One）
+- 支持一键识别插入lora触发词
+- 支持划词翻译
+- 标签工具支持调整和识别权重
 
 ✔️V1.0.0
 - 一键插入tag
@@ -29,45 +27,23 @@
 
 ## ✨ 功能介绍
 
-- 🌐 翻译  
+![810x456-翻译](https://github.com/user-attachments/assets/dd4f282a-f9e3-4f0f-9da3-a141bea03653)
 
-![翻译](https://github.com/user-attachments/assets/46927bce-760a-481f-86f6-5dd6f179248a)
+![810x456-扩写](https://github.com/user-attachments/assets/4060c46b-8ece-4917-9679-2e503947a810)
 
-  
-- 💫 提示词扩写和润色  
+![810x456-反推](https://github.com/user-attachments/assets/38e49900-2375-4fe7-8211-1083e20f5d0d)
 
-![扩写](https://github.com/user-attachments/assets/70086124-50f8-4727-a291-78a57714ea73)
+![810x456-历史](https://github.com/user-attachments/assets/49b903db-1cfd-40bb-bcb0-c1752474248e)
 
-
-  
-- 📒 一键插入Tag  
-
-![标签](https://github.com/user-attachments/assets/20846bea-53a5-4e77-bfd4-a2a177a40c2a)
-
-
-
-- 🌄 图片反推提示词
-
-![反推](https://github.com/user-attachments/assets/5537e28b-7dec-4fc3-b6a9-7d9abb5d5118)
-
-
-- 🕐 历史记录和撤销、重做  
-
-![历史](https://github.com/user-attachments/assets/4efbc29f-43f7-436e-b1b3-d9b02c4991aa)
-
-- 🔧 根据需求，关闭开启功能
-  
-![功能定制](https://github.com/user-attachments/assets/7e8b8e87-7ced-4ec0-a942-c07254e5270b)
-
-
-
+![810x456-配置功能](https://github.com/user-attachments/assets/673e1787-3110-4ed5-897a-eda192e3af3f)
 
 ## 📦 安装方法
 
 #### 从ComfyUI Manager中安装
-在Manager中输入“提示词小助手”或“Prompt Assistant”或“comfyui_prompt_Assistant”，点击Install，选择最新版本安装。
-![从Manager中安装](https://github.com/user-attachments/assets/2c357c5a-ecf2-45ea-8eb0-f76ee975ea6c)
+在Manager中输入“Prompt Assistant”或“提示词小助手”，点击Install，选择最新版本安装。
 
+
+![安装](https://github.com/user-attachments/assets/8be5cf02-d4ec-4023-b400-84358f46c22c)
 
 
 #### 手动安装
@@ -86,33 +62,30 @@ git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
 4. 重启 ComfyUI
 
 ## ⚙️ 配置说明
-要使用翻译、扩写、图片反推提示词功能，需要申请相应的API，并在设置界面中填入对应的API id、密钥或API key。
-翻译功可选百度机翻（速度快）或者使用大模型进行翻译。扩写、图片反推提示词必须申请大模型的API才能使用。
-
-### 翻译功能API申请
-目前翻译使用的是百度，需要自己申请一个API，实名认证后每个月有100万免费字符，能够满足基本使用需求。 然后在开发者信息中查看自己得APP ID和密钥，复制填入设置界面中的对应输入框中并保存即可。   
+目前小助手的翻译功能支持百度和智谱两种翻译服务，都是免费的。百度机翻速度快，智谱则是 AI翻译，更加准确。你可以根据自己的需求，进行切换 。而扩写和提示词反推则必须要使用智谱的服务来实现。  
+申请教程，可查看作者 B 站视频：<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a>
 
 百度翻译申请入口：[通用文本翻译API链接](https://fanyi-api.baidu.com/product/11)   
 
-
 ![百度](https://github.com/user-attachments/assets/f3fe2d2d-9507-4bff-887e-003f2e13a19c)
 
-
-### 使用大语言进行翻译、扩写、提示词反推的 API key申请
-目前大模型翻译和扩写，使用的是智谱的免费模型GLM-4-Flash-250414。图片反推使用的是免费的GLM-4V-Flash。申请非常简单。
-
-智谱GLM4申请入口：[智谱glm-4-flash](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
+智谱API申请入口：[智谱API申请](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
 
 
 ![智谱](https://github.com/user-attachments/assets/d6eb29c0-8624-4bf2-96c4-33e99d096202)
 
 
 
-### 填入App id 、密钥、大模型API key
+#### 填入App id 、密钥、大模型API key
 
-![设置](https://github.com/user-attachments/assets/c3314682-e304-4406-87b0-123fd93146cf)
+![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
 
 
+
+## 🫰🏻💖如果插件对您有帮助，不妨请我喝杯咖啡吧~💖🫰🏻
+
+
+![赞赏码](https://github.com/user-attachments/assets/3072ba94-a910-4b32-a874-0aed0662a02f)
 
 
 
