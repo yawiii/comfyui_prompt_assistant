@@ -6,7 +6,7 @@
 <a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-> 📍原comfyui_prompt_widget项目已弃用，如已安装，请在ComfyUI Manager中卸载并重新搜索Prompt Assistant安装。
+> 📍手动安装请从右侧Releases下载最新版本。
 
 
 ## 📋 计划
@@ -48,18 +48,13 @@
 
 #### 手动安装
 
-1. 进入 ComfyUI 的 `custom_nodes` 目录
-```bash
-cd ComfyUI/custom_nodes
-```
-
-2. 克隆仓库
-```bash
-git clone https://github.com/yawiii/comfyui_prompt_Assistant.git
-```
 
 
-4. 重启 ComfyUI
+1. 从[克隆仓库](https://github.com/yawiii/comfyui_prompt_assistant/releases)中下载最新版本
+解压缩到ComfyUI/custom_nodes目录下
+
+
+2. 重启 ComfyUI
 
 ## ⚙️ 配置说明
 目前小助手的翻译功能支持百度和智谱两种翻译服务，都是免费的。百度机翻速度快，智谱则是 AI翻译，更加准确。你可以根据自己的需求，进行切换 。而扩写和提示词反推则必须要使用智谱的服务来实现。  
