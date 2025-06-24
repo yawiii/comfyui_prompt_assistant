@@ -13,8 +13,7 @@ import { EventManager } from "../utils/eventManager.js";
 import { ResourceManager } from "../utils/resourceManager.js";
 import { UIToolkit } from "../utils/UIToolkit.js";
 import { PromptFormatter } from "../utils/promptFormatter.js";
-import { BaiduTranslateService } from "../services/baidu.js";
-import { llmService } from "../services/llm.js";
+import { APIService } from "../services/api.js";
 
 // ====================== 工具函数 ======================
 
@@ -1190,7 +1189,7 @@ class PromptAssistant {
                                 );
 
                                 // 调用LLM服务进行扩写
-                                const result = await llmService.expandPrompt(inputValue, request_id);
+                                const result = await APIService.llmExpandPrompt(inputValue, request_id);
 
                                 if (result.success) {
                                     // 更新输入框内容并添加高亮效果
@@ -1335,7 +1334,7 @@ class PromptAssistant {
                                 try {
                                     if (translateType === "baidu") {
                                         // 使用百度翻译服务
-                                        result = await BaiduTranslateService.translate(
+                                    result = await APIService.baiduTranslate(
                                             inputValue,
                                             langResult.from,
                                             langResult.to,
@@ -1343,7 +1342,7 @@ class PromptAssistant {
                                         );
                                     } else {
                                         // 使用LLM翻译服务
-                                        result = await llmService.translate(
+                                    result = await APIService.llmTranslate(
                                             inputValue,
                                             langResult.from,
                                             langResult.to,

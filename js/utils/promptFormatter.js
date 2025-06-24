@@ -71,8 +71,6 @@ class PromptFormatter {
         '＾': '^',
         '＆': '&',
         '＊': '*',
-
-
     };
 
     // 定义需要检测的标点符号集合
@@ -201,6 +199,8 @@ class PromptFormatter {
     /**
      * 格式化翻译后的文本
      * 将中文标点符号转换为英文标点符号
+     * 注意：此方法负责处理所有翻译结果的格式（包括百度翻译和LLM翻译），
+     * 后端不再进行任何格式预处理或后处理。
      */
     static formatTranslatedText(text) {
         try {
@@ -220,7 +220,7 @@ class PromptFormatter {
 
                 // 处理连续的点号（超过3个的情况）
                 formattedLine = formattedLine.replace(/\.{3,}/g, '...');
-
+                
                 // 处理多余的空格
                 formattedLine = formattedLine
                     .replace(/\s+/g, ' ')           // 多个空格转换为单个空格

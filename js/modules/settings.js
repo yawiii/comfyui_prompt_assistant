@@ -222,7 +222,7 @@ export function registerSettings() {
                     id: "PromptAssistant.Settings.LogLevel",
                     name: "日志级别",
                     category: ["✨提示词小助手", "系统设置", "日志级别"],
-                    type: "hidden",
+                    type: "combo",
                     defaultValue: "0",
                     options: [
                         { text: "错误日志", value: "0" },
@@ -288,6 +288,11 @@ export function registerSettings() {
 
                                 // 清理翻译缓存
                                 TranslateCacheService.clearAllTranslateCache();
+
+                                // 清除1.0.3以前版本遗留的三项配置信息，避免泄露
+                                localStorage.removeItem("PromptAssistant_Settings_llm_api_key");
+                                localStorage.removeItem("PromptAssistant_Settings_baidu_translate_secret");
+                                localStorage.removeItem("PromptAssistant_Settings_baidu_translate_appid");
 
                                 // 获取清理后的缓存统计
                                 const afterStats = {
@@ -365,6 +370,15 @@ export function registerSettings() {
                         appIdInput.title = "请输入百度翻译API的AppID";
                         appIdInput.style.flex = "1";
                         appIdInput.style.minWidth = "120px";
+                        // --- 优化：聚焦时隐藏占位符，失焦时根据配置恢复 ---
+                        let appIdPlaceholder = appIdInput.placeholder;
+                        let appIdConfigured = false;
+                        appIdInput.addEventListener("focus", () => {
+                            appIdInput.placeholder = "";
+                        });
+                        appIdInput.addEventListener("blur", () => {
+                            appIdInput.placeholder = appIdConfigured ? "***************" : appIdPlaceholder;
+                        });
 
                         // 密钥输入框
                         const secretInput = document.createElement("input");
@@ -374,16 +388,27 @@ export function registerSettings() {
                         secretInput.title = "请输入百度翻译API的密钥";
                         secretInput.style.flex = "1";
                         secretInput.style.minWidth = "120px";
+                        // --- 优化：聚焦时隐藏占位符，失焦时根据配置恢复 ---
+                        let secretPlaceholder = secretInput.placeholder;
+                        let secretConfigured = false;
+                        secretInput.addEventListener("focus", () => {
+                            secretInput.placeholder = "";
+                        });
+                        secretInput.addEventListener("blur", () => {
+                            secretInput.placeholder = secretConfigured ? "*****************" : secretPlaceholder;
+                        });
 
                         // 加载已有配置
                         fetch('/prompt_assistant/api/config/baidu_translate')
                             .then(response => response.json())
                             .then(config => {
-                                if (config.app_id) {
-                                    appIdInput.placeholder = "已配置，重新填写可更新";
+                                appIdConfigured = !!config.app_id;
+                                secretConfigured = !!config.secret_key;
+                                if (appIdConfigured) {
+                                    appIdInput.placeholder = "*************";
                                 }
-                                if (config.secret_key) {
-                                    secretInput.placeholder = "已配置，重新填写可更新";
+                                if (secretConfigured) {
+                                    secretInput.placeholder = "*************";
                                 }
                             })
                             .catch(error => {
@@ -419,7 +444,7 @@ export function registerSettings() {
 
                                 // 清空输入框并更新占位符
                                 appIdInput.value = '';
-                                appIdInput.placeholder = "已配置，重新填写可更新";
+                                appIdInput.placeholder = "****************";
 
                                 app.extensionManager.toast.add({
                                     severity: "success",
@@ -465,7 +490,7 @@ export function registerSettings() {
 
                                 // 清空输入框并更新占位符
                                 secretInput.value = '';
-                                secretInput.placeholder = "已配置，重新填写可更新";
+                                secretInput.placeholder = "****************";
 
                                 app.extensionManager.toast.add({
                                     severity: "success",
@@ -516,13 +541,23 @@ export function registerSettings() {
                         apiKeyInput.placeholder = "请输入API Key";
                         apiKeyInput.title = "请输入LLM API的密钥";
                         apiKeyInput.style.width = "406px";
+                        // --- 优化：聚焦时隐藏占位符，失焦时根据配置恢复 ---
+                        let apiKeyPlaceholder = apiKeyInput.placeholder;
+                        let apiKeyConfigured = false;
+                        apiKeyInput.addEventListener("focus", () => {
+                            apiKeyInput.placeholder = "";
+                        });
+                        apiKeyInput.addEventListener("blur", () => {
+                            apiKeyInput.placeholder = apiKeyConfigured ? "***************************************" : apiKeyPlaceholder;
+                        });
 
                         // 加载已有配置
                         fetch('/prompt_assistant/api/config/llm')
                             .then(response => response.json())
                             .then(config => {
-                                if (config.api_key) {
-                                    apiKeyInput.placeholder = "已配置，重新填写可更新";
+                                apiKeyConfigured = !!config.api_key;
+                                if (apiKeyConfigured) {
+                                    apiKeyInput.placeholder = "***************************************";
                                 }
                             })
                             .catch(error => {
@@ -558,7 +593,7 @@ export function registerSettings() {
 
                                 // 清空输入框并更新占位符
                                 apiKeyInput.value = '';
-                                apiKeyInput.placeholder = "已配置，重新填写可更新";
+                                apiKeyInput.placeholder = "*************";
 
                                 app.extensionManager.toast.add({
                                     severity: "success",

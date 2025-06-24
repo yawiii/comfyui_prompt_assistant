@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
 import { ResourceManager } from "../utils/resourceManager.js";
 import { UIToolkit } from "../utils/UIToolkit.js";
 import { EventManager } from "../utils/eventManager.js";
-import { llmVisionService } from '../services/llm_v.js';
+import { APIService } from '../services/api.js';
 import { HistoryCacheService } from '../services/cache.js';
 
 // 调试开关
@@ -486,15 +486,49 @@ class ImageCaption {
             // 生成请求ID
             const request_id = `${node.id}_${Date.now()}`;
 
-            // 调用图像分析服务，传入语言参数
-            const result = await llmVisionService.analyzeImage(currentImage, request_id, lang);
+            // 将图像转换为Base64
+            console.log("处理图像 - 开始转换为Base64", typeof currentImage, currentImage);
+            let imageBase64;
+            try {
+                imageBase64 = await APIService.imageToBase64(currentImage);
+                console.log("图像转换成功 - Base64长度:", imageBase64 ? imageBase64.length : 0);
+                if (!imageBase64) {
+                    throw new Error('图像转换失败');
+                }
+            } catch (e) {
+                console.error("图像转换失败:", e);
+                throw new Error(`图像转换失败: ${e.message || e}`);
+            }
 
-            if (!result.success) {
-                throw new Error(result.error);
+            // 确保图像数据格式正确
+            if (typeof imageBase64 !== 'string') {
+                console.error("图像数据类型错误:", typeof imageBase64);
+                throw new Error(`图像数据类型错误: ${typeof imageBase64}`);
+            }
+
+            // 确保图像数据是Base64格式
+            if (!imageBase64.startsWith('data:image')) {
+                console.log("添加Base64前缀");
+                imageBase64 = `data:image/jpeg;base64,${imageBase64}`;
+            }
+
+            console.log("发送图像分析请求 - 语言:", lang);
+
+            // 调用图像分析服务，传入语言参数
+            const result = await APIService.llmAnalyzeImage(imageBase64, lang, request_id);
+            console.log("图像分析结果:", result);
+
+            if (!result || !result.success) {
+                const errorMsg = result?.error || '未知错误';
+                console.error("图像分析失败:", errorMsg);
+                throw new Error(errorMsg);
             }
 
             // 获取描述文本
             const description = result.data.description;
+            if (!description) {
+                throw new Error('未获取到图像描述');
+            }
 
             // 尝试复制到剪贴板
             let copySuccess = false;
@@ -584,6 +618,7 @@ class ImageCaption {
             }
 
         } catch (error) {
+            console.error("图像分析最终错误:", error);
             logger.error(`图像分析失败: ${error.message}`);
 
             // 获取按钮元素
