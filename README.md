@@ -6,18 +6,19 @@
 <a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-> 📍手动安装请从右侧Releases下载最新版本。
+> 📍手动安装请从右侧[Releases](https://github.com/yawiii/comfyui_prompt_assistant/releases)下载最新版本。
 
 
-## 📋 计划
+## 📣更新
+✔️[2025-6-24]V1.0.3：
+- 重构了api请求服务，避免apikey暴露在前端
+- 修改了配置的保存和读取机制，解决配置无法保存问题
+- 修复了少许bug
 
-🔖研究中...：
-- 支持本地反推提示词（JoyCaption Beta One）
-- 支持一键识别插入lora触发词
-- 支持划词翻译
-- 标签工具支持调整和识别权重
+✔️[2025-6-21]V1.0.2：
+- 修复了少许bug
 
-✔️V1.0.0
+✔️[2025-06-15]V1.0.0:
 - 一键插入tag
 - 支持llm扩写
 - 支持百度翻译和llm翻译切换
