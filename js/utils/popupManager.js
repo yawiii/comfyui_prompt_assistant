@@ -88,11 +88,6 @@ class PopupManager {
             preventCloseOnElementTypes
         };
 
-        // 如果启用窗口大小调节，提前设置，因为它会修改DOM
-        if (enableResize) {
-            this.setupResizeEvents(popup);
-        }
-
         // 计算弹窗位置
         this.positionPopup(popup, anchorButton);
 
@@ -106,6 +101,14 @@ class PopupManager {
 
         // 设置拖动事件
         this.setupDragEvents(popup);
+
+        // 如果启用窗口大小调节，在弹窗完全初始化后设置
+        if (enableResize) {
+            // 使用 setTimeout 确保在 DOM 完全渲染后再添加调节功能
+            setTimeout(() => {
+                this.setupResizeEvents(popup);
+            }, 0);
+        }
 
         // 返回弹窗元素
         return popup;
@@ -263,14 +266,23 @@ class PopupManager {
      */
     static setupResizeEvents(popup) {
         // ---窗口大小调节功能---
+        // 检查是否已经有调节手柄，避免重复创建
+        if (popup.querySelector('.popup_resize_handle')) {
+            return;
+        }
+
         // 创建右下角拖拽手柄
         const resizeHandle = document.createElement('div');
         resizeHandle.className = 'popup_resize_handle';
+        
         const iconElement = document.createElement('div');
         iconElement.className = 'icon-resize-handle';
         resizeHandle.appendChild(iconElement);
         
         popup.appendChild(resizeHandle);
+
+        // 强制回流确保手柄正确渲染
+        void resizeHandle.offsetWidth;
 
         // 窗口大小调节相关变量
         let isResizing = false;
@@ -279,13 +291,17 @@ class PopupManager {
         const minHeight = 200; // 最小高度
 
         const handleResizeStart = (e) => {
+            // 阻止事件冒泡到拖动处理器
             e.preventDefault();
             e.stopPropagation();
+            e.stopImmediatePropagation();
 
             isResizing = true;
             startX = e.clientX;
             startY = e.clientY;
 
+            // 强制回流确保获取准确尺寸
+            void popup.offsetWidth;
             const rect = popup.getBoundingClientRect();
             startWidth = rect.width;
             startHeight = rect.height;
@@ -301,14 +317,17 @@ class PopupManager {
             document.body.style.cursor = 'nw-resize';
 
             // 添加临时的全局事件监听器
-            document.addEventListener('mousemove', handleResizeMove, { passive: false });
-            document.addEventListener('mouseup', handleResizeEnd, { once: true });
+            document.addEventListener('mousemove', handleResizeMove, { passive: false, capture: true });
+            document.addEventListener('mouseup', handleResizeEnd, { once: true, capture: true });
+
+            logger.debug('开始调节窗口大小');
         };
 
         const handleResizeMove = (e) => {
             if (!isResizing) return;
 
             e.preventDefault();
+            e.stopPropagation();
 
             // 计算新的尺寸
             const deltaX = e.clientX - startX;
@@ -330,7 +349,7 @@ class PopupManager {
             popup.style.height = `${newHeight}px`;
         };
 
-        const handleResizeEnd = () => {
+        const handleResizeEnd = (e) => {
             if (!isResizing) return;
 
             isResizing = false;
@@ -346,12 +365,25 @@ class PopupManager {
             document.body.style.cursor = '';
 
             // 移除临时的事件监听器
-            document.removeEventListener('mousemove', handleResizeMove);
-            document.removeEventListener('mouseup', handleResizeEnd);
+            document.removeEventListener('mousemove', handleResizeMove, { capture: true });
+            document.removeEventListener('mouseup', handleResizeEnd, { capture: true });
+
+            logger.debug('完成调节窗口大小');
         };
 
-        // 只添加初始的mousedown事件监听
-        resizeHandle.addEventListener('mousedown', handleResizeStart);
+        // 添加初始的mousedown事件监听，使用 capture 模式确保优先处理
+        resizeHandle.addEventListener('mousedown', handleResizeStart, { capture: true });
+
+        // 添加鼠标悬停效果来提高可见性
+        resizeHandle.addEventListener('mouseenter', () => {
+            resizeHandle.style.opacity = '1';
+        });
+
+        resizeHandle.addEventListener('mouseleave', () => {
+            if (!isResizing) {
+                resizeHandle.style.opacity = '0.7';
+            }
+        });
 
         // 改进清理函数的保存方式，避免覆盖
         if (!popup._cleanupFunctions) {
@@ -359,10 +391,12 @@ class PopupManager {
         }
         
         popup._cleanupFunctions.push(() => {
-            resizeHandle.removeEventListener('mousedown', handleResizeStart);
+            resizeHandle.removeEventListener('mousedown', handleResizeStart, { capture: true });
+            resizeHandle.removeEventListener('mouseenter', () => {});
+            resizeHandle.removeEventListener('mouseleave', () => {});
             // 确保清理可能残留的事件监听器
-            document.removeEventListener('mousemove', handleResizeMove);
-            document.removeEventListener('mouseup', handleResizeEnd);
+            document.removeEventListener('mousemove', handleResizeMove, { capture: true });
+            document.removeEventListener('mouseup', handleResizeEnd, { capture: true });
 
             // 恢复默认样式
             document.body.style.userSelect = '';
@@ -378,6 +412,8 @@ class PopupManager {
                 }
             };
         }
+
+        logger.debug('窗口大小调节功能已启用');
     }
 
     /**

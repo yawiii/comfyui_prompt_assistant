@@ -287,19 +287,14 @@ class ImageCaption {
     setupNodeAssistant(node) {
         if (!node) return null;
 
-        try {
-            // 创建小助手实例
-            const assistant = this.createAssistant(node);
-            if (assistant) {
-                // 初始化显示状态
-                this.showAssistantUI(assistant);
-                return assistant;
-            }
-            return null;
-        } catch (error) {
-            logger.error(`创建图像小助手失败 | ID: ${node.id} | ${error.message}`);
-            return null;
+        // 创建小助手实例
+        const assistant = this.createAssistant(node);
+        if (assistant) {
+            // 初始化显示状态
+            this.showAssistantUI(assistant);
+            return assistant;
         }
+        return null;
     }
 
     /**
@@ -328,22 +323,27 @@ class ImageCaption {
         };
 
         // 创建UI并添加到实例集合
-        this.createAssistantUI(assistant);
-        ImageCaption.addInstance(nodeId, assistant);
+        try {
+            this.createAssistantUI(assistant);
+            ImageCaption.addInstance(nodeId, assistant);
 
-        // 设置初始显示状态
-        assistant.isMouseOver = true;
+            // 设置初始显示状态
+            assistant.isMouseOver = true;
 
-        // 2秒后恢复正常的鼠标检测行为
-        setTimeout(() => {
-            if (assistant) {
-                assistant.isFirstCreate = false;
-                assistant.isMouseOver = false;
-                this.updateAssistantVisibility(assistant);
-            }
-        }, 2000);
+            // 2秒后恢复正常的鼠标检测行为
+            setTimeout(() => {
+                if (assistant) {
+                    assistant.isFirstCreate = false;
+                    assistant.isMouseOver = false;
+                    this.updateAssistantVisibility(assistant);
+                }
+            }, 2000);
 
-        return assistant;
+            return assistant;
+        } catch (error) {
+            logger.error(`创建小助手实例失败 | ID: ${nodeId} | ${error.message}`);
+            return null;
+        }
     }
 
     /**
@@ -406,7 +406,7 @@ class ImageCaption {
         const buttonZh = this.addButtonWithIcon(assistant, {
             id: 'caption_zh',
             title: '反推提示词（中文）',
-            icon: 'icon-caption-zh.svg',
+            icon: 'icon-caption-zh',
             onClick: async (e, assistant) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -422,7 +422,7 @@ class ImageCaption {
         const buttonEn = this.addButtonWithIcon(assistant, {
             id: 'caption_en',
             title: '反推提示词（英文）',
-            icon: 'icon-caption-en.svg',
+            icon: 'icon-caption-en',
             onClick: async (e, assistant) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -832,11 +832,8 @@ class ImageCaption {
 
         // 添加图标
         if (icon) {
-            // 创建图标元素
             const iconElement = document.createElement('span');
-            // 使用icon.css中定义的类名
-            const iconClass = icon.replace('.svg', '');
-            iconElement.className = iconClass;
+            iconElement.className = icon;
             iconElement.setAttribute('aria-hidden', 'true');
             button.appendChild(iconElement);
         }

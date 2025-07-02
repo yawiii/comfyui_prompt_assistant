@@ -175,19 +175,36 @@
 .tag_search_result_list {
     padding: 8px;
     overflow-y: auto;
-    max-height: 290px;
+    flex: 1;
+    height: 100%;
+    box-sizing: border-box;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%) transparent;
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 4px;
+    justify-content: flex-start;
 }
 
 .search_result_tag_item {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     padding: 6px 12px;
+    border-radius: 16px;
     cursor: pointer;
     transition: all 0.2s ease;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 13px;
 }
 
 .search_result_tag_item:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.4);
+    transform: translateY(-1px);
 }
 
 .search_result_tag_item .tag_category_path {
@@ -198,10 +215,12 @@
 
 .search_result_tag_item.used {
     background-color: rgba(40, 120, 40, 0.4);
+    border-color: rgba(40, 120, 40, 0.6);
 }
 
 .search_result_tag_item.used:hover {
     background-color: rgba(40, 120, 40, 0.6);
+    border-color: rgba(40, 120, 40, 0.8);
 }
 
 /* 弹窗操作按钮 */
@@ -806,20 +825,22 @@
 /* ---窗口大小调节功能样式--- */
 /* 窗口大小调节手柄 */
 .popup_resize_handle {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    width: 16px;
-    height: 16px;
-    cursor: nw-resize;
+    position: absolute !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 16px !important;
+    height: 16px !important;
+    cursor: nw-resize !important;
     border-radius: 0 0 8px 0;
-    z-index: 1000;
+    z-index: 1001 !important; /* 确保在最上层 */
     background: transparent;
     transition: opacity 0.2s ease;
-    /* display: flex; */
+    /* display: flex !important; */
     align-items: center;
     justify-content: center;
     color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%);
+    opacity: 0.7;
+    pointer-events: auto !important; /* 确保可以接收鼠标事件 */
 }
 
 .popup_resize_handle::before {
@@ -828,7 +849,11 @@
     height: 100%;
     opacity: 0.7;
     transition: opacity 0.2s ease;
-   
+}
+
+.popup_resize_handle:hover {
+    opacity: 1 !important;
+    color: var(--fg-color);
 }
 
 .popup_resize_handle:hover::before {
@@ -836,10 +861,22 @@
     color: var(--fg-color);
 }
 
+/* 确保图标正确显示 */
+.popup_resize_handle .icon-resize-handle {
+    width: 12px !important;
+    height: 12px !important;
+    display: block !important;
+    pointer-events: none; /* 图标不接收事件，让父元素处理 */
+}
+
 /* 窗口调节中的样式 */
 .popup_container.resizing {
     transition: none !important;
     user-select: none;
+}
+
+.popup_container.resizing .popup_resize_handle {
+    opacity: 1 !important;
 }
 
 .popup_container.resizing .popup_resize_handle::before {
@@ -882,8 +919,63 @@
 }
 
 .popup_container.tag_popup .tag_search_result_list {
-    max-height: none;
+    max-height: none !important;
     /* 移除固定高度限制 */
-    height: calc(100% - 60px);
-    /* 动态计算高度，减去标题栏高度 */
+    height: 100% !important;
+    /* 占满可用高度 */
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    align-content: flex-start !important;
+    justify-content: flex-start !important;
+    gap: 4px !important;
+    position: relative !important;
+    /* 为无匹配消息的绝对定位提供参考 */
+    min-height: 300px !important;
+    /* 确保有足够高度进行垂直居中 */
+    margin: 0 !important;
+    padding: 8px !important;
+}
+
+/* 搜索结果列表的滚动条样式 */
+.tag_search_result_list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.tag_search_result_list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.tag_search_result_list::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%);
+    border-radius: 3px;
+}
+
+/* 搜索结果空消息样式 */
+.search_empty_message {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    color: var(--p-text-muted-color);
+    font-size: 14px;
+    width: 100%;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* 搜索状态下的特殊样式 */
+.popup_container.tag_popup:has(.tag_search_result_list) .popup_tabs_container,
+.popup_container.tag_popup:has(.tag_search_result_list) .tag_category_container {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+.popup_container.tag_popup .tag_search_result_list:empty::after {
+    content: '';
+    display: block;
+    height: 100%;
+    min-height: 300px;
 }

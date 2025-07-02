@@ -362,18 +362,18 @@ class TagManager {
             const leftIndicator = document.createElement('div');
             leftIndicator.className = 'tabs_scroll_indicator left';
 
-            // 使用icon.css中定义的类创建图标
-            const leftIconSpan = document.createElement('span');
-            leftIconSpan.className = 'icon-movedown rotate_left scroll_indicator_icon';
+            // 创建图标元素
+            const leftIconSpan = this._createIconElement('icon-movedown');
+            leftIconSpan.classList.add('rotate_left', 'scroll_indicator_icon');
             leftIndicator.appendChild(leftIconSpan);
             leftIndicator.style.display = 'none'; // 初始隐藏
 
             const rightIndicator = document.createElement('div');
             rightIndicator.className = 'tabs_scroll_indicator right';
 
-            // 使用icon.css中定义的类创建图标
-            const rightIconSpan = document.createElement('span');
-            rightIconSpan.className = 'icon-movedown rotate_right scroll_indicator_icon';
+            // 创建图标元素
+            const rightIconSpan = this._createIconElement('icon-movedown');
+            rightIconSpan.classList.add('rotate_right', 'scroll_indicator_icon');
             rightIndicator.appendChild(rightIconSpan);
             rightIndicator.style.display = 'none'; // 初始隐藏
 
@@ -606,9 +606,9 @@ class TagManager {
                     const headerIcon = document.createElement('div');
                     headerIcon.className = 'tag_accordion_icon';
 
-                    // 使用icon.css中定义的类创建图标
-                    const iconSpan = document.createElement('span');
-                    iconSpan.className = 'icon-movedown accordion_arrow_icon';
+                    // 创建图标元素
+                    const iconSpan = this._createIconElement('icon-movedown');
+                    iconSpan.classList.add('accordion_arrow_icon');
                     headerIcon.appendChild(iconSpan);
 
                     header.appendChild(headerTitle);
@@ -703,9 +703,8 @@ class TagManager {
         const headerIcon = document.createElement('div');
         headerIcon.className = 'tag_accordion_icon';
 
-        // 使用icon.css中定义的类创建图标
-        const iconSpan = document.createElement('span');
-        iconSpan.className = 'icon-movedown';
+        // 创建图标元素
+        const iconSpan = this._createIconElement('icon-movedown');
         iconSpan.classList.add('accordion_arrow_icon');
         headerIcon.appendChild(iconSpan);
 
@@ -995,15 +994,15 @@ class TagManager {
         // 创建左右滚动指示器
         const leftIndicator = document.createElement('div');
         leftIndicator.className = 'tabs_scroll_indicator left';
-        const leftIconSpan = document.createElement('span');
-        leftIconSpan.className = 'icon-movedown rotate_left scroll_indicator_icon';
+        const leftIconSpan = this._createIconElement('icon-movedown');
+        leftIconSpan.classList.add('rotate_left', 'scroll_indicator_icon');
         leftIndicator.appendChild(leftIconSpan);
         leftIndicator.style.display = 'none';
 
         const rightIndicator = document.createElement('div');
         rightIndicator.className = 'tabs_scroll_indicator right';
-        const rightIconSpan = document.createElement('span');
-        rightIconSpan.className = 'icon-movedown rotate_right scroll_indicator_icon';
+        const rightIconSpan = this._createIconElement('icon-movedown');
+        rightIconSpan.classList.add('rotate_right', 'scroll_indicator_icon');
         rightIndicator.appendChild(rightIconSpan);
         rightIndicator.style.display = 'none';
 
@@ -1214,7 +1213,7 @@ class TagManager {
     /**
      * 显示标签弹窗
      */
-    static async showTagPopup(options) {
+    static showTagPopup(options) {
         const {
             anchorButton,
             nodeId,
@@ -1232,6 +1231,8 @@ class TagManager {
 
         // 清理现有事件监听
         this._cleanupEvents();
+
+
 
         try {
             // 创建弹窗容器
@@ -1262,8 +1263,8 @@ class TagManager {
             // 创建清除按钮
             const clearBtn = document.createElement('button');
             clearBtn.className = 'popup_btn';
-            const clearIconSpan = document.createElement('span');
-            clearIconSpan.className = 'icon-close popup_btn_icon';
+            const clearIconSpan = this._createIconElement('icon-close');
+            clearIconSpan.classList.add('popup_btn_icon');
             clearBtn.appendChild(clearIconSpan);
             clearBtn.title = '清除搜索';
             clearBtn.style.display = 'none';
@@ -1288,16 +1289,16 @@ class TagManager {
             // 添加刷新按钮
             const refreshBtn = document.createElement('button');
             refreshBtn.className = 'popup_btn';
-            const refreshIconSpan = document.createElement('span');
-            refreshIconSpan.className = 'icon-refresh popup_btn_icon';
+            const refreshIconSpan = this._createIconElement('icon-refresh');
+            refreshIconSpan.classList.add('popup_btn_icon');
             refreshBtn.appendChild(refreshIconSpan);
             refreshBtn.title = '刷新标签状态';
 
             // 添加关闭按钮
             const closeBtn = document.createElement('button');
             closeBtn.className = 'popup_btn';
-            const closeIconSpan = document.createElement('span');
-            closeIconSpan.className = 'icon-close popup_btn_icon';
+            const closeIconSpan = this._createIconElement('icon-close');
+            closeIconSpan.classList.add('popup_btn_icon');
             closeBtn.appendChild(closeIconSpan);
 
             // 添加刷新事件
@@ -1308,6 +1309,12 @@ class TagManager {
 
                     // 执行比对和更新
                     this.compareInputWithCache(nodeId, inputId, true);
+                    
+                    // 如果当前在搜索状态，也要刷新搜索结果中的标签状态
+                    const searchResultList = document.querySelector('.tag_search_result_list');
+                    if (searchResultList) {
+                        this.refreshSearchResultsState();
+                    }
 
                 } catch (error) {
                     logger.error(`标签状态刷新失败: ${error.message}`);
@@ -1378,7 +1385,7 @@ class TagManager {
             popup.style.height = '400px';
 
             // 显示弹窗
-            await PopupManager.showPopup({
+            PopupManager.showPopup({
                 popup: popup,
                 anchorButton: anchorButton,
                 buttonInfo: buttonInfo,
@@ -1393,13 +1400,18 @@ class TagManager {
             });
 
             // 获取标签数据
-            const tagData = await ResourceManager.getTagData(refresh);
-
-            // 使用分批加载方法
-            this._loadTagsInBatches(tagData, contentContainer, () => {
-                // 标签加载完成后，更新标签状态
-                this.compareInputWithCache(nodeId, inputId, true);
+            ResourceManager.getTagData(refresh).then(tagData => {
+                // 使用分批加载方法
+                this._loadTagsInBatches(tagData, contentContainer, () => {
+                    // 标签加载完成后，更新标签状态
+                    this.compareInputWithCache(nodeId, inputId, true);
+                });
+            }).catch(error => {
+                logger.error(`标签数据加载失败: ${error.message}`);
+                this._cleanupAll();
             });
+
+
 
         } catch (error) {
             logger.error(`标签弹窗创建失败: ${error.message}`);
@@ -1417,6 +1429,7 @@ class TagManager {
         const tabContents = document.querySelectorAll('.popup_tab_content');
         const popup = document.querySelector('.popup_container');
         const tabsContainer = document.querySelector('.popup_tabs_container');
+        const tagCategoryContainers = document.querySelectorAll('.tag_category_container');
 
         // 搜索结果容器class
         const SEARCH_RESULT_CLASS = 'tag_search_result_list';
@@ -1425,16 +1438,45 @@ class TagManager {
         if (!searchText) {
             // 恢复原有内容
             if (searchResultList) searchResultList.remove();
-            if (tabsContainer) tabsContainer.style.display = '';
-            tagItems.forEach(item => item.style.display = '');
-            accordions.forEach(accordion => accordion.style.display = '');
-            tabs.forEach(tab => tab.style.display = '');
+            
+            // 恢复标签页容器
+            if (tabsContainer) {
+                tabsContainer.style.display = '';
+                tabsContainer.style.visibility = '';
+            }
+            
+            // 恢复所有相关容器
+            tagCategoryContainers.forEach(container => {
+                container.style.display = '';
+                container.style.visibility = '';
+            });
+            
+            // 恢复标签项
+            tagItems.forEach(item => {
+                item.style.display = '';
+                item.style.pointerEvents = '';
+            });
+            
+            // 恢复手风琴
+            accordions.forEach(accordion => {
+                accordion.style.display = '';
+                accordion.style.pointerEvents = '';
+            });
+            
+            // 恢复标签页
+            tabs.forEach(tab => {
+                tab.style.display = '';
+                tab.style.pointerEvents = '';
+            });
+            
+            // 恢复标签页内容
             tabContents.forEach(content => {
                 if (content.classList.contains('active')) {
                     content.style.display = 'block';
                 } else {
                     content.style.display = 'none';
                 }
+                content.style.pointerEvents = '';
             });
 
             // 重置滚动条
@@ -1450,14 +1492,44 @@ class TagManager {
                     tabsScroll.dispatchEvent(new Event('scroll'));
                 }, 100);
             }
+
+            // 重新更新标签状态，确保点击功能正常
+            setTimeout(() => {
+                this.compareInputWithCache(this.currentNodeId, this.currentInputId, true);
+            }, 50);
+
             return;
         }
 
-        // 有搜索内容时，隐藏原有内容和tabs栏
-        if (tabsContainer) tabsContainer.style.display = 'none';
-        tabContents.forEach(content => content.style.display = 'none');
-        tabs.forEach(tab => tab.style.display = 'none');
-        accordions.forEach(accordion => accordion.style.display = 'none');
+        // 有搜索内容时，彻底隐藏原有内容和tabs栏
+        if (tabsContainer) {
+            tabsContainer.style.display = 'none';
+            tabsContainer.style.visibility = 'hidden';
+        }
+        
+        // 隐藏所有分类容器
+        tagCategoryContainers.forEach(container => {
+            container.style.display = 'none';
+            container.style.visibility = 'hidden';
+        });
+        
+        // 隐藏标签页内容
+        tabContents.forEach(content => {
+            content.style.display = 'none';
+            content.style.pointerEvents = 'none';
+        });
+        
+        // 隐藏标签页
+        tabs.forEach(tab => {
+            tab.style.display = 'none';
+            tab.style.pointerEvents = 'none';
+        });
+        
+        // 隐藏手风琴
+        accordions.forEach(accordion => {
+            accordion.style.display = 'none';
+            accordion.style.pointerEvents = 'none';
+        });
 
         // 移除旧的搜索结果容器
         if (searchResultList) searchResultList.remove();
@@ -1465,6 +1537,13 @@ class TagManager {
         // 创建新的搜索结果容器
         searchResultList = document.createElement('div');
         searchResultList.className = SEARCH_RESULT_CLASS;
+        
+        // 设置搜索结果容器的样式，确保正确显示并占满整个高度
+        searchResultList.style.flex = '1';
+        searchResultList.style.overflow = 'auto';
+        searchResultList.style.height = '100%';
+        searchResultList.style.boxSizing = 'border-box';
+        searchResultList.style.position = 'relative'; // 为绝对定位的空消息提供参考
 
         // 收集所有匹配标签及其分类
         let matchCount = 0;
@@ -1497,7 +1576,6 @@ class TagManager {
             // 克隆标签节点，保留交互
             const tagClone = item.cloneNode(true);
             tagClone.style.display = '';
-            tagClone.style.margin = '4px 4px';
             tagClone.style.cursor = 'pointer';
             tagClone.classList.add('search_result_tag_item');
 
@@ -1532,16 +1610,32 @@ class TagManager {
         if (matchCount === 0) {
             const empty = document.createElement('div');
             empty.textContent = '无匹配标签';
-            empty.style.textAlign = 'center';
-            empty.style.color = '#888';
-            empty.style.padding = '32px 0';
+            empty.className = 'search_empty_message';
             searchResultList.appendChild(empty);
         }
 
         // 插入到内容区（搜索框下方）
-        const contentContainer = popup.querySelector('div[style*="flex-direction: column"]:not(.popup_title_bar)');
+        // 先尝试找到弹窗的主内容容器（标题栏的下一个兄弟元素）
+        const titleBar = popup.querySelector('.popup_title_bar');
+        let contentContainer = null;
+        
+        if (titleBar && titleBar.nextElementSibling) {
+            contentContainer = titleBar.nextElementSibling;
+        } else {
+            // 备用方案：查找包含标签页的容器
+            contentContainer = popup.querySelector('.tag_category_container')?.parentElement || 
+                             popup.querySelector('[class*="tab_content"]')?.parentElement;
+        }
+        
         if (contentContainer) {
             contentContainer.appendChild(searchResultList);
+            
+            // 搜索结果创建完成后，刷新标签状态
+            setTimeout(() => {
+                this.refreshSearchResultsState();
+            }, 10);
+        } else {
+            logger.error('无法找到合适的容器来插入搜索结果');
         }
     }
 
@@ -1581,6 +1675,20 @@ class TagManager {
             this.eventCleanups = [];
         }
     }
+
+    /**
+     * 创建图标元素
+     * @param {string} iconClass 图标CSS类名
+     * @returns {HTMLElement} 图标元素
+     */
+    static _createIconElement(iconClass) {
+        const iconElement = document.createElement('span');
+        iconElement.className = iconClass;
+        iconElement.setAttribute('aria-hidden', 'true');
+        return iconElement;
+    }
+
+
 
     /**
      * 更新所有标签的状态
@@ -1644,6 +1752,35 @@ class TagManager {
         };
         countTagsInObject(tagData);
         return count;
+    }
+
+    /**
+     * 刷新搜索结果中的标签状态
+     */
+    static refreshSearchResultsState() {
+        // 获取搜索结果中的所有标签
+        const searchResultTags = document.querySelectorAll('.search_result_tag_item');
+        
+        // 更新每个搜索结果标签的状态
+        searchResultTags.forEach(tagItem => {
+            const tagValue = tagItem.getAttribute('data-value');
+            const tagName = tagItem.getAttribute('data-name');
+            
+            if (!tagValue) return;
+
+            // 检查是否已使用
+            const isUsed = this.isTagUsed(tagValue, this.currentNodeId, this.currentInputId);
+            
+            // 更新状态
+            this.updateTagState(tagItem, isUsed);
+            
+            // 确保点击事件正常工作
+            if (!tagItem.onclick) {
+                tagItem.onclick = (e) => {
+                    this.handleTagClick(tagItem, tagName, tagValue, e);
+                };
+            }
+        });
     }
 }
 

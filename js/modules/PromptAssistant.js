@@ -1031,7 +1031,7 @@ class PromptAssistant {
             {
                 id: 'history',
                 title: '历史',
-                icon: 'icon-history.svg',
+                icon: 'icon-history',
                 onClick: (e, widget) => {
                     UIToolkit.handlePopupButtonClick(
                         e,
@@ -1047,7 +1047,7 @@ class PromptAssistant {
             {
                 id: 'undo',
                 title: '撤销',
-                icon: 'icon-undo.svg',
+                icon: 'icon-undo',
                 onClick: (e, widget) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1073,7 +1073,7 @@ class PromptAssistant {
             {
                 id: 'redo',
                 title: '重做',
-                icon: 'icon-redo.svg',
+                icon: 'icon-redo',
                 onClick: (e, widget) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -1104,7 +1104,7 @@ class PromptAssistant {
             {
                 id: 'tag',
                 title: '标签工具',
-                icon: 'icon-tag.svg',
+                icon: 'icon-tag',
                 onClick: (e, widget) => {
                     // 创建一个带有标签选择功能的显示函数
                     const showTagPopup = (options) => {
@@ -1151,7 +1151,7 @@ class PromptAssistant {
             {
                 id: 'expand',
                 title: '扩写',
-                icon: 'icon-expand.svg',
+                icon: 'icon-expand',
                 onClick: async (e, widget) => {
                     logger.debug('按钮点击 | 动作: 扩写');
 
@@ -1237,7 +1237,7 @@ class PromptAssistant {
             {
                 id: 'translate',
                 title: '翻译',
-                icon: 'icon-translate.svg',
+                icon: 'icon-translate',
                 onClick: async (e, widget) => {
                     logger.debug('按钮点击 | 动作: 翻译');
 
@@ -1414,7 +1414,8 @@ class PromptAssistant {
         let otherButtons = [];
         let divider = null;
 
-        buttonConfigs.forEach(config => {
+        // ---使用for...of循环支持异步操作---
+        for (const config of buttonConfigs) {
             if (config.type === 'divider') {
                 // 创建分割线但暂不添加
                 divider = document.createElement('div');
@@ -1424,7 +1425,7 @@ class PromptAssistant {
                 if (config.id) {
                     widget.buttons[config.id] = divider;
                 }
-                return;
+                continue;
             }
 
             // 检查按钮是否可见
@@ -1432,12 +1433,12 @@ class PromptAssistant {
                 // 区分节点类型和功能禁用的情况
                 const reason = (widget.nodeInfo?.isNoteNode && config.id !== 'translate') ? "Note节点限制" : "功能禁用";
                 // logger.debug(`按钮跳过 | 按钮: ${config.id || 'unknown'} | 原因: ${reason}`);
-                return;
+                continue;
             }
 
-            // 创建按钮
+            // ---异步创建按钮---
             const button = this.addButtonWithIcon(widget, config);
-            if (!button) return;
+            if (!button) continue;
 
             // 设置初始状态
             if (config.initialState) {
@@ -1452,7 +1453,7 @@ class PromptAssistant {
             } else {
                 otherButtons.push(button);
             }
-        });
+        }
 
         // 添加按钮到DOM，并在需要时添加分割线
         let addedButtonCount = 0;
@@ -1498,11 +1499,8 @@ class PromptAssistant {
 
         // 添加图标
         if (icon) {
-            // 创建图标元素
             const iconElement = document.createElement('span');
-            // 使用icon.css中定义的类名
-            const iconClass = icon.replace('.svg', '');
-            iconElement.className = iconClass;
+            iconElement.className = icon;
             iconElement.setAttribute('aria-hidden', 'true');
             button.appendChild(iconElement);
         }
@@ -1530,6 +1528,8 @@ class PromptAssistant {
 
         return button;
     }
+
+
 
     /**
      * 设置UI位置
