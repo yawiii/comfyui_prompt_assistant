@@ -10,6 +10,21 @@
 
 ## 📣更新
 <details>
+ <summary>[2025-6-24]V1.0.4： </summary>
+- 修复新版创建使用选择工具栏创建kontext节点时，出现小助手UI异常问题
+ 
+- 修复可能网络环境问题造成的智谱无法服务无法使用问题
+ 
+- 修复可能出现实例清除出错导致工作流无法加载问题
+  
+- 修复AIGODLIKE-COMFYUI-TRANSLATION汉化插件导致标签弹窗打开卡住的问题
+  
+- 新增标签面板可以调整大小
+  
+- 优化UI资源加载，移除本地svg文件
+  
+</details>
+<details>
  <summary>[2025-6-24]V1.0.3： </summary>
   
 - 重构了api请求服务，避免apikey暴露在前端
