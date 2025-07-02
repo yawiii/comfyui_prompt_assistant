@@ -12,8 +12,6 @@ class PopupManager {
     // 保存当前活动弹窗及其信息
     static activePopup = null;
     static activePopupInfo = null;
-    static isDragging = false;
-    static dragOffset = { x: 0, y: 0 };
     static eventHandlers = {
         mousedown: null,
         keydown: null,
@@ -90,7 +88,10 @@ class PopupManager {
             preventCloseOnElementTypes
         };
 
-
+        // 如果启用窗口大小调节，提前设置，因为它会修改DOM
+        if (enableResize) {
+            this.setupResizeEvents(popup);
+        }
 
         // 计算弹窗位置
         this.positionPopup(popup, anchorButton);
@@ -105,11 +106,6 @@ class PopupManager {
 
         // 设置拖动事件
         this.setupDragEvents(popup);
-
-        // 如果启用窗口大小调节，设置调节事件
-        if (enableResize) {
-            this.setupResizeEvents(popup);
-        }
 
         // 返回弹窗元素
         return popup;
@@ -145,10 +141,6 @@ class PopupManager {
                 logger.error(`执行弹窗清理函数失败: ${error.message}`);
             }
         }
-
-        // 清理拖动相关状态
-        this.isDragging = false;
-        this.dragOffset = { x: 0, y: 0 };
     }
 
     /**
@@ -160,6 +152,10 @@ class PopupManager {
 
         // 设置鼠标样式，表示可拖动
         titleBar.style.cursor = 'move';
+
+        // 拖动相关变量
+        let isDragging = false;
+        let dragOffset = { x: 0, y: 0 };
 
         const handleMouseDown = (e) => {
             // 如果点击的是按钮、输入框或调节手柄，不启动拖动
@@ -174,15 +170,17 @@ class PopupManager {
             // 如果点击的是标题栏或标题文本，允许拖动
             if (e.target.closest('.popup_title') || e.target === titleBar || e.target.closest('.popup_search_container')) {
                 e.preventDefault();
-                this.isDragging = true;
+                isDragging = true;
 
                 // 添加拖动状态类
                 popup.classList.add('dragging');
                 titleBar.classList.add('dragging');
 
                 // 计算鼠标点击位置与弹窗左上角的偏移
+                // 使用强制回流确保获取准确的位置信息
+                void popup.offsetWidth; // 强制回流
                 const rect = popup.getBoundingClientRect();
-                this.dragOffset = {
+                dragOffset = {
                     x: e.clientX - rect.left,
                     y: e.clientY - rect.top
                 };
@@ -190,21 +188,25 @@ class PopupManager {
                 // 添加拖动时的样式
                 popup.style.transition = 'none';
                 titleBar.style.cursor = 'grabbing';
+
+                // 添加临时的全局事件监听器
+                document.addEventListener('mousemove', handleMouseMove, { passive: false });
+                document.addEventListener('mouseup', handleMouseUp, { once: true });
             }
         };
 
         const handleMouseMove = (e) => {
-            if (!this.isDragging) return;
+            if (!isDragging) return;
 
             e.preventDefault();
 
             // 计算新位置，确保不超出视窗边界
             const newLeft = Math.max(0, Math.min(
-                e.clientX - this.dragOffset.x,
+                e.clientX - dragOffset.x,
                 window.innerWidth - popup.offsetWidth
             ));
             const newTop = Math.max(0, Math.min(
-                e.clientY - this.dragOffset.y,
+                e.clientY - dragOffset.y,
                 window.innerHeight - popup.offsetHeight
             ));
 
@@ -214,9 +216,9 @@ class PopupManager {
         };
 
         const handleMouseUp = () => {
-            if (!this.isDragging) return;
+            if (!isDragging) return;
 
-            this.isDragging = false;
+            isDragging = false;
 
             // 移除拖动状态类
             popup.classList.remove('dragging');
@@ -224,21 +226,36 @@ class PopupManager {
 
             titleBar.style.cursor = 'move';
             popup.style.transition = ''; // 恢复过渡效果
-        };
 
-        // 添加事件监听
-        titleBar.addEventListener('mousedown', handleMouseDown);
-        document.addEventListener('mousemove', handleMouseMove);
-        document.addEventListener('mouseup', handleMouseUp);
-
-        // 保存清理函数
-        const originalCleanup = popup._cleanup || (() => { });
-        popup._cleanup = () => {
-            originalCleanup();
-            titleBar.removeEventListener('mousedown', handleMouseDown);
+            // 移除临时的事件监听器
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         };
+
+        // 只添加初始的mousedown事件监听
+        titleBar.addEventListener('mousedown', handleMouseDown);
+
+        // 改进清理函数的保存方式，避免覆盖
+        if (!popup._cleanupFunctions) {
+            popup._cleanupFunctions = [];
+        }
+        
+        popup._cleanupFunctions.push(() => {
+            titleBar.removeEventListener('mousedown', handleMouseDown);
+            // 确保清理可能残留的事件监听器
+            document.removeEventListener('mousemove', handleMouseMove);
+            document.removeEventListener('mouseup', handleMouseUp);
+        });
+
+        // 如果还没有总的清理函数，创建一个
+        if (!popup._cleanup) {
+            popup._cleanup = () => {
+                if (popup._cleanupFunctions) {
+                    popup._cleanupFunctions.forEach(cleanup => cleanup());
+                    popup._cleanupFunctions = [];
+                }
+            };
+        }
     }
 
     /**
@@ -252,6 +269,7 @@ class PopupManager {
         const iconElement = document.createElement('div');
         iconElement.className = 'icon-resize-handle';
         resizeHandle.appendChild(iconElement);
+        
         popup.appendChild(resizeHandle);
 
         // 窗口大小调节相关变量
@@ -281,6 +299,10 @@ class PopupManager {
             // 阻止文本选择
             document.body.style.userSelect = 'none';
             document.body.style.cursor = 'nw-resize';
+
+            // 添加临时的全局事件监听器
+            document.addEventListener('mousemove', handleResizeMove, { passive: false });
+            document.addEventListener('mouseup', handleResizeEnd, { once: true });
         };
 
         const handleResizeMove = (e) => {
@@ -322,25 +344,40 @@ class PopupManager {
             // 恢复默认样式
             document.body.style.userSelect = '';
             document.body.style.cursor = '';
+
+            // 移除临时的事件监听器
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeEnd);
         };
 
-        // 添加事件监听
+        // 只添加初始的mousedown事件监听
         resizeHandle.addEventListener('mousedown', handleResizeStart);
-        document.addEventListener('mousemove', handleResizeMove);
-        document.addEventListener('mouseup', handleResizeEnd);
 
-        // 保存清理函数
-        const originalCleanup = popup._cleanup || (() => { });
-        popup._cleanup = () => {
-            originalCleanup();
+        // 改进清理函数的保存方式，避免覆盖
+        if (!popup._cleanupFunctions) {
+            popup._cleanupFunctions = [];
+        }
+        
+        popup._cleanupFunctions.push(() => {
             resizeHandle.removeEventListener('mousedown', handleResizeStart);
+            // 确保清理可能残留的事件监听器
             document.removeEventListener('mousemove', handleResizeMove);
             document.removeEventListener('mouseup', handleResizeEnd);
 
             // 恢复默认样式
             document.body.style.userSelect = '';
             document.body.style.cursor = '';
-        };
+        });
+
+        // 如果还没有总的清理函数，创建一个
+        if (!popup._cleanup) {
+            popup._cleanup = () => {
+                if (popup._cleanupFunctions) {
+                    popup._cleanupFunctions.forEach(cleanup => cleanup());
+                    popup._cleanupFunctions = [];
+                }
+            };
+        }
     }
 
     /**

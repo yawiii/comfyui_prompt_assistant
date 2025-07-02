@@ -848,7 +848,6 @@
 
 /* 标签弹窗特定样式 */
 .popup_container.tag_popup {
-    position: relative;
     resize: none;
     /* 禁用原生的resize功能，使用自定义的 */
     max-width: none;
