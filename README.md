@@ -44,7 +44,7 @@
 </details>
 
 <details>
-<summary>[2025-06-15]V1.0.0:</summary>
+<summary>[2025-6-15]V1.0.0:</summary>
   
  - 一键插入tag
 
