@@ -123,7 +123,10 @@ app.registerExtension({
      */
     async nodeRemoved(node) {
         try {
-            if (!node || !node.id || node.id === -1) return;
+            if (!node || node.id === undefined || node.id === -1) return;
+
+            // 安全获取节点ID，用于日志记录
+            const nodeId = node.id;
 
             // 添加清理标记，避免重复清理
             node._promptAssistantCleaned = false;
@@ -131,19 +134,20 @@ app.registerExtension({
 
             // 清理提示词小助手
             if (node._promptAssistantInitialized) {
-                promptAssistant.cleanup(node.id);
+                promptAssistant.cleanup(nodeId);
                 node._promptAssistantCleaned = true;
-                logger.debug(`[节点移除钩子] 提示词小助手清理完成 | 节点ID: ${node.id}`);
+                logger.debug(`[节点移除钩子] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
             }
 
             // 清理图像小助手
             if (node._imageCaptionInitialized) {
-                imageCaption.cleanup(node.id);
+                imageCaption.cleanup(nodeId);
                 node._imageCaptionCleaned = true;
-                logger.debug(`[节点移除钩子] 图像小助手清理完成 | 节点ID: ${node.id}`);
+                logger.debug(`[节点移除钩子] 图像小助手清理完成 | 节点ID: ${nodeId}`);
             }
         } catch (error) {
-            logger.error(`节点移除处理失败: ${error.message}`);
+            const safeNodeId = node && node.id !== undefined ? node.id : "unknown";
+            logger.error(`[节点移除钩子] 处理失败 | 节点ID: ${safeNodeId} | 错误: ${error.message}`);
         }
     },
 
@@ -195,26 +199,42 @@ app.registerExtension({
         // 注入节点移除方法
         nodeType.prototype.onRemoved = function () {
             try {
+                // 首先检查this和this.id是否存在和有效
+                if (!this) {
+                    logger.debug("[onRemoved方法] 节点实例不存在，跳过清理");
+                    if (origOnRemoved) {
+                        origOnRemoved.apply(this, arguments);
+                    }
+                    return;
+                }
+
+                // 安全获取节点ID，如果不存在则使用占位符
+                const nodeId = this.id !== undefined ? this.id : "unknown";
+
                 // 清理提示词小助手（如果尚未清理）
                 if (this._promptAssistantInitialized && !this._promptAssistantCleaned) {
-                    promptAssistant.cleanup(this.id);
-                    this._promptAssistantCleaned = true;
-                    logger.debug(`[onRemoved方法] 提示词小助手清理完成 | 节点ID: ${this.id}`);
+                    if (this.id !== undefined) {
+                        promptAssistant.cleanup(this.id);
+                        this._promptAssistantCleaned = true;
+                        logger.debug(`[onRemoved方法] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
+                    }
                 }
 
                 // 清理图像小助手（如果尚未清理）
                 if (this._imageCaptionInitialized && !this._imageCaptionCleaned) {
-                    imageCaption.cleanup(this.id);
-                    this._imageCaptionCleaned = true;
-                    logger.debug(`[onRemoved方法] 图像小助手清理完成 | 节点ID: ${this.id}`);
+                    if (this.id !== undefined) {
+                        imageCaption.cleanup(this.id);
+                        this._imageCaptionCleaned = true;
+                        logger.debug(`[onRemoved方法] 图像小助手清理完成 | 节点ID: ${nodeId}`);
+                    }
                 }
 
                 // 即使没有初始化标记，也尝试清理（关键修复）
                 // 这是为了处理可能的边缘情况，确保完全清理
-                if (!this._promptAssistantCleaned) {
+                if (!this._promptAssistantCleaned && this.id !== undefined) {
                     promptAssistant.cleanup(this.id, true);
                 }
-                if (!this._imageCaptionCleaned) {
+                if (!this._imageCaptionCleaned && this.id !== undefined) {
                     imageCaption.cleanup(this.id, true);
                 }
 
@@ -222,7 +242,9 @@ app.registerExtension({
                     origOnRemoved.apply(this, arguments);
                 }
             } catch (error) {
-                logger.error(`[onRemoved方法] 清理失败 | 节点ID: ${this.id} | 错误: ${error.message}`);
+                // 安全获取节点ID，用于错误日志
+                const safeNodeId = this && this.id !== undefined ? this.id : "unknown";
+                logger.error(`[onRemoved方法] 清理失败 | 节点ID: ${safeNodeId} | 错误: ${error.message}`);
                 // 确保原始方法仍然被调用
                 if (origOnRemoved) {
                     origOnRemoved.apply(this, arguments);

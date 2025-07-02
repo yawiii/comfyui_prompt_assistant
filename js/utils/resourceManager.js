@@ -7,7 +7,6 @@ import { logger } from './logger.js';
 
 class ResourceManager {
     // 资源缓存
-    static #iconCache = new Map();
     static #styleCache = new Map();
     static #tagCache = null;  // 修改为单一变量存储
 
@@ -33,7 +32,6 @@ class ResourceManager {
 
         try {
             // 加载所有资源
-            this.#loadIcons();
             this.#loadStyles();
             this.#loadTagData();
 
@@ -63,108 +61,6 @@ class ResourceManager {
         return this.getResourceUrl(`../css/${cssFileName}`);
     }
 
-    /**
-     * 获取资源目录中的资源URL
-     */
-    static getAssetUrl(assetFileName) {
-        return this.getResourceUrl(`../assets/${assetFileName}`);
-    }
-
-    // ====================== 图标管理 ======================
-
-    /**
-     * 加载所有图标
-     * @private
-     */
-    static #loadIcons() {
-        // 所有需要加载的图标列表
-        const iconsToLoad = [
-            'icon-history.svg',
-            'icon-undo.svg',
-            'icon-redo.svg',
-            'icon-tag.svg',
-            'icon-expand.svg',
-            'icon-translate.svg',
-            'icon-movedown.svg',
-            'icon-close.svg',
-            'icon-refresh.svg',
-            'icon-caption-zh.svg',
-            'icon-caption-en.svg',
-        ];
-
-        let loaded = 0;
-        let failed = 0;
-
-        // 逐个加载图标
-        iconsToLoad.forEach(iconName => {
-            const iconUrl = this.getAssetUrl(iconName);
-
-            // 使用fetch加载SVG内容
-            fetch(iconUrl)
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    return response.text();
-                })
-                .then(svgContent => {
-                    // 缓存SVG内容
-                    this.#iconCache.set(iconName, svgContent);
-                    loaded++;
-
-                    // 所有图标加载完成后输出日志
-                    if (loaded + failed === iconsToLoad.length) {
-                        logger.debug(`图标加载完成 | 成功:${loaded}个 | 失败:${failed}个`);
-                    }
-                })
-                .catch(error => {
-                    failed++;
-                    logger.warn(`图标加载失败 | ${iconName} | ${error.message}`);
-
-                    // 所有图标加载完成后输出日志
-                    if (loaded + failed === iconsToLoad.length) {
-                        logger.debug(`图标加载完成 | 成功:${loaded}个 | 失败:${failed}个`);
-                    }
-                });
-        });
-    }
-
-    /**
-     * 获取缓存的图标
-     */
-    static getIcon(iconName) {
-        const svgContent = this.#iconCache.get(iconName);
-        if (!svgContent) {
-            return null;
-        }
-
-        // 创建一个包含SVG的span元素
-        const iconContainer = document.createElement('span');
-        iconContainer.className = 'svg-icon';
-        iconContainer.innerHTML = svgContent;
-
-        // 获取SVG元素并添加样式
-        const svgElement = iconContainer.querySelector('svg');
-        if (svgElement) {
-            // 添加样式以确保SVG可以通过color属性控制颜色
-            svgElement.style.width = '100%';
-            svgElement.style.height = '100%';
-            svgElement.style.fill = 'currentColor';
-
-            // 移除可能存在的固定颜色属性
-            svgElement.querySelectorAll('*').forEach(el => {
-                if (el.hasAttribute('fill') && el.getAttribute('fill') !== 'none') {
-                    el.setAttribute('fill', 'currentColor');
-                }
-                if (el.hasAttribute('stroke') && el.getAttribute('stroke') !== 'none') {
-                    el.setAttribute('stroke', 'currentColor');
-                }
-            });
-        }
-
-        return iconContainer;
-    }
-
     // ====================== 样式管理 ======================
 
     /**
@@ -175,7 +71,8 @@ class ResourceManager {
         const stylesToLoad = [
             { id: 'prompt-assistant-common-styles', file: 'common.css' },
             { id: 'prompt-assistant-styles', file: 'assistant.css' },
-            { id: 'prompt-assistant-popup-styles', file: 'popup.css' }
+            { id: 'prompt-assistant-popup-styles', file: 'popup.css' },
+            { id: 'prompt-assistant-icon-styles', file: 'icon.css' }  // 添加icon.css
         ];
 
         stylesToLoad.forEach(style => {
@@ -325,9 +222,6 @@ class ResourceManager {
      * 清理所有资源
      */
     static async cleanup() {
-        // 清理图标缓存
-        this.#iconCache.clear();
-
         // 移除样式表
         this.#styleCache.forEach((style) => {
             if (style && style.parentNode) {
@@ -354,7 +248,7 @@ class ResourceManager {
      */
     static async loadScript(url) {
         try {
-            if (this.resources.has(url)) {
+            if (this.resources && this.resources.has(url)) {
                 return this.resources.get(url);
             }
 
@@ -367,7 +261,9 @@ class ResourceManager {
                 document.head.appendChild(script);
             });
 
-            this.resources.set(url, promise);
+            if (this.resources) {
+                this.resources.set(url, promise);
+            }
             await promise;
             logger.debug(`脚本加载成功 | URL:${url}`);
             return promise;

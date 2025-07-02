@@ -6,11 +6,16 @@ from .services.llm import LLMService
 from .services.llm_v import LLMVisionService
 import base64
 import json
+import traceback
 
 # 定义颜色常量
 GREEN = "\033[32m"
+RED = "\033[31m"
+YELLOW = "\033[33m"
 RESET = "\033[0m"
 PREFIX = f"{GREEN}[PromptAssistant]{RESET}"
+ERROR_PREFIX = f"{RED}[PromptAssistant-错误]{RESET}"
+WARN_PREFIX = f"{YELLOW}[PromptAssistant-警告]{RESET}"
 
 # 定义路由前缀，确保与前端请求匹配
 API_PREFIX = '/prompt_assistant/api'
@@ -129,7 +134,7 @@ async def baidu_translate(request):
         return web.json_response(result)
     except Exception as e:
         error_msg = str(e)
-        print(f"{PREFIX} 百度翻译请求失败 | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} 百度翻译请求失败 | 错误:{error_msg}")
         return web.json_response({"success": False, "error": error_msg})
 
 @PromptServer.instance.routes.post(f'{API_PREFIX}/llm/expand')
@@ -151,8 +156,10 @@ async def llm_expand(request):
         
         return web.json_response(result)
     except Exception as e:
-        print(f"{PREFIX} LLM扩写请求失败 | 错误:{str(e)}")
-        return web.json_response({"success": False, "error": str(e)})
+        error_msg = str(e)
+        print(f"{ERROR_PREFIX} LLM扩写请求失败 | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} 错误堆栈:\n{traceback.format_exc()}")
+        return web.json_response({"success": False, "error": error_msg})
 
 @PromptServer.instance.routes.post(f'{API_PREFIX}/llm/translate')
 async def llm_translate(request):
@@ -177,22 +184,24 @@ async def llm_translate(request):
         return web.json_response(result)
     except Exception as e:
         error_msg = str(e)
-        print(f"{PREFIX} LLM翻译请求失败 | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} LLM翻译请求失败 | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} 错误堆栈:\n{traceback.format_exc()}")
         return web.json_response({"success": False, "error": error_msg})
 
 @PromptServer.instance.routes.post(f'{API_PREFIX}/llm/vision')
 async def llm_vision(request):
     """LLM视觉分析API"""
+    request_id = None
     try:
         data = await request.json()
         image_data = data.get("image")
         lang = data.get("lang", "zh")
-        request_id = data.get("request_id")
+        request_id = data.get("request_id", "未知ID")
 
         # 处理图像数据
         if not image_data:
             error_msg = "未提供图像数据"
-            print(f"{PREFIX} LLM视觉分析失败 | 请求ID:{request_id} | 错误:{error_msg}")
+            print(f"{ERROR_PREFIX} LLM视觉分析失败 | 请求ID:{request_id} | 错误:{error_msg}")
             return web.json_response({"success": False, "error": error_msg})
 
         # 记录图像数据类型和长度
@@ -212,16 +221,22 @@ async def llm_vision(request):
                     print(f"{PREFIX} 检测到Base64数据但缺少前缀，自动添加 | 请求ID:{request_id}")
                     image_data = f"data:image/jpeg;base64,{image_data}"
                 except Exception as e:
-                    print(f"{PREFIX} Base64检测失败 | 请求ID:{request_id} | 错误:{str(e)}")
+                    print(f"{WARN_PREFIX} Base64检测失败 | 请求ID:{request_id} | 错误:{str(e)}")
 
         # 调用服务
         print(f"{PREFIX} 调用LLMVisionService.analyze_image | 请求ID:{request_id} | 语言:{lang}")
-        result = LLMVisionService.analyze_image(image_data, request_id, lang)
+        try:
+            result = LLMVisionService.analyze_image(image_data, request_id, lang)
+        except Exception as service_error:
+            error_msg = str(service_error)
+            print(f"{ERROR_PREFIX} LLMVisionService调用异常 | 请求ID:{request_id} | 错误:{error_msg}")
+            print(f"{ERROR_PREFIX} 异常堆栈:\n{traceback.format_exc()}")
+            return web.json_response({"success": False, "error": f"服务调用异常: {error_msg}"})
 
         # 打印调试信息
         if not result.get('success'):
             error_msg = result.get('error', '未知错误')
-            print(f"{PREFIX} LLM视觉分析失败 | 请求ID:{request_id} | 错误:{error_msg}")
+            print(f"{ERROR_PREFIX} LLM视觉分析失败 | 请求ID:{request_id} | 错误:{error_msg}")
         else:
             desc_length = len(result.get('data', {}).get('description', ''))
             print(f"{PREFIX} LLM视觉分析成功 | 请求ID:{request_id} | 描述长度：{desc_length}")
@@ -229,7 +244,6 @@ async def llm_vision(request):
         return web.json_response(result)
     except Exception as e:
         error_msg = str(e)
-        print(f"{PREFIX} LLM视觉分析请求异常 | 请求ID:{request_id} | 错误:{error_msg}")
-        import traceback
-        print(f"异常堆栈：\n{traceback.format_exc()}")
+        print(f"{ERROR_PREFIX} LLM视觉分析请求异常 | 请求ID:{request_id} | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} 异常堆栈:\n{traceback.format_exc()}")
         return web.json_response({"success": False, "error": error_msg}) 

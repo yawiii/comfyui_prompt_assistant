@@ -229,11 +229,14 @@ class PromptAssistant {
      * 清理所有资源
      */
     cleanup(nodeId = null, silent = false) {
-        // 清理特定节点
-        if (nodeId) {
+        // 检查nodeId是否有效
+        if (nodeId !== null && nodeId !== undefined) {
+            // 确保nodeId是字符串类型，便于后续比较
+            const nodeIdStr = String(nodeId);
+
             // 获取当前节点的所有实例键
             const keysToDelete = Array.from(PromptAssistant.instances.keys())
-                .filter(key => key === String(nodeId) || key.startsWith(`${nodeId}_`));
+                .filter(key => key === nodeIdStr || key.startsWith(`${nodeIdStr}_`));
 
             // 如果有实例需要清理
             if (keysToDelete.length > 0) {
@@ -1334,7 +1337,7 @@ class PromptAssistant {
                                 try {
                                     if (translateType === "baidu") {
                                         // 使用百度翻译服务
-                                    result = await APIService.baiduTranslate(
+                                        result = await APIService.baiduTranslate(
                                             inputValue,
                                             langResult.from,
                                             langResult.to,
@@ -1342,7 +1345,7 @@ class PromptAssistant {
                                         );
                                     } else {
                                         // 使用LLM翻译服务
-                                    result = await APIService.llmTranslate(
+                                        result = await APIService.llmTranslate(
                                             inputValue,
                                             langResult.from,
                                             langResult.to,
@@ -1483,10 +1486,7 @@ class PromptAssistant {
      * 添加带图标的按钮
      */
     addButtonWithIcon(widget, config) {
-        if (!widget?.element || !widget?.innerContent) {
-            logger.error('添加按钮 | 结果:失败 | 原因: 容器不存在');
-            return null;
-        }
+        if (!widget?.element || !widget?.innerContent) return null;
 
         const { id, title, icon, onClick } = config;
 
@@ -1495,13 +1495,16 @@ class PromptAssistant {
         button.className = 'prompt-assistant-button';
         button.title = title || '';
         button.dataset.id = id || `btn_${Date.now()}`;
-        button.dataset.icon = icon?.replace('.svg', ''); // 保存不带后缀的图标名，用于CSS选择器
-
-        // 按钮样式在CSS中定义
 
         // 添加图标
         if (icon) {
-            UIToolkit.addIconToButton(button, icon, title || id);
+            // 创建图标元素
+            const iconElement = document.createElement('span');
+            // 使用icon.css中定义的类名
+            const iconClass = icon.replace('.svg', '');
+            iconElement.className = iconClass;
+            iconElement.setAttribute('aria-hidden', 'true');
+            button.appendChild(iconElement);
         }
 
         // 添加事件
@@ -1509,15 +1512,21 @@ class PromptAssistant {
             button.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+
+                // 如果按钮被禁用，不执行操作
+                if (button.classList.contains('button-disabled')) {
+                    return;
+                }
+
+                // 执行点击回调
                 onClick(e, widget);
             });
         }
 
-        // 保存引用并添加到内部内容容器
+        // 保存引用
         if (id) {
             widget.buttons[id] = button;
         }
-        widget.innerContent.appendChild(button);
 
         return button;
     }
@@ -1528,157 +1537,364 @@ class PromptAssistant {
      */
     _setupUIPosition(widget, inputEl, containerDiv, canvasContainerRect) {
         // 查找dom-widget父容器（ComfyUI 0.3.27及以上版本的标准容器）
-        let domWidgetContainer = null;
-
-        // 向上查找dom-widget容器
-        let parent = inputEl.parentElement;
-        while (parent) {
-            if (parent.classList && parent.classList.contains('dom-widget')) {
-                domWidgetContainer = parent;
-                break;
+        const findDomWidgetContainer = () => {
+            let domWidgetContainer = null;
+            // 向上查找dom-widget容器
+            let parent = inputEl.parentElement;
+            while (parent) {
+                if (parent.classList && parent.classList.contains('dom-widget')) {
+                    domWidgetContainer = parent;
+                    break;
+                }
+                parent = parent.parentElement;
             }
-            parent = parent.parentElement;
-        }
+            return domWidgetContainer;
+        };
 
-        // 检查是否需要使用兼容模式
-        const needCompatibilityMode = !domWidgetContainer;
-
+        // 初始查找dom-widget容器
+        let domWidgetContainer = findDomWidgetContainer();
+        
         // 清理函数列表
         widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
-
+        
+        // 检查是否需要使用兼容模式
+        let needCompatibilityMode = !domWidgetContainer;
+        
+        // 如果初次判断需要使用兼容模式，添加延迟重试机制
+        // 这是为了处理新创建节点时DOM可能尚未完全渲染的情况
         if (needCompatibilityMode) {
-            // === 兼容方案定位 (ComfyUI 0.3.26及以下) ===
-            logger.log("定位方式 - 兼容方案");
-
-            // 使用固定定位样式，不添加额外类
-            containerDiv.style.position = 'fixed';
-            containerDiv.style.zIndex = '9999';
-            document.body.appendChild(containerDiv);
-
-            // 设置初始显示
-            containerDiv.style.display = 'flex';
-
-            // 更新位置的函数，确保跟随输入框并位于右下角
-            const updatePosition = () => {
-                if (!widget.element || !inputEl || !containerDiv) return;
-
-                try {
-                    // 获取输入框的位置信息
-                    const inputRect = inputEl.getBoundingClientRect();
-
-                    // 设置容器样式 - 首先确保容器可见以便获得正确的尺寸
-                    containerDiv.style.display = 'flex';
-                    containerDiv.style.visibility = 'hidden'; // 暂时隐藏以避免闪烁
-
-                    // 先设置样式，使其能正确计算尺寸
-                    Object.assign(containerDiv.style, {
-                        width: 'auto',
-                        height: '24px',
-                        pointerEvents: 'none'
-                    });
-
-                    // 确保小部件样式正确
-                    Object.assign(widget.element.style, {
-                        transformOrigin: 'right center',
-                        margin: '0',
-                        pointerEvents: 'auto'
-                    });
-
-                    // 强制回流以获取正确尺寸
+            // 先创建一个临时容器，避免显示延迟
+            const tempDiv = document.createElement('div');
+            tempDiv.className = 'prompt-assistant-container prompt-assistant-temp';
+            tempDiv.style.display = 'none';
+            document.body.appendChild(tempDiv);
+            
+            // 保存临时容器引用，以便后续移除
+            widget._tempContainer = tempDiv;
+            
+            // 设置重试次数和间隔
+            const maxRetries = 2;
+            const retryInterval = 100; // 毫秒
+            let retryCount = 0;
+            
+            // 创建重试函数
+            const retrySetupPosition = () => {
+                // 重新查找dom-widget容器
+                domWidgetContainer = findDomWidgetContainer();
+                
+                if (domWidgetContainer) {
+                    // 找到了dom-widget容器，使用标准定位方案
+                    logger.log("定位方式 - 延迟检测后使用标准方案");
+                    needCompatibilityMode = false;
+                    
+                    // 移除临时容器
+                    if (widget._tempContainer && document.body.contains(widget._tempContainer)) {
+                        document.body.removeChild(widget._tempContainer);
+                        delete widget._tempContainer;
+                    }
+                    
+                    // 使用标准定位方案
+                    containerDiv.style.right = '6px';
+                    containerDiv.style.bottom = '8px';
+                    
+                    // 直接添加到dom-widget容器
+                    domWidgetContainer.appendChild(containerDiv);
+                    
+                    // 触发回流，确保样式更新
                     void containerDiv.offsetWidth;
-
-                    // 现在设置位置 - 放置在输入框右下角
-                    const offsetRight = 12; // 右侧偏移
-                    const offsetBottom = 8;
-
-                    containerDiv.style.left = `${inputRect.right - containerDiv.offsetWidth - offsetRight}px`;
-                    containerDiv.style.top = `${inputRect.bottom - containerDiv.offsetHeight - offsetBottom}px`;
-                    containerDiv.style.visibility = 'visible'; // 恢复可见性
-
-                    // 最终触发回流，确保样式更新
+                    
+                    // 强制应用容器高度
+                    containerDiv.style.height = '20px';
+                    containerDiv.style.minHeight = '20px';
                     void containerDiv.offsetWidth;
-                } catch (error) {
-                    logger.error("更新小助手位置出错:", error);
-                    // 错误恢复 - 确保组件仍然可见
-                    if (containerDiv) containerDiv.style.visibility = 'visible';
+                    
+                    return true;
+                } else if (retryCount < maxRetries) {
+                    // 继续重试
+                    retryCount++;
+                    logger.debug(`定位方式 - 重试查找dom-widget容器 (${retryCount}/${maxRetries})`);
+                    setTimeout(retrySetupPosition, retryInterval);
+                    return false;
+                } else {
+                    // 达到最大重试次数，使用兼容定位方案
+                    logger.log("定位方式 - 重试失败，使用兼容方案");
+                    
+                    // 移除临时容器
+                    if (widget._tempContainer && document.body.contains(widget._tempContainer)) {
+                        document.body.removeChild(widget._tempContainer);
+                        delete widget._tempContainer;
+                    }
+                    
+                    // 使用兼容定位方案
+                    setupCompatibilityMode();
+                    return true;
                 }
             };
+            
+            // 定义兼容模式设置函数
+            const setupCompatibilityMode = () => {
+                // === 兼容方案定位 (ComfyUI 0.3.26及以下) ===
+                logger.log("定位方式 - 兼容方案");
 
-            // 初始更新位置
-            updatePosition();
+                // 使用固定定位样式，不添加额外类
+                containerDiv.style.position = 'fixed';
+                containerDiv.style.zIndex = '9999';
+                document.body.appendChild(containerDiv);
 
-            // 使用防抖函数优化位置更新
-            const debouncedUpdatePosition = EventManager.debounce(updatePosition, 100);
+                // 设置初始显示
+                containerDiv.style.display = 'flex';
 
-            // 添加窗口resize事件监听
-            const removeResizeListener = EventManager.addDOMListener(window, 'resize', debouncedUpdatePosition);
-            widget._eventCleanupFunctions.push(removeResizeListener);
+                // 更新位置的函数，确保跟随输入框并位于右下角
+                const updatePosition = () => {
+                    if (!widget.element || !inputEl || !containerDiv) return;
 
-            // 监听画布变化
-            const app = window.app || null;
+                    try {
+                        // 获取输入框的位置信息
+                        const inputRect = inputEl.getBoundingClientRect();
 
-            if (!app || !app.canvas) {
-                logger.error("错误：无法获取app对象，小助手无法正常工作");
-                return;
-            }
+                        // 设置容器样式 - 首先确保容器可见以便获得正确的尺寸
+                        containerDiv.style.display = 'flex';
+                        containerDiv.style.visibility = 'hidden'; // 暂时隐藏以避免闪烁
 
-            // 1. 使用MutationObserver监听画布变化
-            const observer = new MutationObserver(debouncedUpdatePosition);
-            const canvasParent = app.canvas.canvas.parentElement;
+                        // 先设置样式，使其能正确计算尺寸
+                        Object.assign(containerDiv.style, {
+                            width: 'auto',
+                            height: '24px',
+                            pointerEvents: 'none'
+                        });
 
-            if (canvasParent) {
-                observer.observe(canvasParent, {
-                    attributes: true,
-                    attributeFilter: ['style', 'transform']
+                        // 确保小部件样式正确
+                        Object.assign(widget.element.style, {
+                            transformOrigin: 'right center',
+                            margin: '0',
+                            pointerEvents: 'auto'
+                        });
+
+                        // 强制回流以获取正确尺寸
+                        void containerDiv.offsetWidth;
+
+                        // 现在设置位置 - 放置在输入框右下角
+                        const offsetRight = 12; // 右侧偏移
+                        const offsetBottom = 8;
+
+                        containerDiv.style.left = `${inputRect.right - containerDiv.offsetWidth - offsetRight}px`;
+                        containerDiv.style.top = `${inputRect.bottom - containerDiv.offsetHeight - offsetBottom}px`;
+                        containerDiv.style.visibility = 'visible'; // 恢复可见性
+
+                        // 最终触发回流，确保样式更新
+                        void containerDiv.offsetWidth;
+                    } catch (error) {
+                        logger.error("更新小助手位置出错:", error);
+                        // 错误恢复 - 确保组件仍然可见
+                        if (containerDiv) containerDiv.style.visibility = 'visible';
+                    }
+                };
+
+                // 初始更新位置
+                updatePosition();
+
+                // 使用防抖函数优化位置更新，但降低延迟提高流畅度
+                const debouncedUpdatePosition = EventManager.debounce(updatePosition, 16);
+
+                // 添加窗口resize事件监听
+                const removeResizeListener = EventManager.addDOMListener(window, 'resize', debouncedUpdatePosition);
+                widget._eventCleanupFunctions.push(removeResizeListener);
+
+                // 监听画布变化
+                const app = window.app || null;
+
+                if (!app || !app.canvas) {
+                    logger.error("错误：无法获取app对象，小助手无法正常工作");
+                    return;
+                }
+
+                // 1. 使用MutationObserver监听画布变化
+                const observer = new MutationObserver(debouncedUpdatePosition);
+                const canvasParent = app.canvas.canvas.parentElement;
+
+                if (canvasParent) {
+                    observer.observe(canvasParent, {
+                        attributes: true,
+                        attributeFilter: ['style', 'transform']
+                    });
+
+                    // 添加Observer清理函数
+                    widget._eventCleanupFunctions.push(() => observer.disconnect());
+                }
+
+                // 2. 监听画布重绘 - 使用直接更新而不是防抖版本，确保重绘时位置准确
+                const originalDrawBackground = app.canvas.onDrawBackground;
+                app.canvas.onDrawBackground = function () {
+                    const ret = originalDrawBackground?.apply(this, arguments);
+                    // 直接调用updatePosition而不是防抖版本
+                    updatePosition();
+                    return ret;
+                };
+
+                // 添加画布重绘清理函数
+                widget._eventCleanupFunctions.push(() => {
+                    if (originalDrawBackground) {
+                        app.canvas.onDrawBackground = originalDrawBackground;
+                    }
                 });
 
-                // 添加Observer清理函数
-                widget._eventCleanupFunctions.push(() => observer.disconnect());
-            }
-
-            // 2. 监听画布重绘
-            const originalDrawBackground = app.canvas.onDrawBackground;
-            app.canvas.onDrawBackground = function () {
-                const ret = originalDrawBackground?.apply(this, arguments);
-                debouncedUpdatePosition();
-                return ret;
-            };
-
-            // 添加画布重绘清理函数
-            widget._eventCleanupFunctions.push(() => {
-                if (originalDrawBackground) {
-                    app.canvas.onDrawBackground = originalDrawBackground;
+                // 3. 监听节点移动 - 使用 nodeInfo 而不是直接的 node 引用
+                const nodeId = widget.nodeInfo?.nodeId;
+                if (nodeId && app.canvas && app.canvas.graph) {
+                    const node = app.canvas.graph.getNodeById(nodeId);
+                    if (node) {
+                        // 使用LiteGraph提供的onNodeMoved事件
+                        const originalOnNodeMoved = app.canvas.onNodeMoved;
+                        app.canvas.onNodeMoved = function(node_dragged) {
+                            if (originalOnNodeMoved) {
+                                originalOnNodeMoved.apply(this, arguments);
+                            }
+                            
+                            // 仅当移动的是当前节点时更新位置
+                            if (node_dragged && node_dragged.id === nodeId) {
+                                // 直接调用updatePosition而不是防抖版本，确保拖动时UI跟随节点
+                                updatePosition();
+                            }
+                        };
+                        
+                        // 添加节点移动清理函数
+                        widget._eventCleanupFunctions.push(() => {
+                            if (app.canvas) {
+                                app.canvas.onNodeMoved = originalOnNodeMoved;
+                            }
+                        });
+                        
+                        // 为节点本身添加移动监听（兼容性处理）
+                        const nodeOriginalOnNodeMoved = node.onNodeMoved;
+                        node.onNodeMoved = function() {
+                            const ret = nodeOriginalOnNodeMoved?.apply(this, arguments);
+                            // 直接调用updatePosition而不是防抖版本
+                            updatePosition();
+                            return ret;
+                        };
+                        
+                        // 添加节点自身移动清理函数
+                        widget._eventCleanupFunctions.push(() => {
+                            if (node && nodeOriginalOnNodeMoved) {
+                                node.onNodeMoved = nodeOriginalOnNodeMoved;
+                            }
+                        });
+                    }
                 }
-            });
+                
+                // 统一的画布事件处理函数
+                const handleCanvasEvent = () => {
+                    if (widget.element && widget.element.style.display !== 'none') {
+                        updatePosition();
+                    }
+                };
 
-            // 3. 监听节点移动 - 使用 nodeInfo 而不是直接的 node 引用
-            const nodeId = widget.nodeInfo?.nodeId;
-            if (nodeId && app.canvas && app.canvas.graph) {
-                const node = app.canvas.graph.getNodeById(nodeId);
-                if (node) {
-                    const originalOnNodeMoved = node.onNodeMoved;
-                    node.onNodeMoved = function () {
-                        const ret = originalOnNodeMoved?.apply(this, arguments);
-                        debouncedUpdatePosition();
-                        return ret;
-                    };
+                // 监听画布相关事件
+                if (!app || !app.canvas) {
+                    logger.error("错误：无法获取app对象，小助手无法正常工作");
+                    return;
+                }
 
-                    // 添加节点移动清理函数
-                    widget._eventCleanupFunctions.push(() => {
-                        if (node && originalOnNodeMoved) {
-                            node.onNodeMoved = originalOnNodeMoved;
-                        }
+                // 保存原始方法引用
+                const originalMethods = {
+                    setDirty: app.canvas.setDirty,
+                    drawBackground: app.canvas.onDrawBackground,
+                    dsModified: app.canvas.ds.onModified,
+                    setTransform: app.canvas.ds.setTransform,
+                    resize: app.canvas.resize
+                };
+
+                // 1. 监听画布变换（包括缩放、平移等）
+                app.canvas.setDirty = function(value, skipEvents) {
+                    const ret = originalMethods.setDirty?.apply(this, arguments);
+                    if (!skipEvents) {
+                        handleCanvasEvent();
+                    }
+                    return ret;
+                };
+
+                // 2. 监听画布重绘和缩放
+                app.canvas.onDrawBackground = function () {
+                    const ret = originalMethods.drawBackground?.apply(this, arguments);
+                    handleCanvasEvent();
+                    return ret;
+                };
+
+                app.canvas.ds.onModified = function(...args) {
+                    if (originalMethods.dsModified) {
+                        originalMethods.dsModified.apply(this, args);
+                    }
+                    handleCanvasEvent();
+                };
+
+                app.canvas.ds.setTransform = function() {
+                    const ret = originalMethods.setTransform?.apply(this, arguments);
+                    handleCanvasEvent();
+                    return ret;
+                };
+
+                // 3. 监听画布大小变化
+                app.canvas.resize = function() {
+                    const ret = originalMethods.resize?.apply(this, arguments);
+                    handleCanvasEvent();
+                    return ret;
+                };
+
+                // 4. 使用MutationObserver监听画布容器变化
+                const canvasContainer = app.canvas.canvas.parentElement;
+                if (canvasContainer) {
+                    const observer = new MutationObserver(() => handleCanvasEvent());
+                    observer.observe(canvasContainer, {
+                        attributes: true,
+                        attributeFilter: ['style', 'transform']
                     });
+                    widget._eventCleanupFunctions.push(() => observer.disconnect());
                 }
-            }
 
-            // 添加DOM元素清理函数
-            widget._eventCleanupFunctions.push(() => {
-                // 移除DOM元素
-                if (containerDiv && document.body.contains(containerDiv)) {
-                    document.body.removeChild(containerDiv);
-                }
-            });
+                // 5. 使用requestAnimationFrame实现平滑更新
+                let rafId = null;
+                const smoothUpdate = () => {
+                    handleCanvasEvent();
+                    rafId = requestAnimationFrame(smoothUpdate);
+                };
+                rafId = requestAnimationFrame(smoothUpdate);
+
+                // 添加所有清理函数
+                widget._eventCleanupFunctions.push(
+                    () => {
+                        // 清理画布相关事件监听
+                        if (app.canvas) {
+                            app.canvas.setDirty = originalMethods.setDirty;
+                            app.canvas.onDrawBackground = originalMethods.drawBackground;
+                            app.canvas.resize = originalMethods.resize;
+                        }
+                        if (app.canvas?.ds) {
+                            app.canvas.ds.onModified = originalMethods.dsModified;
+                            app.canvas.ds.setTransform = originalMethods.setTransform;
+                        }
+                        // 清理requestAnimationFrame
+                        if (rafId !== null) {
+                            cancelAnimationFrame(rafId);
+                        }
+                    }
+                );
+
+                // 添加DOM元素清理函数
+                widget._eventCleanupFunctions.push(() => {
+                    // 移除DOM元素
+                    if (containerDiv && document.body.contains(containerDiv)) {
+                        document.body.removeChild(containerDiv);
+                    }
+                });
+                
+                // 强制应用容器高度
+                containerDiv.style.height = '20px';
+                containerDiv.style.minHeight = '20px';
+                void containerDiv.offsetWidth; // 触发回流，确保样式应用
+            };
+            
+            // 开始重试流程
+            setTimeout(retrySetupPosition, retryInterval);
         } else {
             // === 标准方案定位 (ComfyUI 0.3.27及以上) ===
             logger.log("定位方式 - 标准方案");
@@ -1692,12 +1908,12 @@ class PromptAssistant {
 
             // 触发回流，确保样式更新
             void containerDiv.offsetWidth;
+            
+            // 强制应用容器高度
+            containerDiv.style.height = '20px';
+            containerDiv.style.minHeight = '20px';
+            void containerDiv.offsetWidth; // 触发回流，确保样式应用
         }
-
-        // 强制应用容器高度
-        containerDiv.style.height = '20px';
-        containerDiv.style.minHeight = '20px';
-        void containerDiv.offsetWidth; // 触发回流，确保样式应用
     }
 
     /**
@@ -1705,7 +1921,11 @@ class PromptAssistant {
      */
     _cleanupInstance(instance, instanceKey, skipRemove = false) {
         try {
-            if (!instance) return;
+            // 检查实例是否有效
+            if (!instance) {
+                logger.debug(`实例清理 | 结果:跳过 | 实例:${instanceKey || 'unknown'} | 原因:实例不存在`);
+                return;
+            }
 
             // 1. 重置所有按钮状态
             if (instance.buttons) {
@@ -1727,12 +1947,16 @@ class PromptAssistant {
             }
 
             // 2. 清理事件监听器
-            if (instance.cleanupListeners) {
-                instance.cleanupListeners();
+            if (instance.cleanupListeners && typeof instance.cleanupListeners === 'function') {
+                try {
+                    instance.cleanupListeners();
+                } catch (err) {
+                    logger.debug(`监听器清理 | 错误:${err.message}`);
+                }
             }
 
             // 3. 清理所有保存的事件清理函数
-            if (instance._eventCleanupFunctions) {
+            if (instance._eventCleanupFunctions && Array.isArray(instance._eventCleanupFunctions)) {
                 instance._eventCleanupFunctions.forEach(cleanup => {
                     if (typeof cleanup === 'function') {
                         try {
@@ -1746,18 +1970,29 @@ class PromptAssistant {
             }
 
             // 4. 从DOM中移除元素
-            if (instance.element && instance.element.parentNode) {
-                // 确保在移除元素前清理所有子元素的事件
-                const allButtons = instance.element.querySelectorAll('button');
-                allButtons.forEach(button => {
-                    button.replaceWith(button.cloneNode(true));
-                });
-                instance.element.parentNode.removeChild(instance.element);
+            if (instance.element) {
+                try {
+                    // 确保在移除元素前清理所有子元素的事件
+                    const allButtons = instance.element.querySelectorAll('button');
+                    allButtons.forEach(button => {
+                        button.replaceWith(button.cloneNode(true));
+                    });
+
+                    if (instance.element.parentNode) {
+                        instance.element.parentNode.removeChild(instance.element);
+                    }
+                } catch (err) {
+                    logger.debug(`DOM元素清理 | 错误:${err.message}`);
+                }
             }
 
             // 5. 清理输入框映射
             if (window.PromptAssistantInputWidgetMap && instanceKey) {
-                delete window.PromptAssistantInputWidgetMap[instanceKey];
+                try {
+                    delete window.PromptAssistantInputWidgetMap[instanceKey];
+                } catch (err) {
+                    logger.debug(`输入框映射清理 | 错误:${err.message}`);
+                }
             }
 
             // 6. 清理弹窗状态
@@ -1771,21 +2006,29 @@ class PromptAssistant {
 
             // 7. 从实例集合中移除（除非明确指定跳过）
             if (!skipRemove && instanceKey) {
-                PromptAssistant.instances.delete(instanceKey);
+                try {
+                    PromptAssistant.instances.delete(instanceKey);
+                } catch (err) {
+                    logger.debug(`实例集合清理 | 错误:${err.message}`);
+                }
             }
 
             // 8. 清理实例属性
-            Object.keys(instance).forEach(key => {
-                try {
-                    delete instance[key];
-                } catch (err) {
-                    logger.debug(`属性清理 | 属性:${key} | 错误:${err.message}`);
-                }
-            });
+            try {
+                Object.keys(instance).forEach(key => {
+                    try {
+                        delete instance[key];
+                    } catch (err) {
+                        logger.debug(`属性清理 | 属性:${key} | 错误:${err.message}`);
+                    }
+                });
+            } catch (err) {
+                logger.debug(`属性清理 | 错误:${err.message}`);
+            }
 
-            logger.debug(`实例清理 | 结果:成功 | 实例:${instanceKey}`);
+            logger.debug(`实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
         } catch (error) {
-            logger.error(`实例清理失败 | 实例:${instanceKey} | 错误:${error.message}`);
+            logger.error(`实例清理失败 | 实例:${instanceKey || 'unknown'} | 错误:${error.message}`);
         }
     }
 }

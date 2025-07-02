@@ -10,6 +10,32 @@ class LLMVisionService:
     MODEL = 'glm-4v-flash'
     
     @staticmethod
+    def _make_request(url, headers, json_data):
+        """
+        统一处理请求，包含代理处理逻辑
+        """
+        try:
+            # 禁用系统代理
+            session = requests.Session()
+            session.trust_env = False
+            
+            # 发送请求
+            response = session.post(url, headers=headers, json=json_data, timeout=30)
+            return response
+        except requests.exceptions.ProxyError as e:
+            # 处理代理错误
+            print(f"代理连接错误: {str(e)}")
+            # 尝试不使用代理直接连接
+            try:
+                proxies = {'http': None, 'https': None}
+                response = requests.post(url, headers=headers, json=json_data, proxies=proxies, timeout=30)
+                return response
+            except Exception as direct_error:
+                raise Exception(f"直接连接也失败: {str(direct_error)}")
+        except Exception as e:
+            raise e
+    
+    @staticmethod
     def analyze_image(image_data, request_id=None, lang='zh'):
         """
         使用GLM-4V分析图像
@@ -114,7 +140,7 @@ class LLMVisionService:
             }
             
             # 发送请求
-            response = requests.post(LLMVisionService.BASE_URL, headers=headers, json=data)
+            response = LLMVisionService._make_request(LLMVisionService.BASE_URL, headers, data)
             
             # 检查HTTP响应状态码
             if response.status_code != 200:

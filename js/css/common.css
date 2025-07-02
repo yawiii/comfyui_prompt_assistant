@@ -5,6 +5,50 @@
 
 /* ======== 动画定义 ======== */
 
+/* 输入框高亮动画 */
+@keyframes inputHighlight {
+    0% {
+        background-color: transparent;
+    }
+
+    20% {
+        background-color: rgba(93, 243, 146, 0.07);
+    }
+
+    100% {
+        background-color: transparent;
+    }
+}
+
+.input-highlight {
+    animation: inputHighlight 0.2s ease-out;
+}
+
+/* 图像小助手专用动画 */
+@keyframes image-assistant-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(var(--assistant-scale, 1));
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(var(--assistant-scale, 1));
+    }
+}
+
+@keyframes image-assistant-fade-out {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(var(--assistant-scale, 1));
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(var(--assistant-scale, 1));
+    }
+}
+
 /* 向上淡入动画 */
 @keyframes clipFadeInUp {
     from {
@@ -120,4 +164,153 @@
         opacity: 1;
         transform: translate(-50%, -100%) translateY(-8px) scale(1);
     }
+}
+
+/* 标签内容渐显动画 */
+@keyframes tagContentFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 标签内容包装器样式 */
+.tag_content_wrapper {
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-out;
+    transform: translateY(-5px);
+}
+
+.tag_content_wrapper.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* ======== 图像反推复制对话框样式 ======== */
+.image-assistant-copy-dialog {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: var(--p-dialog-background);
+    color: var(--p-text-muted-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    z-index: 9999;
+    width: 400px;
+    height: 300px;
+    padding: 20px;
+    font-family: var(--litegraph-font, Arial, sans-serif);
+    position: relative;
+}
+
+/* 关闭按钮 */
+.image-assistant-copy-dialog-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: none;
+    color: var(--p-button-text-secondary-color);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.image-assistant-copy-dialog-close:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: var(--p-button-text-secondary-color);
+}
+
+.image-assistant-copy-dialog-close .icon-close {
+    width: 16px;
+    height: 16px;
+}
+
+/* 标题文本 */
+.image-assistant-copy-dialog-title {
+    font-size: 14px;
+    font-weight: bold;
+    line-height: 1.4;
+    margin: 0 0 16px 0;
+    padding-right: 30px;
+    /* 为关闭按钮留出空间 */
+}
+
+/* 文本区域 */
+.image-assistant-copy-dialog-textarea {
+    width: 100%;
+    height: 160px;
+    padding: 12px;
+    border: 1px solid var(--p-content-border-color);
+    border-radius: 6px;
+    background-color: var(--comfy-input-bg);
+    color: var(--input-text);
+    font-family: var(--litegraph-font, Arial, sans-serif);
+    font-size: 13px;
+    line-height: 1.5;
+    resize: none;
+    outline: none;
+    box-sizing: border-box;
+    margin-bottom: 16px;
+}
+
+.image-assistant-copy-dialog-textarea:focus {
+    border-color: var(--p-primary-hover-color);
+    box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.2);
+}
+
+/* 复制按钮 */
+.image-assistant-copy-dialog-copy-btn {
+    display: block;
+    margin: 0 auto;
+    padding: 10px 24px;
+    background-color: var(--p-primary-color);
+    color: var(--p-button-primary-color);
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    min-width: 120px;
+}
+
+.image-assistant-copy-dialog-copy-btn:hover {
+    background-color: var(--p-primary-hover-color);
+}
+
+.image-assistant-copy-dialog-copy-btn:active {
+    background-color: var(--p-primary-hover-color);
+    transform: translateY(0);
+    box-shadow: 0 1px 4px rgba(74, 144, 226, 0.3);
+}
+
+/* 对话框入场动画 */
+@keyframes dialogFadeIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.image-assistant-copy-dialog {
+    animation: dialogFadeIn 0.2s ease-out;
 }

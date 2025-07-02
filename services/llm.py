@@ -8,6 +8,32 @@ class LLMService:
     MODEL = 'glm-4-flash-250414'
     
     @staticmethod
+    def _make_request(url, headers, json_data):
+        """
+        统一处理请求，包含代理处理逻辑
+        """
+        try:
+            # 禁用系统代理
+            session = requests.Session()
+            session.trust_env = False
+            
+            # 发送请求
+            response = session.post(url, headers=headers, json=json_data, timeout=30)
+            return response
+        except requests.exceptions.ProxyError as e:
+            # 处理代理错误
+            print(f"代理连接错误: {str(e)}")
+            # 尝试不使用代理直接连接
+            try:
+                proxies = {'http': None, 'https': None}
+                response = requests.post(url, headers=headers, json=json_data, proxies=proxies, timeout=30)
+                return response
+            except Exception as direct_error:
+                raise Exception(f"直接连接也失败: {str(direct_error)}")
+        except Exception as e:
+            raise e
+    
+    @staticmethod
     def expand_prompt(prompt, request_id=None):
         """
         使用GLM-4扩写提示词，自动判断用户输入语言，并设置大模型回答语言。
@@ -60,8 +86,11 @@ class LLMService:
                 "top_p": 0.5,
                 "max_tokens": 1500
             }
-            response = requests.post(LLMService.BASE_URL, headers=headers, json=data)
+            
+            # 使用统一的请求方法
+            response = LLMService._make_request(LLMService.BASE_URL, headers, data)
             result = response.json()
+            
             if 'error' in result:
                 return {"success": False, "error": result['error'].get('message', '扩写请求失败')}
             expanded_text = result['choices'][0]['message']['content']
@@ -133,8 +162,11 @@ class LLMService:
                 "top_p": 0.5,
                 "max_tokens": 1500
             }
-            response = requests.post(LLMService.BASE_URL, headers=headers, json=data)
+            
+            # 使用统一的请求方法
+            response = LLMService._make_request(LLMService.BASE_URL, headers, data)
             result = response.json()
+            
             if 'error' in result:
                 return {"success": False, "error": result['error'].get('message', '翻译请求失败')}
             translated_text = result['choices'][0]['message']['content']

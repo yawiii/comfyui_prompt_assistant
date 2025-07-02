@@ -22,11 +22,15 @@ class PopupManager {
         mouseup: null
     };
 
+
+
+
+
     /**
      * 显示弹窗，确保同时只有一个弹窗显示
      */
     static showPopup(options) {
-        const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [] } = options;
+        const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [], enableResize = false } = options;
 
         // 如果已有其他弹窗，先关闭它
         if (this.activePopup && this.activePopup !== popup) {
@@ -75,7 +79,7 @@ class PopupManager {
      * 显示新弹窗的内部方法
      */
     static _showNewPopup(options) {
-        const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [] } = options;
+        const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [], enableResize = false } = options;
 
         // 保存当前弹窗信息
         this.activePopup = popup;
@@ -85,6 +89,8 @@ class PopupManager {
             onClose,
             preventCloseOnElementTypes
         };
+
+
 
         // 计算弹窗位置
         this.positionPopup(popup, anchorButton);
@@ -99,6 +105,11 @@ class PopupManager {
 
         // 设置拖动事件
         this.setupDragEvents(popup);
+
+        // 如果启用窗口大小调节，设置调节事件
+        if (enableResize) {
+            this.setupResizeEvents(popup);
+        }
 
         // 返回弹窗元素
         return popup;
@@ -151,9 +162,10 @@ class PopupManager {
         titleBar.style.cursor = 'move';
 
         const handleMouseDown = (e) => {
-            // 如果点击的是按钮或输入框，不启动拖动
+            // 如果点击的是按钮、输入框或调节手柄，不启动拖动
             if (e.target.closest('.popup_btn') ||
                 e.target.closest('.popup_action_btn') ||
+                e.target.closest('.popup_resize_handle') ||
                 e.target.tagName === 'INPUT' ||
                 e.target.closest('input')) {
                 return;
@@ -226,6 +238,108 @@ class PopupManager {
             titleBar.removeEventListener('mousedown', handleMouseDown);
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
+        };
+    }
+
+    /**
+     * 设置窗口大小调节事件
+     */
+    static setupResizeEvents(popup) {
+        // ---窗口大小调节功能---
+        // 创建右下角拖拽手柄
+        const resizeHandle = document.createElement('div');
+        resizeHandle.className = 'popup_resize_handle';
+        const iconElement = document.createElement('div');
+        iconElement.className = 'icon-resize-handle';
+        resizeHandle.appendChild(iconElement);
+        popup.appendChild(resizeHandle);
+
+        // 窗口大小调节相关变量
+        let isResizing = false;
+        let startX, startY, startWidth, startHeight;
+        const minWidth = 300; // 最小宽度
+        const minHeight = 200; // 最小高度
+
+        const handleResizeStart = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            isResizing = true;
+            startX = e.clientX;
+            startY = e.clientY;
+
+            const rect = popup.getBoundingClientRect();
+            startWidth = rect.width;
+            startHeight = rect.height;
+
+            // 添加调节状态类
+            popup.classList.add('resizing');
+
+            // 禁用过渡效果
+            popup.style.transition = 'none';
+
+            // 阻止文本选择
+            document.body.style.userSelect = 'none';
+            document.body.style.cursor = 'nw-resize';
+        };
+
+        const handleResizeMove = (e) => {
+            if (!isResizing) return;
+
+            e.preventDefault();
+
+            // 计算新的尺寸
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+
+            let newWidth = Math.max(minWidth, startWidth + deltaX);
+            let newHeight = Math.max(minHeight, startHeight + deltaY);
+
+            // 确保不超出视窗边界
+            const rect = popup.getBoundingClientRect();
+            const maxWidth = window.innerWidth - rect.left - 8;
+            const maxHeight = window.innerHeight - rect.top - 8;
+
+            newWidth = Math.min(newWidth, maxWidth);
+            newHeight = Math.min(newHeight, maxHeight);
+
+            // 应用新尺寸
+            popup.style.width = `${newWidth}px`;
+            popup.style.height = `${newHeight}px`;
+        };
+
+        const handleResizeEnd = () => {
+            if (!isResizing) return;
+
+            isResizing = false;
+
+            // 移除调节状态类
+            popup.classList.remove('resizing');
+
+            // 恢复过渡效果
+            popup.style.transition = '';
+
+            // 恢复默认样式
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        };
+
+        // 添加事件监听
+        resizeHandle.addEventListener('mousedown', handleResizeStart);
+        document.addEventListener('mousemove', handleResizeMove);
+        document.addEventListener('mouseup', handleResizeEnd);
+
+        // 保存清理函数
+        const originalCleanup = popup._cleanup || (() => { });
+        popup._cleanup = () => {
+            originalCleanup();
+            resizeHandle.removeEventListener('mousedown', handleResizeStart);
+            document.removeEventListener('mousemove', handleResizeMove);
+            document.removeEventListener('mouseup', handleResizeEnd);
+
+            // 恢复默认样式
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
         };
     }
 

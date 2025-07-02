@@ -50,6 +50,8 @@ class ImageCaption {
             ResourceManager.init();
             // 注册节点选择事件监听
             this.registerNodeSelectionListener();
+            // 注册全局鼠标监听
+            this.registerGlobalMouseListener();
 
             this.initialized = true;
             logger.log("图像小助手初始化完成");
@@ -353,11 +355,11 @@ class ImageCaption {
         try {
             // 创建内部内容容器
             const innerContentDiv = document.createElement('div');
-            innerContentDiv.className = 'prompt-assistant-inner';
+            innerContentDiv.className = 'image-assistant-inner';
 
             // 创建主容器
             const containerDiv = document.createElement('div');
-            containerDiv.className = 'prompt-assistant-container';
+            containerDiv.className = 'image-assistant-container';
             containerDiv.dataset.nodeId = assistant.nodeId;
 
             // 添加内容容器到主容器
@@ -380,7 +382,7 @@ class ImageCaption {
             document.body.appendChild(containerDiv);
 
             // 新增：添加鼠标事件监听
-            this._setupMouseEvents(assistant);
+            // this._setupMouseEvents(assistant); // 改为全局监听器处理
 
             // 新增：延迟设置位置，确保canvas已经初始化
             requestAnimationFrame(() => {
@@ -414,7 +416,7 @@ class ImageCaption {
 
         // 创建分割线
         const divider = document.createElement('div');
-        divider.className = 'prompt-assistant-divider';
+        divider.className = 'image-assistant-divider';
 
         // 创建反推按钮（英文）
         const buttonEn = this.addButtonWithIcon(assistant, {
@@ -585,7 +587,7 @@ class ImageCaption {
             });
 
             // 显示成功提示
-            const successMessage = copySuccess 
+            const successMessage = copySuccess
                 ? (lang === 'en' ? "反推完成，已复制到剪贴板" : "反推完成，已复制到剪贴板")
                 : (lang === 'en' ? "反推完成，但复制失败" : "反推完成，但复制失败");
 
@@ -605,7 +607,7 @@ class ImageCaption {
             // 显示Toast提示
             app.extensionManager.toast.add({
                 severity: copySuccess ? "success" : "info",
-                summary: copySuccess 
+                summary: copySuccess
                     ? (lang === 'en' ? "图像反推完成（英文），请使用 ctrl+v 粘贴" : "图像反推完成（中文），请使用 ctrl+v 粘贴")
                     : (lang === 'en' ? "图像反推完成（英文），但复制失败，请手动复制" : "图像反推完成（中文），但复制失败，请手动复制"),
                 detail: truncatedDescription,
@@ -667,62 +669,38 @@ class ImageCaption {
     _showCopyDialog(content, lang) {
         // 创建对话框容器
         const dialogContainer = document.createElement('div');
-        dialogContainer.className = 'prompt-assistant-copy-dialog';
-        dialogContainer.style.position = 'fixed';
-        dialogContainer.style.top = '50%';
-        dialogContainer.style.left = '50%';
-        dialogContainer.style.transform = 'translate(-50%, -50%)';
-        dialogContainer.style.backgroundColor = 'var(--litegraph-bg-color, #333)';
-        dialogContainer.style.color = 'var(--litegraph-node-color, #eee)';
-        dialogContainer.style.padding = '20px';
-        dialogContainer.style.borderRadius = '8px';
-        dialogContainer.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
-        dialogContainer.style.zIndex = '9999';
-        dialogContainer.style.maxWidth = '80%';
-        dialogContainer.style.maxHeight = '80%';
-        dialogContainer.style.overflow = 'auto';
-        dialogContainer.style.display = 'flex';
-        dialogContainer.style.flexDirection = 'column';
-        dialogContainer.style.gap = '15px';
+        dialogContainer.className = 'image-assistant-copy-dialog';
 
         // 创建标题
         const title = document.createElement('div');
-        title.style.fontSize = '18px';
-        title.style.fontWeight = 'bold';
-        title.style.borderBottom = '1px solid var(--litegraph-node-color, #ccc)';
-        title.style.paddingBottom = '10px';
-        title.textContent = lang === 'en' ? '图像反推结果 (英文)' : '图像反推结果 (中文)';
+        title.className = 'image-assistant-copy-dialog-title';
+        title.textContent = '由于剪贴板权限被限制，请手动点击复制提示词内容';
         dialogContainer.appendChild(title);
 
-        // 创建内容区域
+        // 创建关闭按钮
+        const closeButton = document.createElement('button');
+        closeButton.className = 'image-assistant-copy-dialog-close';
+        closeButton.onclick = () => {
+            document.body.removeChild(dialogContainer);
+        };
+
+        // 创建关闭图标
+        const closeIcon = document.createElement('span');
+        closeIcon.className = 'icon-close';
+        closeButton.appendChild(closeIcon);
+        dialogContainer.appendChild(closeButton);
+
+        // 创建文本区域
         const contentArea = document.createElement('textarea');
+        contentArea.className = 'image-assistant-copy-dialog-textarea';
         contentArea.value = content;
-        contentArea.style.width = '100%';
-        contentArea.style.minHeight = '200px';
-        contentArea.style.padding = '10px';
-        contentArea.style.border = '1px solid var(--litegraph-node-title, #666)';
-        contentArea.style.borderRadius = '4px';
-        contentArea.style.backgroundColor = 'var(--litegraph-node-title-color, #444)';
-        contentArea.style.color = 'var(--litegraph-node-color, #eee)';
         contentArea.readOnly = true;
         dialogContainer.appendChild(contentArea);
 
-        // 创建按钮容器
-        const buttonContainer = document.createElement('div');
-        buttonContainer.style.display = 'flex';
-        buttonContainer.style.justifyContent = 'space-between';
-        buttonContainer.style.gap = '10px';
-        dialogContainer.appendChild(buttonContainer);
-
         // 创建复制按钮
         const copyButton = document.createElement('button');
+        copyButton.className = 'image-assistant-copy-dialog-copy-btn';
         copyButton.textContent = '复制到剪贴板';
-        copyButton.style.padding = '8px 15px';
-        copyButton.style.backgroundColor = 'var(--litegraph-node-selected-color, #245)';
-        copyButton.style.color = 'var(--litegraph-node-color, white)';
-        copyButton.style.border = 'none';
-        copyButton.style.borderRadius = '4px';
-        copyButton.style.cursor = 'pointer';
         copyButton.onclick = () => {
             contentArea.select();
             try {
@@ -741,21 +719,7 @@ class ImageCaption {
                 contentArea.focus();
             }
         };
-        buttonContainer.appendChild(copyButton);
-
-        // 创建关闭按钮
-        const closeButton = document.createElement('button');
-        closeButton.textContent = '关闭';
-        closeButton.style.padding = '8px 15px';
-        closeButton.style.backgroundColor = 'var(--litegraph-node-color-terminal, #333)';
-        closeButton.style.color = 'var(--litegraph-node-color, white)';
-        closeButton.style.border = 'none';
-        closeButton.style.borderRadius = '4px';
-        closeButton.style.cursor = 'pointer';
-        closeButton.onclick = () => {
-            document.body.removeChild(dialogContainer);
-        };
-        buttonContainer.appendChild(closeButton);
+        dialogContainer.appendChild(copyButton);
 
         // 添加到文档
         document.body.appendChild(dialogContainer);
@@ -862,14 +826,19 @@ class ImageCaption {
 
         // 创建按钮
         const button = document.createElement('button');
-        button.className = 'prompt-assistant-button';
+        button.className = 'image-assistant-button';
         button.title = title || '';
         button.dataset.id = id || `btn_${Date.now()}`;
-        button.dataset.icon = icon?.replace('.svg', '');
 
         // 添加图标
         if (icon) {
-            UIToolkit.addIconToButton(button, icon, title || id);
+            // 创建图标元素
+            const iconElement = document.createElement('span');
+            // 使用icon.css中定义的类名
+            const iconClass = icon.replace('.svg', '');
+            iconElement.className = iconClass;
+            iconElement.setAttribute('aria-hidden', 'true');
+            button.appendChild(iconElement);
         }
 
         // 添加事件
@@ -928,12 +897,15 @@ class ImageCaption {
                     return;
                 }
 
+                // 获取画布缩放比例
+                const scale = canvas.ds.scale;
+
                 // 获取节点边界
                 const [nodeX, nodeY, nodeWidth, nodeHeight] = assistant.node.getBounding();
 
                 // 计算内部偏移量（用于将小助手放在节点内部）
-                const INNER_OFFSET_X = 10; // 水平偏移量
-                const INNER_OFFSET_Y = 18; // 垂直偏移量
+                const INNER_OFFSET_X = 6; // 水平偏移量
+                const INNER_OFFSET_Y = 6; // 垂直偏移量
 
                 // 计算定位点位置（节点右下角）
                 const anchorX = nodeX + nodeWidth - INNER_OFFSET_X;
@@ -957,6 +929,9 @@ class ImageCaption {
                 containerDiv.style.bottom = `${window.innerHeight - screenY}px`;
                 containerDiv.style.left = 'auto';
                 containerDiv.style.top = 'auto';
+
+                // 应用缩放
+                containerDiv.style.setProperty('--assistant-scale', scale);
 
             } catch (error) {
                 logger.error(`更新小助手位置失败: ${error.message}`);
@@ -996,7 +971,7 @@ class ImageCaption {
             if (assistant.node) {
                 // 使用LiteGraph提供的onNodeMoved事件
                 const originalOnNodeMoved = app.canvas.onNodeMoved;
-                app.canvas.onNodeMoved = function(node_dragged) {
+                app.canvas.onNodeMoved = function (node_dragged) {
                     if (originalOnNodeMoved) {
                         originalOnNodeMoved.apply(this, arguments);
                     }
@@ -1017,7 +992,7 @@ class ImageCaption {
 
                 // 为节点本身添加移动监听（兼容性处理）
                 const nodeOriginalOnNodeMoved = assistant.node.onNodeMoved;
-                assistant.node.onNodeMoved = function() {
+                assistant.node.onNodeMoved = function () {
                     const ret = nodeOriginalOnNodeMoved?.apply(this, arguments);
                     // 直接调用updatePosition而不是防抖版本
                     updatePosition();
@@ -1062,169 +1037,7 @@ class ImageCaption {
      * 设置鼠标事件监听
      */
     _setupMouseEvents(assistant) {
-        if (!assistant?.node) return;
-
-        const checkMouseInNodeArea = (e) => {
-            // 检查总开关和图像反推功能开关状态
-            if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                return false;
-            }
-
-            const node = assistant.node;
-            if (!node) return false;
-
-            // 检查节点是否已被删除（关键修复）
-            if (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[node.id]) {
-                return false;
-            }
-
-            const canvas = app.canvas;
-            if (!canvas) return false;
-
-            try {
-                // 获取鼠标在画布中的位置（使用LGraphCanvas的转换方法）
-                const canvasPos = canvas.convertEventToCanvasOffset(e);
-                if (!canvasPos) return false;
-
-                const [canvasX, canvasY] = canvasPos;
-
-                // 获取节点边界 - 使用LiteGraph内置方法
-                const [nodeX, nodeY, nodeWidth, nodeHeight] = node.getBounding();
-
-                // 计算标题栏高度 - 根据ComfyUI的节点样式
-                const titleHeight = node.flags?.collapsed ? 0 : (node.title_height || 30);
-
-                // 计算内容区域（排除标题栏）
-                const contentY = nodeY + titleHeight;
-                const contentHeight = nodeHeight - titleHeight;
-
-                // 检查鼠标是否在内容区域内（使用画布坐标系）
-                const isInside = canvasX >= nodeX && canvasX <= nodeX + nodeWidth &&
-                    canvasY >= contentY && canvasY <= contentY + contentHeight;
-
-                // 检查鼠标是否在小助手UI上
-                const isOverUI = assistant.element &&
-                                assistant.element.style.display !== 'none' &&
-                                EventManager.isMouseOverElement(assistant.element);
-
-                return isInside || isOverUI;
-            } catch (error) {
-                logger.error(`检查节点区域失败: ${error.message}`);
-                return false;
-            }
-        };
-
-        // 使用 requestAnimationFrame 优化更新
-        let rafId = null;
-        let lastMouseEvent = null;
-
-        const updateMouseState = () => {
-            // 检查总开关和图像反推功能开关状态
-            if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                if (assistant.isMouseOver) {
-                    assistant.isMouseOver = false;
-                    this.updateAssistantVisibility(assistant);
-                }
-                rafId = null;
-                return;
-            }
-
-            // 检查节点是否已被删除（关键修复）
-            if (!assistant.node || !app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[assistant.node.id]) {
-                if (assistant.isMouseOver) {
-                    assistant.isMouseOver = false;
-                    this.updateAssistantVisibility(assistant);
-                }
-                rafId = null;
-                return;
-            }
-
-            // 跳过首次创建的检查（首次创建时已经设置为显示）
-            if (assistant.isFirstCreate) {
-                rafId = null;
-                return;
-            }
-
-            // 如果小助手处于激活状态，保持鼠标悬停状态为true
-            if (assistant.isActive || this._checkAssistantActiveState(assistant)) {
-                if (!assistant.isMouseOver) {
-                    assistant.isMouseOver = true;
-                    this.updateAssistantVisibility(assistant);
-                }
-                rafId = null;
-                return;
-            }
-
-            // 只有在有最后鼠标事件的情况下才检查
-            if (lastMouseEvent) {
-                const isOver = checkMouseInNodeArea(lastMouseEvent);
-
-                // 只在状态变化时更新可见性，避免不必要的重绘
-                if (isOver !== assistant.isMouseOver) {
-                    assistant.isMouseOver = isOver;
-                    this.updateAssistantVisibility(assistant);
-                }
-            }
-
-            rafId = null;
-        };
-
-        // 处理鼠标移动
-        const handleMouseMove = (e) => {
-            // 检查总开关和图像反推功能开关状态
-            if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                return;
-            }
-
-            lastMouseEvent = e;
-            if (!rafId) {
-                rafId = requestAnimationFrame(updateMouseState);
-            }
-        };
-
-        // 处理画布变换
-        const handleCanvasTransform = () => {
-            // 检查总开关和图像反推功能开关状态
-            if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                return;
-            }
-
-            if (lastMouseEvent) {
-                if (!rafId) {
-                    rafId = requestAnimationFrame(updateMouseState);
-                }
-            }
-        };
-
-        // 添加事件监听
-        if (app.canvas.canvas) {
-            // 鼠标移动事件
-            app.canvas.canvas.addEventListener('mousemove', handleMouseMove);
-
-            // 画布变换事件
-            const canvas = app.canvas;
-            const originalDSModified = canvas.ds.onModified;
-            canvas.ds.onModified = function (...args) {
-                if (originalDSModified) {
-                    originalDSModified.apply(this, args);
-                }
-                handleCanvasTransform();
-            };
-
-            // 保存清理函数
-            assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
-            assistant._eventCleanupFunctions.push(() => {
-                app.canvas.canvas.removeEventListener('mousemove', handleMouseMove);
-                if (rafId) {
-                    cancelAnimationFrame(rafId);
-                    rafId = null;
-                }
-                // 恢复原始的 onModified 处理器
-                if (canvas.ds) {
-                    canvas.ds.onModified = originalDSModified;
-                }
-            });
-        }
+        // 此函数已废弃，由 registerGlobalMouseListener 统一处理
     }
 
     /**
@@ -1293,7 +1106,7 @@ class ImageCaption {
         if (!assistant?.element) return;
 
         // 避免重复显示
-        if (assistant.element.classList.contains('assistant-show') && !forceAnimation) {
+        if (assistant.element.classList.contains('image-assistant-show') && !forceAnimation) {
             assistant.element.style.display = 'flex';
             assistant.element.style.opacity = '1';
             return;
@@ -1316,8 +1129,8 @@ class ImageCaption {
         // 显示元素并应用动画类
         assistant.element.style.display = 'flex';
         void assistant.element.offsetWidth; // 触发回流
-        assistant.element.classList.remove('assistant-hide');
-        assistant.element.classList.add('assistant-show');
+        assistant.element.classList.remove('image-assistant-hide');
+        assistant.element.classList.add('image-assistant-show');
 
         // 动画结束后重置过渡状态
         setTimeout(() => {
@@ -1334,7 +1147,7 @@ class ImageCaption {
         if (!assistant?.element) return;
 
         // 避免重复隐藏
-        if (!assistant.element.classList.contains('assistant-show')) return;
+        if (!assistant.element.classList.contains('image-assistant-show')) return;
 
         // 如果小助手处于激活状态且功能开关开启，不隐藏
         if (window.FEATURES && window.FEATURES.enabled && window.FEATURES.imageCaption &&
@@ -1346,8 +1159,8 @@ class ImageCaption {
         assistant.isTransitioning = true;
 
         // 应用隐藏动画类
-        assistant.element.classList.add('assistant-hide');
-        assistant.element.classList.remove('assistant-show');
+        assistant.element.classList.add('image-assistant-hide');
+        assistant.element.classList.remove('image-assistant-show');
 
         // 触发回流确保动画生效
         void assistant.element.offsetWidth;
@@ -1377,19 +1190,23 @@ class ImageCaption {
      */
     cleanup(nodeId = null, silent = false) {
         try {
-            if (nodeId) {
+            // 检查nodeId是否有效
+            if (nodeId !== null && nodeId !== undefined) {
+                // 确保nodeId是字符串类型，便于后续比较
+                const nodeIdStr = String(nodeId);
+
                 // 清理特定节点
-                const instance = ImageCaption.getInstance(nodeId);
+                const instance = ImageCaption.getInstance(nodeIdStr);
                 if (instance) {
                     // 记录删除前的实例数量
                     const beforeCount = ImageCaption.instances.size;
                     logger.debug(`[删除前] 图像小助手实例数量: ${beforeCount}`);
 
                     // 清理实例内部资源
-                    this._cleanupInstance(instance, nodeId);
+                    this._cleanupInstance(instance, nodeIdStr);
 
                     // 从实例集合中移除
-                    ImageCaption.instances.delete(String(nodeId));
+                    ImageCaption.instances.delete(nodeIdStr);
 
                     // 记录删除后的实例数量
                     const afterCount = ImageCaption.instances.size;
@@ -1399,29 +1216,29 @@ class ImageCaption {
                         logger.log(`清理图像小助手 | 节点ID: ${nodeId}`);
                         logger.log(`[剩余统计] 图像小助手实例: ${afterCount}个 | 删除前: ${beforeCount}个`);
                     }
-                } else {
-                    // 检查是否有以该nodeId开头的实例（关键修复）
-                    const keysToDelete = Array.from(ImageCaption.instances.keys())
-                        .filter(key => key.startsWith(`${nodeId}_`));
+                }
 
-                    if (keysToDelete.length > 0) {
-                        const beforeCount = ImageCaption.instances.size;
+                // 检查是否有以该nodeId开头的实例（关键修复）
+                const keysToDelete = Array.from(ImageCaption.instances.keys())
+                    .filter(key => key.startsWith(`${nodeIdStr}_`));
 
-                        // 清理所有匹配的实例
-                        keysToDelete.forEach(key => {
-                            const instance = ImageCaption.getInstance(key);
-                            if (instance) {
-                                this._cleanupInstance(instance, key);
-                                ImageCaption.instances.delete(key);
-                            }
-                        });
+                if (keysToDelete.length > 0) {
+                    const beforeCount = ImageCaption.instances.size;
 
-                        const afterCount = ImageCaption.instances.size;
-
-                        if (!silent) {
-                            logger.log(`清理图像小助手 | 节点ID: ${nodeId} | 关联实例: ${keysToDelete.length}个`);
-                            logger.log(`[剩余统计] 图像小助手实例: ${afterCount}个 | 删除前: ${beforeCount}个`);
+                    // 清理所有匹配的实例
+                    keysToDelete.forEach(key => {
+                        const instance = ImageCaption.getInstance(key);
+                        if (instance) {
+                            this._cleanupInstance(instance, key);
+                            ImageCaption.instances.delete(key);
                         }
+                    });
+
+                    const afterCount = ImageCaption.instances.size;
+
+                    if (!silent) {
+                        logger.log(`清理图像小助手 | 节点ID: ${nodeId} | 关联实例: ${keysToDelete.length}个`);
+                        logger.log(`[剩余统计] 图像小助手实例: ${afterCount}个 | 删除前: ${beforeCount}个`);
                     }
                 }
                 return;
@@ -1452,7 +1269,11 @@ class ImageCaption {
      */
     _cleanupInstance(instance, instanceKey) {
         try {
-            if (!instance) return;
+            // 检查实例是否有效
+            if (!instance) {
+                logger.debug(`图像小助手实例清理 | 结果:跳过 | 实例:${instanceKey || 'unknown'} | 原因:实例不存在`);
+                return;
+            }
 
             // 1. 重置所有按钮状态
             if (instance.buttons) {
@@ -1474,13 +1295,13 @@ class ImageCaption {
             }
 
             // 2. 清理事件监听器
-            if (instance._eventCleanupFunctions) {
+            if (instance._eventCleanupFunctions && Array.isArray(instance._eventCleanupFunctions)) {
                 instance._eventCleanupFunctions.forEach(cleanup => {
                     if (typeof cleanup === 'function') {
                         try {
                             cleanup();
                         } catch (err) {
-                            logger.error(`事件清理失败: ${err.message}`);
+                            logger.debug(`事件清理 | 错误:${err.message}`);
                         }
                     }
                 });
@@ -1488,32 +1309,47 @@ class ImageCaption {
             }
 
             // 3. 从DOM中移除元素
-            if (instance.element && instance.element.parentNode) {
-                // 确保在移除元素前清理所有子元素的事件
-                const allButtons = instance.element.querySelectorAll('button');
-                allButtons.forEach(button => {
-                    button.replaceWith(button.cloneNode(true));
-                });
-                instance.element.parentNode.removeChild(instance.element);
+            if (instance.element) {
+                try {
+                    // 确保在移除元素前清理所有子元素的事件
+                    const allButtons = instance.element.querySelectorAll('button');
+                    allButtons.forEach(button => {
+                        button.replaceWith(button.cloneNode(true));
+                    });
+
+                    if (instance.element.parentNode) {
+                        instance.element.parentNode.removeChild(instance.element);
+                    }
+                } catch (err) {
+                    logger.debug(`DOM元素清理 | 错误:${err.message}`);
+                }
             }
 
             // 4. 清理节点引用（关键修复）
             if (instance.node) {
-                delete instance.node;
+                try {
+                    delete instance.node;
+                } catch (err) {
+                    logger.debug(`节点引用清理 | 错误:${err.message}`);
+                }
             }
 
             // 5. 清理实例属性
-            Object.keys(instance).forEach(key => {
-                try {
-                    delete instance[key];
-                } catch (err) {
-                    logger.error(`属性清理失败: ${err.message}`);
-                }
-            });
+            try {
+                Object.keys(instance).forEach(key => {
+                    try {
+                        delete instance[key];
+                    } catch (err) {
+                        logger.debug(`属性清理 | 属性:${key} | 错误:${err.message}`);
+                    }
+                });
+            } catch (err) {
+                logger.debug(`属性清理 | 错误:${err.message}`);
+            }
 
-            logger.debug(`图像小助手实例清理 | 结果:成功 | 实例:${instanceKey}`);
+            logger.debug(`图像小助手实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
         } catch (error) {
-            logger.error(`图像小助手实例清理失败: ${error.message}`);
+            logger.error(`图像小助手实例清理失败 | 实例:${instanceKey || 'unknown'} | 错误:${error.message}`);
         }
     }
 
@@ -1580,6 +1416,9 @@ class ImageCaption {
                 // 1. 初始化图像小助手（如果尚未初始化）
                 if (!this.initialized) {
                     await this.initialize();
+                } else {
+                    // 如果已初始化，确保全局监听器是注册状态
+                    this.registerGlobalMouseListener();
                 }
 
                 // 2. 重置节点初始化标记，准备重新检测
@@ -1602,6 +1441,8 @@ class ImageCaption {
             } else {
                 // === 禁用图像小助手 ===
 
+                // 移除全局鼠标监听
+                this.removeGlobalMouseListener();
                 // 清理所有图像小助手实例
                 this.cleanup(null, true);
             }
@@ -1700,6 +1541,146 @@ class ImageCaption {
         } catch (error) {
             logger.error(`鼠标位置检测失败 | 错误: ${error.message}`);
             return false;
+        }
+    }
+
+    /**
+     * 检查鼠标是否在节点区域内
+     * @param {MouseEvent} e 鼠标事件
+     * @param {object} assistant 小助手实例
+     * @returns {boolean}
+     */
+    isMouseOverNodeArea(e, assistant) {
+        // 检查总开关和图像反推功能开关状态
+        if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
+            return false;
+        }
+
+        const node = assistant.node;
+        if (!node) return false;
+
+        // 检查节点是否已被删除
+        if (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[node.id]) {
+            return false;
+        }
+
+        const canvas = app.canvas;
+        if (!canvas) return false;
+
+        try {
+            // 获取鼠标在画布中的位置
+            const canvasPos = canvas.convertEventToCanvasOffset(e);
+            if (!canvasPos) return false;
+
+            const [canvasX, canvasY] = canvasPos;
+
+            // 获取节点边界
+            const [nodeX, nodeY, nodeWidth, nodeHeight] = node.getBounding();
+
+            // 计算标题栏高度
+            const titleHeight = node.flags?.collapsed ? 0 : (node.title_height || 30);
+
+            // 计算内容区域（排除标题栏）
+            const contentY = nodeY + titleHeight;
+            const contentHeight = nodeHeight - titleHeight;
+
+            // 检查鼠标是否在内容区域内
+            const isInside = canvasX >= nodeX && canvasX <= nodeX + nodeWidth &&
+                canvasY >= contentY && canvasY <= contentY + contentHeight;
+
+            // 检查鼠标是否在小助手UI上
+            const isOverUI = assistant.element &&
+                assistant.element.style.display !== 'none' &&
+                this.isMouseOverElement(assistant.element);
+
+            return isInside || isOverUI;
+        } catch (error) {
+            logger.error(`检查节点区域失败: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 注册全局鼠标移动事件监听
+     */
+    registerGlobalMouseListener() {
+        if (this._globalMouseListenerRegistered) return;
+
+        try {
+            EventManager.init();
+
+            // 防抖的全局监听函数
+            const debouncedListener = EventManager.debounce((e) => {
+                if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
+                    return;
+                }
+
+                ImageCaption.instances.forEach(assistant => {
+                    if (assistant.isTransitioning || assistant.isFirstCreate) return;
+
+                    if (assistant.isActive || this._checkAssistantActiveState(assistant)) {
+                        if (!assistant.isMouseOver) {
+                            assistant.isMouseOver = true;
+                            this.updateAssistantVisibility(assistant);
+                        }
+                        return;
+                    }
+
+                    const isOver = this.isMouseOverNodeArea(e, assistant);
+
+                    if (isOver !== assistant.isMouseOver) {
+                        assistant.isMouseOver = isOver;
+                        this.updateAssistantVisibility(assistant);
+                    }
+                });
+            }, 50);
+
+            // 注册全局鼠标移动事件
+            EventManager.on('global_mouse_move', 'image_caption_manager', debouncedListener);
+
+            // 监听画布变换（缩放/平移）
+            if (app.canvas && app.canvas.ds) {
+                const canvas = app.canvas;
+                const originalDSModified = canvas.ds.onModified;
+                this._originalDSModified = originalDSModified; // 保存原始函数
+
+                canvas.ds.onModified = (...args) => {
+                    if (originalDSModified) {
+                        originalDSModified.apply(canvas.ds, args);
+                    }
+                    const lastMouseEvent = EventManager.getLastMouseEvent();
+                    if (lastMouseEvent) {
+                        debouncedListener(lastMouseEvent);
+                    }
+                };
+            }
+
+            this._globalMouseListenerRegistered = true;
+            logger.log("图像小助手全局鼠标监听器已注册");
+        } catch (error) {
+            logger.error(`图像小助手全局鼠标监听注册失败 | 错误: ${error.message}`);
+        }
+    }
+
+    /**
+     * 移除全局鼠标移动事件监听
+     */
+    removeGlobalMouseListener() {
+        if (!this._globalMouseListenerRegistered) return;
+        try {
+            // 移除鼠标移动监听
+            EventManager.off('global_mouse_move', 'image_caption_manager');
+
+            // 恢复原始的画布变换处理器
+            if (app.canvas && app.canvas.ds && this._originalDSModified) {
+                app.canvas.ds.onModified = this._originalDSModified;
+                delete this._originalDSModified;
+            }
+
+            this._globalMouseListenerRegistered = false;
+            logger.log("图像小助手全局鼠标监听器已移除");
+        } catch (error) {
+            logger.error(`图像小助手全局鼠标监听移除失败 | 错误: ${error.message}`);
         }
     }
 }

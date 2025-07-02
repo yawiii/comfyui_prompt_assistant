@@ -150,32 +150,6 @@ class UIToolkit {
     }
 
     /**
-     * 为按钮添加图标
-     */
-    static addIconToButton(button, icon, alt) {
-        if (!icon) return;
-
-        try {
-            // 获取图标名称（确保带有.svg后缀）
-            const iconName = icon.endsWith('.svg') ? icon : `${icon}.svg`;
-
-            // 从ResourceManager获取图标
-            const cachedImg = ResourceManager.getIcon(iconName);
-            if (cachedImg) {
-                // 清空按钮并添加图片
-                button.innerHTML = '';
-                button.appendChild(cachedImg);
-                cachedImg.alt = alt || '';
-                cachedImg.draggable = false;
-            } else {
-                logger.warn(`图标加载 | 结果:失败 | 图标: ${icon}, 原因: 未找到缓存`);
-            }
-        } catch (error) {
-            logger.warn(`图标加载 | 结果:失败 | 图标: ${icon}, 错误: ${error.message}`);
-        }
-    }
-
-    /**
      * 判断元素是否可见
      */
     static isElementVisible(element) {
