@@ -3,27 +3,59 @@
 
 # ComfyUI Prompt Assistant✨提示词小助手
 <a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
-<a href="https://qm.qq.com/cgi-bin/qm/qr?k=rLqiPclphF6D3aGc5Qu0bh6oPa8y0sjt&jump_from=webapi&authKey=JtSkQvgI9EZQPcZzmkqBSFkgregRcv56sz/Di637SxzpDHYtCbE8hQGAvk+EoxW"><img src="https://img.shields.io/badge/ComfyUI%E5%AD%A6%E4%B9%A0%E4%BA%A4%E6%B5%81%E7%BE%A4-15327075-blue?logo=QQ&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
-> 📍手动安装请从右侧Releases下载最新版本。
+> 📍手动安装请从右侧[Releases](https://github.com/yawiii/comfyui_prompt_assistant/releases)下载最新版本。
 
 
-## 📋 计划
+## 📣更新
+<details>
+ <summary>[2025-6-24]V1.0.4： </summary>
+  
+- 修复新版创建使用选择工具栏创建kontext节点时，出现小助手UI异常问题
+ 
+- 修复可能网络环境问题造成的智谱无法服务无法使用问题
+ 
+- 修复可能出现实例清除出错导致工作流无法加载问题
+  
+- 修复AIGODLIKE-COMFYUI-TRANSLATION汉化插件导致标签弹窗打开卡住的问题
+  
+- 新增标签面板可以调整大小
+  
+- 优化UI资源加载，移除本地svg文件
+  
+</details>
+<details>
+ <summary>[2025-6-24]V1.0.3： </summary>
+  
+- 重构了api请求服务，避免apikey暴露在前端
+  
+- 修改了配置的保存和读取机制，解决配置无法保存问题
+  
+- 修复了少许bug
+  
+</details>
 
-🔖研究中...：
-- 支持本地反推提示词（JoyCaption Beta One）
-- 支持一键识别插入lora触发词
-- 支持划词翻译
-- 标签工具支持调整和识别权重
+<details>
+<summary>[2025-6-21]V1.0.2：</summary>
+  
+- 修复了少许bug
+  
+</details>
 
-✔️V1.0.0
-- 一键插入tag
+<details>
+<summary>[2025-6-15]V1.0.0:</summary>
+  
+ - 一键插入tag
+
 - 支持llm扩写
-- 支持百度翻译和llm翻译切换
-- 图片反推提示词
-- 历史、撤销、重做
 
+- 支持百度翻译和llm翻译切换
+
+- 图片反推提示词
+  
+- 历史、撤销、重做
+</details>
 
 ## ✨ 功能介绍
 
