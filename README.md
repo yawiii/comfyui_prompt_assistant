@@ -10,6 +10,12 @@
 
 ## 📣更新
 <details>
+ <summary>[2025-6-24]V1.0.6： </summary>
+  
+- 修复了一些界面bug
+  
+</details>
+<details>
  <summary>[2025-6-24]V1.0.5： </summary>
   
 - 修复新版创建使用选择工具栏创建kontext节点时，出现小助手UI异常问题
