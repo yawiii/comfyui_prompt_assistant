@@ -820,29 +820,13 @@
     z-index: 1001 !important; /* 确保在最上层 */
     background: transparent;
     transition: opacity 0.2s ease;
-    /* display: flex !important; */
-    align-items: center;
-    justify-content: center;
     color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%);
     opacity: 0.7;
     pointer-events: auto !important; /* 确保可以接收鼠标事件 */
 }
 
-.popup_resize_handle::before {
-    content: '';
-    width: 100%;
-    height: 100%;
-    opacity: 0.7;
-    transition: opacity 0.2s ease;
-}
-
 .popup_resize_handle:hover {
     opacity: 1 !important;
-    color: var(--fg-color);
-}
-
-.popup_resize_handle:hover::before {
-    opacity: 1;
     color: var(--fg-color);
 }
 
@@ -862,10 +846,6 @@
 
 .popup_container.resizing .popup_resize_handle {
     opacity: 1 !important;
-}
-
-.popup_container.resizing .popup_resize_handle::before {
-    opacity: 1;
 }
 
 /* 标签弹窗特定样式 */
