@@ -362,19 +362,23 @@ class TagManager {
             const leftIndicator = document.createElement('div');
             leftIndicator.className = 'tabs_scroll_indicator left';
 
-            // 创建图标元素
-            const leftIconSpan = this._createIconElement('icon-movedown');
-            leftIconSpan.classList.add('rotate_left', 'scroll_indicator_icon');
-            leftIndicator.appendChild(leftIconSpan);
+            // 添加图标
+            const leftIcon = ResourceManager.getIcon('icon-movedown.svg');
+            if (leftIcon) {
+                leftIcon.classList.add('rotate_left', 'scroll_indicator_icon');
+                leftIndicator.appendChild(leftIcon);
+            }
             leftIndicator.style.display = 'none'; // 初始隐藏
 
             const rightIndicator = document.createElement('div');
             rightIndicator.className = 'tabs_scroll_indicator right';
 
-            // 创建图标元素
-            const rightIconSpan = this._createIconElement('icon-movedown');
-            rightIconSpan.classList.add('rotate_right', 'scroll_indicator_icon');
-            rightIndicator.appendChild(rightIconSpan);
+            // 添加图标
+            const rightIcon = ResourceManager.getIcon('icon-movedown.svg');
+            if (rightIcon) {
+                rightIcon.classList.add('rotate_right', 'scroll_indicator_icon');
+                rightIndicator.appendChild(rightIcon);
+            }
             rightIndicator.style.display = 'none'; // 初始隐藏
 
             // 添加指示器点击事件 - 改进滚动逻辑
@@ -606,10 +610,12 @@ class TagManager {
                     const headerIcon = document.createElement('div');
                     headerIcon.className = 'tag_accordion_icon';
 
-                    // 创建图标元素
-                    const iconSpan = this._createIconElement('icon-movedown');
-                    iconSpan.classList.add('accordion_arrow_icon');
-                    headerIcon.appendChild(iconSpan);
+                    // 添加图标
+                    const arrowIcon = ResourceManager.getIcon('icon-movedown.svg');
+                    if (arrowIcon) {
+                        arrowIcon.classList.add('accordion_arrow_icon');
+                        headerIcon.appendChild(arrowIcon);
+                    }
 
                     header.appendChild(headerTitle);
                     header.appendChild(headerIcon);
@@ -621,13 +627,15 @@ class TagManager {
                     const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString());
                     content.appendChild(childContent);
 
-                    // 如果是当前层级的第一个手风琴，默认展开
-                    if (isFirstAccordionInLevel) {
-                        header.classList.add('active');
-                        content.classList.add('active');
-                        iconSpan.classList.add('rotate-180');
-                        isFirstAccordionInLevel = false;
-                    }
+                                            // 如果是当前层级的第一个手风琴，默认展开
+                        if (isFirstAccordionInLevel) {
+                            header.classList.add('active');
+                            content.classList.add('active');
+                            if (arrowIcon) {
+                                arrowIcon.classList.add('rotate-180');
+                            }
+                            isFirstAccordionInLevel = false;
+                        }
 
                     // 添加手风琴切换事件
                     const accordionCleanup = EventManager.addDOMListener(header, 'click', (e) => {
@@ -666,9 +674,9 @@ class TagManager {
                         header.classList.toggle('active');
                         content.classList.toggle('active');
                         // 图标旋转
-                        const arrowIcon = headerIcon.querySelector('.accordion_arrow_icon');
-                        if (arrowIcon) {
-                            arrowIcon.classList.toggle('rotate-180');
+                        const toggleArrowIcon = headerIcon.querySelector('.accordion_arrow_icon');
+                        if (toggleArrowIcon) {
+                            toggleArrowIcon.classList.toggle('rotate-180');
                         }
                     });
 
@@ -797,11 +805,12 @@ class TagManager {
                 const headerIcon = document.createElement('div');
                 headerIcon.className = 'tag_accordion_icon';
 
-                // 使用icon.css中定义的类创建图标
-                const iconSpan = document.createElement('span');
-                iconSpan.className = 'icon-movedown';
-                iconSpan.classList.add('accordion_arrow_icon');
-                headerIcon.appendChild(iconSpan);
+                // 添加图标
+                const arrowIcon = ResourceManager.getIcon('icon-movedown.svg');
+                if (arrowIcon) {
+                    arrowIcon.classList.add('accordion_arrow_icon');
+                    headerIcon.appendChild(arrowIcon);
+                }
 
                 header.appendChild(headerTitle);
                 header.appendChild(headerIcon);
@@ -818,9 +827,9 @@ class TagManager {
                 if (isFirstAccordion) {
                     header.classList.add('active');
                     content.classList.add('active');
-                    const iconSpan = headerIcon.querySelector('.accordion_arrow_icon');
-                    if (iconSpan) {
-                        iconSpan.classList.add('rotate-180');
+                    const firstArrowIcon = headerIcon.querySelector('.accordion_arrow_icon');
+                    if (firstArrowIcon) {
+                        firstArrowIcon.classList.add('rotate-180');
                     }
                     isFirstAccordion = false;
                 }
@@ -852,9 +861,9 @@ class TagManager {
                     header.classList.toggle('active');
                     content.classList.toggle('active');
                     // 图标旋转
-                    const arrowIcon = headerIcon.querySelector('.accordion_arrow_icon');
-                    if (arrowIcon) {
-                        arrowIcon.classList.toggle('rotate-180');
+                    const toggleIcon = headerIcon.querySelector('.accordion_arrow_icon');
+                    if (toggleIcon) {
+                        toggleIcon.classList.toggle('rotate-180');
                     }
                 });
 
@@ -994,16 +1003,20 @@ class TagManager {
         // 创建左右滚动指示器
         const leftIndicator = document.createElement('div');
         leftIndicator.className = 'tabs_scroll_indicator left';
-        const leftIconSpan = this._createIconElement('icon-movedown');
-        leftIconSpan.classList.add('rotate_left', 'scroll_indicator_icon');
-        leftIndicator.appendChild(leftIconSpan);
+        const leftIcon = ResourceManager.getIcon('icon-movedown.svg');
+        if (leftIcon) {
+            leftIcon.classList.add('rotate_left', 'scroll_indicator_icon');
+            leftIndicator.appendChild(leftIcon);
+        }
         leftIndicator.style.display = 'none';
 
         const rightIndicator = document.createElement('div');
         rightIndicator.className = 'tabs_scroll_indicator right';
-        const rightIconSpan = this._createIconElement('icon-movedown');
-        rightIconSpan.classList.add('rotate_right', 'scroll_indicator_icon');
-        rightIndicator.appendChild(rightIconSpan);
+        const rightIcon = ResourceManager.getIcon('icon-movedown.svg');
+        if (rightIcon) {
+            rightIcon.classList.add('rotate_right', 'scroll_indicator_icon');
+            rightIndicator.appendChild(rightIcon);
+        }
         rightIndicator.style.display = 'none';
 
         // 添加滚动指示器点击事件
@@ -1263,11 +1276,9 @@ class TagManager {
             // 创建清除按钮
             const clearBtn = document.createElement('button');
             clearBtn.className = 'popup_btn';
-            const clearIconSpan = this._createIconElement('icon-close');
-            clearIconSpan.classList.add('popup_btn_icon');
-            clearBtn.appendChild(clearIconSpan);
             clearBtn.title = '清除搜索';
             clearBtn.style.display = 'none';
+            UIToolkit.addIconToButton(clearBtn, 'icon-close', '清除搜索');
 
             // 添加清除按钮点击事件
             const clearBtnCleanup = EventManager.addDOMListener(clearBtn, 'click', (e) => {
@@ -1289,17 +1300,13 @@ class TagManager {
             // 添加刷新按钮
             const refreshBtn = document.createElement('button');
             refreshBtn.className = 'popup_btn';
-            const refreshIconSpan = this._createIconElement('icon-refresh');
-            refreshIconSpan.classList.add('popup_btn_icon');
-            refreshBtn.appendChild(refreshIconSpan);
             refreshBtn.title = '刷新标签状态';
+            UIToolkit.addIconToButton(refreshBtn, 'icon-refresh', '刷新标签状态');
 
             // 添加关闭按钮
             const closeBtn = document.createElement('button');
             closeBtn.className = 'popup_btn';
-            const closeIconSpan = this._createIconElement('icon-close');
-            closeIconSpan.classList.add('popup_btn_icon');
-            closeBtn.appendChild(closeIconSpan);
+            UIToolkit.addIconToButton(closeBtn, 'icon-close', '关闭');
 
             // 添加刷新事件
             const refreshCleanup = EventManager.addDOMListener(refreshBtn, 'click', () => {
@@ -1537,13 +1544,6 @@ class TagManager {
         // 创建新的搜索结果容器
         searchResultList = document.createElement('div');
         searchResultList.className = SEARCH_RESULT_CLASS;
-        
-        // 设置搜索结果容器的样式，确保正确显示并占满整个高度
-        searchResultList.style.flex = '1';
-        searchResultList.style.overflow = 'auto';
-        searchResultList.style.height = '100%';
-        searchResultList.style.boxSizing = 'border-box';
-        searchResultList.style.position = 'relative'; // 为绝对定位的空消息提供参考
 
         // 收集所有匹配标签及其分类
         let matchCount = 0;
@@ -1676,17 +1676,7 @@ class TagManager {
         }
     }
 
-    /**
-     * 创建图标元素
-     * @param {string} iconClass 图标CSS类名
-     * @returns {HTMLElement} 图标元素
-     */
-    static _createIconElement(iconClass) {
-        const iconElement = document.createElement('span');
-        iconElement.className = iconClass;
-        iconElement.setAttribute('aria-hidden', 'true');
-        return iconElement;
-    }
+
 
 
 

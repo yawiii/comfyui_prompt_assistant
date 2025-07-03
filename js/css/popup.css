@@ -91,23 +91,7 @@
     background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 50%);
 }
 
-/* SVG图标样式 */
-.svg-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    position: relative;
-}
-
-.svg-icon svg {
-    width: 100%;
-    height: 100%;
-    fill: currentColor;
-    color: inherit;
-    transition: all 0.2s;
-}
+/* 弹窗中的SVG图标继承基础样式，无需重复定义 */
 
 /* 弹窗按钮图标样式 - 兼容旧的img和新的svg */
 .popup_btn_icon {
@@ -175,6 +159,7 @@
 .tag_search_result_list {
     padding: 8px;
     overflow-y: auto;
+    overflow-x: hidden;
     flex: 1;
     height: 100%;
     box-sizing: border-box;
@@ -462,8 +447,8 @@
 .tag_accordion_icon img,
 .tag_accordion_icon .svg-icon,
 .accordion_arrow_icon {
-    width: 12px;
-    height: 12px;
+    width: 10px;
+    height: 10px;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -828,8 +813,8 @@
     position: absolute !important;
     right: 0 !important;
     bottom: 0 !important;
-    width: 16px !important;
-    height: 16px !important;
+    width: 14px !important;
+    height: 18px !important;
     cursor: nw-resize !important;
     border-radius: 0 0 8px 0;
     z-index: 1001 !important; /* 确保在最上层 */
@@ -862,7 +847,7 @@
 }
 
 /* 确保图标正确显示 */
-.popup_resize_handle .icon-resize-handle {
+.popup_resize_handle .svg-icon {
     width: 12px !important;
     height: 12px !important;
     display: block !important;
@@ -932,10 +917,16 @@
     gap: 4px !important;
     position: relative !important;
     /* 为无匹配消息的绝对定位提供参考 */
-    min-height: 300px !important;
-    /* 确保有足够高度进行垂直居中 */
     margin: 0 !important;
     padding: 8px !important;
+    overflow-y: auto !important;
+    /* 确保垂直滚动可用 */
+    overflow-x: hidden !important;
+    /* 防止水平滚动 */
+    box-sizing: border-box !important;
+    /* 确保padding计算在内 */
+    min-height: 0 !important;
+    /* 允许flex收缩 */
 }
 
 /* 搜索结果列表的滚动条样式 */
@@ -971,6 +962,18 @@
 .popup_container.tag_popup:has(.tag_search_result_list) .tag_category_container {
     display: none !important;
     visibility: hidden !important;
+}
+
+/* 确保搜索结果列表的父容器有正确的高度和溢出设置 */
+.popup_container.tag_popup:has(.tag_search_result_list) {
+    overflow: hidden;
+}
+
+.popup_container.tag_popup:has(.tag_search_result_list) > *:not(.popup_title_bar) {
+    height: calc(100% - 60px); /* 减去标题栏高度 */
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .popup_container.tag_popup .tag_search_result_list:empty::after {

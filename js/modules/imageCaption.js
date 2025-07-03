@@ -22,6 +22,121 @@ class ImageCaption {
 
     constructor() {
         this.initialized = false;
+        // 初始化白名单节点列表
+        this.initAllowedNodeTypes();
+    }
+
+    /**
+     * 初始化允许的节点类型白名单
+     * 只有这些节点类型会创建图像小助手
+     */
+    initAllowedNodeTypes() {
+        // ---图像节点类型白名单---
+        this.allowedNodeTypes = new Set([
+            // 基础图像节点
+            'PreviewImage',
+            'SaveImage', 
+            'LoadImage',
+            'ImageUpload',
+            'ImageInput',
+            'ImageOutput',
+            'ImageDisplay',
+            'ImageViewer',
+       
+        ]);
+
+        // logger.log(`图像小助手白名单初始化 | 允许节点类型数量: ${this.allowedNodeTypes.size}`);
+    }
+
+    /**
+     * 检查节点类型是否在白名单中
+     * @param {string} nodeType 节点类型
+     * @returns {boolean} 是否允许创建小助手
+     */
+    isNodeTypeAllowed(nodeType) {
+        if (!nodeType) return false;
+
+        // 直接匹配白名单
+        if (this.allowedNodeTypes.has(nodeType)) {
+            return true;
+        }
+
+        // 模糊匹配 - 检查是否包含图像相关关键词
+        const imageKeywords = [
+            'image',
+            'img',
+            'picture',
+            'photo',
+            'preview',
+            'load',
+            'save',
+            'display',
+            'viewer',
+            'preprocessor',
+            'preprocess',
+            'frame',
+            'video'
+        ];
+
+        const nodeTypeLower = nodeType.toLowerCase();
+        
+        // 检查是否包含图像相关关键词
+        const containsImageKeyword = imageKeywords.some(keyword => 
+            nodeTypeLower.includes(keyword)
+        );
+
+        if (containsImageKeyword) {
+            logger.debug(`节点类型模糊匹配允许 | 类型: ${nodeType} | 原因: 包含图像关键词`);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 添加节点类型到白名单
+     * @param {string|Array<string>} nodeTypes 要添加的节点类型
+     */
+    addAllowedNodeTypes(nodeTypes) {
+        const types = Array.isArray(nodeTypes) ? nodeTypes : [nodeTypes];
+        const addedCount = types.filter(type => {
+            if (type && !this.allowedNodeTypes.has(type)) {
+                this.allowedNodeTypes.add(type);
+                return true;
+            }
+            return false;
+        }).length;
+
+        if (addedCount > 0) {
+            logger.log(`图像小助手白名单更新 | 新增节点类型: ${addedCount}个 | 总数: ${this.allowedNodeTypes.size}`);
+        }
+    }
+
+    /**
+     * 从白名单中移除节点类型
+     * @param {string|Array<string>} nodeTypes 要移除的节点类型
+     */
+    removeAllowedNodeTypes(nodeTypes) {
+        const types = Array.isArray(nodeTypes) ? nodeTypes : [nodeTypes];
+        const removedCount = types.filter(type => {
+            if (type && this.allowedNodeTypes.has(type)) {
+                this.allowedNodeTypes.delete(type);
+                return true;
+            }
+            return false;
+        }).length;
+
+        if (removedCount > 0) {
+            logger.log(`图像小助手白名单更新 | 移除节点类型: ${removedCount}个 | 总数: ${this.allowedNodeTypes.size}`);
+        }
+    }
+
+    /**
+     * 获取当前白名单
+     * @returns {Array<string>} 允许的节点类型列表
+     */
+    getAllowedNodeTypes() {
+        return Array.from(this.allowedNodeTypes);
     }
 
     /**
@@ -188,6 +303,13 @@ class ImageCaption {
         if (!node) return false;
 
         try {
+            // ---白名单检查---
+            // 检查节点类型是否在白名单中
+            if (!this.isNodeTypeAllowed(node.type)) {
+                logger.debug(`节点白名单检查 | 节点ID: ${node.id} | 类型: ${node.type} | 结果: 不在白名单`);
+                return false;
+            }
+
             // 检查节点是否被折叠
             if (node.flags && node.flags.collapsed) {
                 return false;
@@ -684,10 +806,8 @@ class ImageCaption {
             document.body.removeChild(dialogContainer);
         };
 
-        // 创建关闭图标
-        const closeIcon = document.createElement('span');
-        closeIcon.className = 'icon-close';
-        closeButton.appendChild(closeIcon);
+        // 添加关闭图标
+        UIToolkit.addIconToButton(closeButton, 'icon-close', '关闭');
         dialogContainer.appendChild(closeButton);
 
         // 创建文本区域
@@ -830,12 +950,9 @@ class ImageCaption {
         button.title = title || '';
         button.dataset.id = id || `btn_${Date.now()}`;
 
-        // 添加图标
+        // 添加图标 - 使用UIToolkit的SVG图标方法
         if (icon) {
-            const iconElement = document.createElement('span');
-            iconElement.className = icon;
-            iconElement.setAttribute('aria-hidden', 'true');
-            button.appendChild(iconElement);
+            UIToolkit.addIconToButton(button, icon, title || '');
         }
 
         // 添加事件
@@ -1405,7 +1522,7 @@ class ImageCaption {
                 return;
             }
 
-            logger.log(`图像小助手功能开关 | 动作:${enable ? "启用" : "禁用"}`);
+            logger.log(`图像小助手功能开关 | 动作:${enable ? "启用" : "禁用"} | 白名单节点类型: ${this.allowedNodeTypes.size}个`);
 
             if (enable) {
                 // === 启用图像小助手 ===
@@ -1684,6 +1801,52 @@ class ImageCaption {
 
 // 创建单例实例
 const imageCaption = new ImageCaption();
+
+// ---全局管理接口---
+// 将图像小助手实例挂载到全局对象，方便控制台调试和配置
+if (typeof window !== 'undefined') {
+    window.ImageCaptionManager = {
+        // 获取当前白名单
+        getAllowedTypes: () => imageCaption.getAllowedNodeTypes(),
+        
+        // 添加白名单节点类型
+        addAllowedTypes: (types) => imageCaption.addAllowedNodeTypes(types),
+        
+        // 移除白名单节点类型  
+        removeAllowedTypes: (types) => imageCaption.removeAllowedNodeTypes(types),
+        
+        // 检查节点类型是否在白名单中
+        isAllowed: (nodeType) => imageCaption.isNodeTypeAllowed(nodeType),
+        
+        // 显示白名单统计信息
+        showStats: () => {
+            const allowedTypes = imageCaption.getAllowedNodeTypes();
+            console.group('📋 图像小助手白名单统计');
+            console.log(`总计允许节点类型: ${allowedTypes.length}个`);
+            console.log('白名单:', allowedTypes.sort());
+            console.groupEnd();
+            return {
+                total: allowedTypes.length,
+                types: allowedTypes
+            };
+        },
+        
+        // 清空白名单
+        clearAllowedTypes: () => {
+            const beforeCount = imageCaption.allowedNodeTypes.size;
+            imageCaption.allowedNodeTypes.clear();
+            logger.log(`图像小助手白名单已清空 | 原数量: ${beforeCount}个`);
+        },
+        
+        // 重置为默认白名单
+        resetToDefault: () => {
+            imageCaption.initAllowedNodeTypes();
+            logger.log(`图像小助手白名单已重置为默认配置 | 数量: ${imageCaption.allowedNodeTypes.size}个`);
+        }
+    };
+    
+
+}
 
 // 导出
 export { imageCaption, ImageCaption };

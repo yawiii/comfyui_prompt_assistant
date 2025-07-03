@@ -130,6 +130,8 @@
     }
 }
 
+
+
 /* 状态提示浮动效果 - 向上淡出 */
 @keyframes tipFloatUp {
     0% {
@@ -234,7 +236,7 @@
     color: var(--p-button-text-secondary-color);
 }
 
-.image-assistant-copy-dialog-close .icon-close {
+.image-assistant-copy-dialog-close .svg-icon {
     width: 16px;
     height: 16px;
 }

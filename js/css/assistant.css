@@ -130,8 +130,6 @@
     width: 18px;
     height: 18px;
     cursor: pointer;
-    background-size: contain;
-    background-repeat: no-repeat;
     opacity: 0.8;
     border: none;
     padding: 0;
@@ -164,9 +162,7 @@
 }
 
 /* 按钮内部图标样式 */
-.prompt-assistant-button img,
 .prompt-assistant-button .svg-icon,
-.image-assistant-button img,
 .image-assistant-button .svg-icon {
     width: 18px;
     height: 18px;
@@ -202,36 +198,21 @@
 }
 
 .button-active {
-    opacity: 1;
-    transform: scale(1.15);
     background-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
-    color: var(--p-listbox-option-selected-color);
+    box-shadow: 0 0 4px rgba(255, 255, 255, 0.2);
+    position: relative;
+    z-index: 1;
+    opacity: 1 !important;
 }
 
-.button-active img,
 .button-active .svg-icon svg {
-    filter: brightness(1.8) !important;
+    fill: var(--active-color);
 }
 
 .button-disabled {
-    opacity: 0.4 !important;
-    filter: grayscale(60%);
-    cursor: not-allowed !important;
+    opacity: 0.5;
+    cursor: not-allowed;
     pointer-events: none;
-    transform: none !important;
-    color: var(--p-text-muted-color);
-}
-
-.button-disabled:hover {
-    transform: none !important;
-    background-color: transparent !important;
-    box-shadow: none !important;
-}
-
-.button-disabled img,
-.button-disabled .svg-icon svg {
-    filter: brightness(0.9) grayscale(100%);
 }
 
 /* 状态提示样式 */

@@ -262,9 +262,7 @@ class HistoryManager {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'popup_btn';
-        const closeIconSpan = document.createElement('span');
-        closeIconSpan.className = 'icon-close popup_btn_icon';
-        closeBtn.appendChild(closeIconSpan);
+        UIToolkit.addIconToButton(closeBtn, 'icon-close', '关闭');
 
         // 使用EventManager添加点击事件
         const closeCleanup = EventManager.addDOMListener(closeBtn, 'click', (e) => {
@@ -300,19 +298,23 @@ class HistoryManager {
         const leftIndicator = document.createElement('div');
         leftIndicator.className = 'tabs_scroll_indicator left';
 
-        // 使用icon.css中定义的类创建图标
-        const leftIconSpan = document.createElement('span');
-        leftIconSpan.className = 'icon-movedown rotate_left scroll_indicator_icon';
-        leftIndicator.appendChild(leftIconSpan);
+        // 添加图标
+        const leftIcon = ResourceManager.getIcon('icon-movedown.svg');
+        if (leftIcon) {
+            leftIcon.classList.add('rotate_left', 'scroll_indicator_icon');
+            leftIndicator.appendChild(leftIcon);
+        }
         leftIndicator.style.display = 'none'; // 初始隐藏
 
         const rightIndicator = document.createElement('div');
         rightIndicator.className = 'tabs_scroll_indicator right';
 
-        // 使用icon.css中定义的类创建图标
-        const rightIconSpan = document.createElement('span');
-        rightIconSpan.className = 'icon-movedown rotate_right scroll_indicator_icon';
-        rightIndicator.appendChild(rightIconSpan);
+        // 添加图标
+        const rightIcon = ResourceManager.getIcon('icon-movedown.svg');
+        if (rightIcon) {
+            rightIcon.classList.add('rotate_right', 'scroll_indicator_icon');
+            rightIndicator.appendChild(rightIcon);
+        }
         rightIndicator.style.display = 'none'; // 初始隐藏
 
         // 添加指示器点击事件 - 改进滚动逻辑

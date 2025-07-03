@@ -195,6 +195,7 @@ class PromptAssistant {
 
                 // 3. 注册全局鼠标监听
                 await this.registerGlobalMouseListener();
+
             } else {
                 // === 禁用所有服务 ===
 
@@ -416,6 +417,8 @@ class PromptAssistant {
             const assistant = this.setupNodeAssistant(node, inputWidget);
             if (assistant) {
                 logger.log(`创建小助手 | 节点:${node.id} | 控件:${inputId} | 实例:${assistantKey}`);
+                
+
             }
         });
     }
@@ -996,6 +999,8 @@ class PromptAssistant {
         }
     }
 
+
+
     // ---按钮管理功能---
     /**
      * 添加功能按钮
@@ -1447,6 +1452,8 @@ class PromptAssistant {
                 });
             }
 
+
+
             // 根据按钮类型分组
             if (['history', 'undo', 'redo'].includes(config.id)) {
                 historyButtons.push(button);
@@ -1497,12 +1504,9 @@ class PromptAssistant {
         button.title = title || '';
         button.dataset.id = id || `btn_${Date.now()}`;
 
-        // 添加图标
+        // 添加图标 - 使用UIToolkit的SVG图标方法
         if (icon) {
-            const iconElement = document.createElement('span');
-            iconElement.className = icon;
-            iconElement.setAttribute('aria-hidden', 'true');
-            button.appendChild(iconElement);
+            UIToolkit.addIconToButton(button, icon, title || '');
         }
 
         // 添加事件

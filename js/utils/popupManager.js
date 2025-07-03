@@ -275,9 +275,11 @@ class PopupManager {
         const resizeHandle = document.createElement('div');
         resizeHandle.className = 'popup_resize_handle';
         
-        const iconElement = document.createElement('div');
-        iconElement.className = 'icon-resize-handle';
-        resizeHandle.appendChild(iconElement);
+        // 添加调节手柄图标
+        const handleIcon = ResourceManager.getIcon('icon-resize-handle.svg');
+        if (handleIcon) {
+            resizeHandle.appendChild(handleIcon);
+        }
         
         popup.appendChild(resizeHandle);
 
