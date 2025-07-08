@@ -2,7 +2,15 @@
 
 
 # ComfyUI Prompt Assistant✨提示词小助手
-<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
+🎉🎉感谢大家对提示词小助手的喜爱！🎉🎉
+
+欢迎大家提出宝贵意见，我会收集大家的反馈持续优化。让大家的小助手会变得更好用~😄
+
+插件详细使用教程，可以查看我B站主页的视频教程，很详细！如果使用过程遇到问题也可以到我的b站主页或者Github上留言反馈。🫰🏻
+
+> 👉👉👉<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;👈👈👈
+
+## ✨插件介绍
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
 > 📍手动安装请从右侧[Releases](https://github.com/yawiii/comfyui_prompt_assistant/releases)下载最新版本。
