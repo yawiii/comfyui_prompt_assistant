@@ -4,6 +4,9 @@ from hashlib import md5
 import json
 import time
 import re
+import hashlib
+import aiohttp
+from ..config_manager import config_manager
 
 class BaiduTranslateService:
     # 错误码映射
@@ -150,66 +153,49 @@ class BaiduTranslateService:
         raise Exception("超过最大重试次数")
 
     @staticmethod
-    def translate(text, from_lang='auto', to_lang='zh', request_id=None):
-        """
-        调用百度翻译API进行翻译
-        注意：所有的格式处理（包括序号"1."格式保护等）均由前端的promptFormatter.js负责，
-        后端只负责原始文本的翻译，不进行格式预处理或后处理。
-        """
+    async def translate(text, from_lang="auto", to_lang="zh", request_id=None):
+        config = config_manager.get_baidu_translate_config()
+        app_id = config.get("app_id")
+        secret_key = config.get("secret_key")
+
+        if not app_id or not secret_key:
+            return {"success": False, "error": "请先在config.json中配置百度翻译的app_id和secret_key"}
+
+        salt = str(random.randint(32768, 65536))
+        sign_str = f"{app_id}{text}{salt}{secret_key}"
+        sign = hashlib.md5(sign_str.encode("utf-8")).hexdigest()
+
+        params = {
+            "q": text,
+            "from": from_lang,
+            "to": to_lang,
+            "appid": app_id,
+            "salt": salt,
+            "sign": sign,
+        }
+
         try:
-            # 使用外部传入的request_id，如果没有则自动生成
-            request_id = request_id or f"baidu_trans_{int(time.time())}_{random.randint(1000, 9999)}"
-            
-            if not text or text.strip() == '':
-                return {"success": False, "error": "待翻译文本不能为空"}
-            
-            # 获取配置
-            from ..config_manager import config_manager
-            config = config_manager.get_baidu_translate_config()
-            
-            app_id = config.get('app_id')
-            secret_key = config.get('secret_key')
-            
-            if not app_id or not secret_key:
-                return {"success": False, "error": "请先配置百度翻译API的APP_ID和SECRET_KEY"}
-
-            # 处理长文本 - 按段落分割
-            text_chunks = BaiduTranslateService.split_text_by_paragraphs(text)
-            if not text_chunks:
-                text_chunks = [text]
-
-            translated_text = ''
-            total_chunks = len(text_chunks)
-
-            # 翻译所有文本块
-            for i, chunk in enumerate(text_chunks):
-                try:
-                    chunk_translation = BaiduTranslateService.translate_chunk(
-                        chunk, app_id, secret_key, from_lang, to_lang
-                    )
-                    translated_text += chunk_translation
-
-                    # 如果不是最后一个块，添加换行符并等待
-                    if i < total_chunks - 1:
-                        translated_text += '\n'
-                        time.sleep(1)  # 避免请求过于频繁
-
-                except Exception as chunk_error:
-                    return {"success": False, "error": str(chunk_error)}
-            
-            return {
-                "success": True,
-                "data": {
-                    "translated": translated_text,
-                    "from": from_lang,
-                    "to": to_lang,
-                    "original": text
-                }
-            }
-            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(BaiduTranslateService.API_URL, params=params, timeout=10) as response:
+                    response.raise_for_status()
+                    result = await response.json()
+                    
+                    if "error_code" in result:
+                        return {"success": False, "error": f"翻译失败: {result['error_msg']}"}
+                    
+                    translated_text = result.get('trans_result', [{}])[0].get('dst', '')
+                    return {
+                        "success": True,
+                        "data": {
+                            "from": from_lang,
+                            "to": to_lang,
+                            "original": text,
+                            "translated": translated_text,
+                        },
+                    }
         except Exception as e:
             return {"success": False, "error": str(e)}
-    
+
     @staticmethod
     def batch_translate(texts, from_lang='auto', to_lang='zh'):
         """

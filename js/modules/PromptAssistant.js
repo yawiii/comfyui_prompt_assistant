@@ -1202,36 +1202,22 @@ class PromptAssistant {
                                 if (result.success) {
                                     // 更新输入框内容并添加高亮效果
                                     this.updateInputWithHighlight(widget, result.data.expanded);
-
-                                    // 添加扩写结果到历史记录
-                                    HistoryCacheService.addHistory({
-                                        workflow_id: widget.nodeInfo?.workflow_id || '',
-                                        node_id: widget.nodeId,
-                                        input_id: widget.inputId,
-                                        content: result.data.expanded,
-                                        operation_type: 'expand',
-                                        request_id: request_id,
-                                        timestamp: Date.now()
-                                    });
-
-                                    // 重置撤销状态
-                                    HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, result.data.expanded);
-
-                                    // 更新按钮状态
-                                    UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-
-                                    return {
-                                        success: true,
-                                        useCache: false,
-                                        tipType: 'success',
-                                        tipMessage: '扩写完成'
-                                    };
+                                    UIToolkit.showStatusTip(
+                                        e.currentTarget,
+                                        'success',
+                                        '扩写完成'
+                                    );
                                 } else {
-                                    // 不在这里显示错误提示，直接抛出错误让 handleAsyncButtonOperation 处理
-                                    throw new Error(result.error);
+                                    throw new Error(result.error || '扩写失败，请检查配置或网络');
                                 }
                             } catch (error) {
-                                // 不在这里显示错误提示，直接抛出错误让 handleAsyncButtonOperation 处理
+                                // 确保错误信息能被用户看到
+                                UIToolkit.showStatusTip(
+                                    e.currentTarget,
+                                    'error',
+                                    error.message || '扩写请求异常'
+                                );
+                                // 重新抛出错误，以便外部的handleAsyncButtonOperation能感知到
                                 throw error;
                             }
                         }

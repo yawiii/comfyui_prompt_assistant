@@ -5,6 +5,9 @@
     "secret_key": "your_secret_key"
   },
   "llm": {
-    "api_key": "your_api_key"
+    "api_key": "YOUR_API_KEY",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+    "model": "glm-4-flash",
+    "vision_model": "glm-4v-flash"
   }
 } 

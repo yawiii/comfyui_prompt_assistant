@@ -521,85 +521,39 @@ export function registerSettings() {
 
                 // LLM API 配置
                 {
-                    id: "PromptAssistant.Settings.LLM.ApiKey",
-                    name: "LLM配置",
+                    id: "PromptAssistant.Settings.LLM",
+                    name: "LLM 配置",
                     category: ["✨提示词小助手", "翻译和扩写配置", "LLM"],
-                    tooltip: "大模型API的密钥申请方法，请查看右上角插件介绍",
+                    tooltip: "配置大语言模型的相关参数，如API Key, Base URL等。",
                     type: () => {
                         const row = document.createElement("tr");
                         row.className = "promptwidget-settings-row";
 
-                        // 输入框容器单元格
-                        const inputCell = document.createElement("td");
-                        inputCell.style.display = "flex";
-                        inputCell.style.alignItems = "center";
+                        const cell = document.createElement("td");
+                        cell.colSpan = 2;
+                        
+                        const container = document.createElement("div");
+                        container.style.display = "flex";
+                        container.style.flexDirection = "column";
+                        container.style.gap = "8px";
+                        container.style.width = "100%";
 
-                        // API Key输入框
-                        const apiKeyInput = document.createElement("input");
-                        apiKeyInput.type = "text";
-                        apiKeyInput.className = "p-inputtext";
-                        apiKeyInput.placeholder = "请输入API Key";
-                        apiKeyInput.title = "请输入LLM API的密钥";
-                        apiKeyInput.style.width = "406px";
-                        // --- 优化：聚焦时隐藏占位符，失焦时根据配置恢复 ---
-                        let apiKeyPlaceholder = apiKeyInput.placeholder;
-                        let apiKeyConfigured = false;
-                        apiKeyInput.addEventListener("focus", () => {
-                            apiKeyInput.placeholder = "";
-                        });
-                        apiKeyInput.addEventListener("blur", () => {
-                            apiKeyInput.placeholder = apiKeyConfigured ? "***************************************" : apiKeyPlaceholder;
-                        });
-
-                        // 加载已有配置
-                        fetch('/prompt_assistant/api/config/llm')
-                            .then(response => response.json())
-                            .then(config => {
-                                apiKeyConfigured = !!config.api_key;
-                                if (apiKeyConfigured) {
-                                    apiKeyInput.placeholder = "***************************************";
-                                }
-                            })
-                            .catch(error => {
-                                logger.error("加载LLM配置失败:", error);
-                            });
-
-                        // 更新配置的函数
-                        const updateLLMConfig = async () => {
-                            const api_key = apiKeyInput.value.trim();
-
-                            if (!api_key) {
-                                app.extensionManager.toast.add({
-                                    severity: "error",
-                                    summary: "配置错误",
-                                    detail: "API Key不能为空",
-                                    life: 3000
-                                });
-                                return;
-                            }
-
-                            try {
+                        // --- Helper function to update config ---
+                        const updateLLMConfig = async (body, successMessage) => {
+                             try {
                                 const response = await fetch('/prompt_assistant/api/config/llm', {
                                     method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({ api_key })
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(body)
                                 });
-
-                                if (!response.ok) {
-                                    throw new Error('保存配置失败');
-                                }
-
-                                // 清空输入框并更新占位符
-                                apiKeyInput.value = '';
-                                apiKeyInput.placeholder = "*************";
-
+                                if (!response.ok) throw new Error('保存配置失败');
+                                
                                 app.extensionManager.toast.add({
                                     severity: "success",
-                                    summary: "LLM配置已更新",
+                                    summary: successMessage,
                                     life: 3000
                                 });
+                                return true;
                             } catch (error) {
                                 app.extensionManager.toast.add({
                                     severity: "error",
@@ -607,15 +561,68 @@ export function registerSettings() {
                                     detail: error.message,
                                     life: 3000
                                 });
+                                return false;
                             }
                         };
 
-                        // 添加事件监听器
-                        apiKeyInput.addEventListener("change", updateLLMConfig);
+                        // --- Helper to create a setting row (label + input) ---
+                        const createSetting = (label, key, placeholder, isPassword = false) => {
+                            const wrapper = document.createElement("div");
+                            wrapper.style.display = "flex";
+                            wrapper.style.alignItems = "center";
+                            wrapper.style.gap = "8px";
 
-                        inputCell.appendChild(apiKeyInput);
-                        row.appendChild(inputCell);
+                            const labelEl = document.createElement("label");
+                            labelEl.textContent = label;
+                            labelEl.style.width = "100px";
+                            labelEl.style.flexShrink = "0";
 
+                            const inputEl = document.createElement("input");
+                            inputEl.type = "text";
+                            inputEl.className = "p-inputtext";
+                            inputEl.placeholder = placeholder;
+                            inputEl.style.width = "100%";
+
+                            inputEl.addEventListener("change", () => {
+                                const body = {};
+                                const value = inputEl.value.trim();
+                                body[key] = value;
+                                updateLLMConfig(body, `${label} 已更新`).then(success => {
+                                    if (success && isPassword && value) {
+                                        inputEl.value = '';
+                                        inputEl.placeholder = "****************";
+                                    }
+                                });
+                            });
+                            
+                            wrapper.appendChild(labelEl);
+                            wrapper.appendChild(inputEl);
+                            return { wrapper, input: inputEl };
+                        };
+
+                        const apiKeySetting = createSetting("API Key", "api_key", "请输入API Key", true);
+                        const baseUrlSetting = createSetting("Base URL", "base_url", "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+                        const modelSetting = createSetting("Model", "model", "glm-4-flash");
+                        const visionModelSetting = createSetting("Vision Model", "vision_model", "glm-4v-flash");
+                        
+                        container.appendChild(apiKeySetting.wrapper);
+                        container.appendChild(baseUrlSetting.wrapper);
+                        container.appendChild(modelSetting.wrapper);
+                        container.appendChild(visionModelSetting.wrapper);
+
+                        // --- Load initial data ---
+                        fetch('/prompt_assistant/api/config/llm')
+                            .then(res => res.json())
+                            .then(config => {
+                                if (config.api_key) { apiKeySetting.input.placeholder = "****************"; }
+                                if (config.base_url) { baseUrlSetting.input.value = config.base_url; }
+                                if (config.model) { modelSetting.input.value = config.model; }
+                                if (config.vision_model) { visionModelSetting.input.value = config.vision_model; }
+                            })
+                            .catch(error => logger.error("加载LLM配置失败:", error));
+                        
+                        cell.appendChild(container);
+                        row.appendChild(cell);
                         return row;
                     }
                 },

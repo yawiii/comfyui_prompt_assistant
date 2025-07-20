@@ -1,50 +1,48 @@
-import requests
+import aiohttp
 import json
 import os
 import sys
 
 class LLMService:
-    BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-    MODEL = 'glm-4-flash-250414'
-    
     @staticmethod
-    def _make_request(url, headers, json_data):
+    async def _make_request(url, headers, json_data):
         """
-        统一处理请求，包含代理处理逻辑
+        统一处理异步请求
         """
-        try:
-            # 禁用系统代理
-            session = requests.Session()
-            session.trust_env = False
-            
-            # 发送请求
-            response = session.post(url, headers=headers, json=json_data, timeout=30)
-            return response
-        except requests.exceptions.ProxyError as e:
-            # 处理代理错误
-            print(f"代理连接错误: {str(e)}")
-            # 尝试不使用代理直接连接
+        async with aiohttp.ClientSession(trust_env=True) as session:
             try:
-                proxies = {'http': None, 'https': None}
-                response = requests.post(url, headers=headers, json=json_data, proxies=proxies, timeout=30)
-                return response
-            except Exception as direct_error:
-                raise Exception(f"直接连接也失败: {str(direct_error)}")
-        except Exception as e:
-            raise e
+                # 默认使用系统代理 (trust_env=True)
+                async with session.post(url, headers=headers, json=json_data, timeout=30) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except aiohttp.ClientProxyConnectionError as e:
+                # 代理连接错误时，可以添加更明确的日志或处理
+                print(f"代理连接错误: {str(e)}。请检查您的系统代理设置。")
+                raise e # 重新抛出异常，让上层处理
+            except Exception as e:
+                raise e
     
     @staticmethod
-    def expand_prompt(prompt, request_id=None):
+    async def expand_prompt(prompt, request_id=None):
         """
-        使用GLM-4扩写提示词，自动判断用户输入语言，并设置大模型回答语言。
+        使用GLM-4扩写提示词（异步）
         """
         try:
+            # 校验输入
+            if not prompt or not prompt.strip():
+                return {"success": False, "error": "扩写内容不能为空"}
+
             # 获取配置
             from ..config_manager import config_manager
             config = config_manager.get_llm_config()
             api_key = config.get('api_key')
+            base_url = config.get('base_url')
+            model = config.get('model')
+
             if not api_key:
                 return {"success": False, "error": "请先配置LLM API密钥"}
+            if not base_url or not model:
+                return {"success": False, "error": "LLM配置不完整 (base_url 或 model 未配置)"}
 
             # 加载系统提示词
             def load_system_prompts():
@@ -80,20 +78,23 @@ class LLMService:
                 {"role": "user", "content": prompt}
             ]
             data = {
-                "model": LLMService.MODEL,
+                "model": model,
                 "messages": messages,
                 "temperature": 0.3,
                 "top_p": 0.5,
                 "max_tokens": 1500
             }
             
-            # 使用统一的请求方法
-            response = LLMService._make_request(LLMService.BASE_URL, headers, data)
-            result = response.json()
+            result = await LLMService._make_request(base_url, headers, data)
             
             if 'error' in result:
                 return {"success": False, "error": result['error'].get('message', '扩写请求失败')}
-            expanded_text = result['choices'][0]['message']['content']
+            
+            expanded_text = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+
+            if not expanded_text:
+                return {"success": False, "error": "模型返回了空内容，请检查输入或更换模型"}
+
             return {
                 "success": True,
                 "data": {
@@ -105,17 +106,26 @@ class LLMService:
             return {"success": False, "error": str(e)}
     
     @staticmethod
-    def translate(text, from_lang='auto', to_lang='zh', request_id=None):
+    async def translate(text, from_lang='auto', to_lang='zh', request_id=None):
         """
-        使用GLM-4翻译文本，自动设置提示词语言和输出语言。
+        使用GLM-4翻译文本（异步）
         """
         try:
+            # 校验输入
+            if not text or not text.strip():
+                return {"success": False, "error": "翻译内容不能为空"}
+
             # 获取配置
             from ..config_manager import config_manager
             config = config_manager.get_llm_config()
             api_key = config.get('api_key')
+            base_url = config.get('base_url')
+            model = config.get('model')
+
             if not api_key:
                 return {"success": False, "error": "请先配置LLM API密钥"}
+            if not base_url or not model:
+                return {"success": False, "error": "LLM配置不完整 (base_url 或 model 未配置)"}
 
             # 加载系统提示词
             def load_system_prompts():
@@ -156,20 +166,23 @@ class LLMService:
                 {"role": "user", "content": text}
             ]
             data = {
-                "model": LLMService.MODEL,
+                "model": model,
                 "messages": messages,
                 "temperature": 0.5,
                 "top_p": 0.5,
                 "max_tokens": 1500
             }
             
-            # 使用统一的请求方法
-            response = LLMService._make_request(LLMService.BASE_URL, headers, data)
-            result = response.json()
+            result = await LLMService._make_request(base_url, headers, data)
             
             if 'error' in result:
                 return {"success": False, "error": result['error'].get('message', '翻译请求失败')}
-            translated_text = result['choices'][0]['message']['content']
+            
+            translated_text = result.get('choices', [{}])[0].get('message', {}).get('content', '').strip()
+
+            if not translated_text:
+                return {"success": False, "error": "模型返回了空内容，请检查输入或更换模型"}
+
             return {
                 "success": True,
                 "data": {

@@ -1,4 +1,4 @@
-import requests
+import aiohttp
 import json
 import os
 import base64
@@ -6,39 +6,28 @@ from io import BytesIO
 from PIL import Image
 
 class LLMVisionService:
-    BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions'
-    MODEL = 'glm-4v-flash'
-    
     @staticmethod
-    def _make_request(url, headers, json_data):
+    async def _make_request(url, headers, json_data):
         """
-        统一处理请求，包含代理处理逻辑
+        统一处理异步请求
         """
-        try:
-            # 禁用系统代理
-            session = requests.Session()
-            session.trust_env = False
-            
-            # 发送请求
-            response = session.post(url, headers=headers, json=json_data, timeout=30)
-            return response
-        except requests.exceptions.ProxyError as e:
-            # 处理代理错误
-            print(f"代理连接错误: {str(e)}")
-            # 尝试不使用代理直接连接
+        async with aiohttp.ClientSession(trust_env=True) as session:
             try:
-                proxies = {'http': None, 'https': None}
-                response = requests.post(url, headers=headers, json=json_data, proxies=proxies, timeout=30)
-                return response
-            except Exception as direct_error:
-                raise Exception(f"直接连接也失败: {str(direct_error)}")
-        except Exception as e:
-            raise e
+                # 默认使用系统代理 (trust_env=True)
+                async with session.post(url, headers=headers, json=json_data, timeout=30) as response:
+                    response.raise_for_status()
+                    return await response.json()
+            except aiohttp.ClientProxyConnectionError as e:
+                # 代理连接错误时，可以添加更明确的日志或处理
+                print(f"代理连接错误: {str(e)}。请检查您的系统代理设置。")
+                raise e # 重新抛出异常，让上层处理
+            except Exception as e:
+                raise e
     
     @staticmethod
-    def analyze_image(image_data, request_id=None, lang='zh'):
+    async def analyze_image(image_data, request_id=None, lang='zh'):
         """
-        使用GLM-4V分析图像
+        使用GLM-4V分析图像 (异步)
         """
         try:
             # 获取配置
@@ -46,8 +35,13 @@ class LLMVisionService:
             config = config_manager.get_llm_config()
             
             api_key = config.get('api_key')
+            base_url = config.get('base_url')
+            vision_model = config.get('vision_model')
+
             if not api_key:
                 return {"success": False, "error": "请先配置LLM API密钥"}
+            if not base_url or not vision_model:
+                return {"success": False, "error": "LLM配置不完整 (base_url 或 vision_model 未配置)"}
             
             # 加载系统提示词
             def load_system_prompts():
@@ -134,23 +128,12 @@ class LLMVisionService:
             }]
             
             data = {
-                "model": LLMVisionService.MODEL,
+                "model": vision_model,
                 "messages": messages,
                 "request_id": request_id or f"vision_{hash(image_base64[:100])}"
             }
             
-            # 发送请求
-            response = LLMVisionService._make_request(LLMVisionService.BASE_URL, headers, data)
-            
-            # 检查HTTP响应状态码
-            if response.status_code != 200:
-                return {"success": False, "error": f"HTTP请求失败: 状态码 {response.status_code}"}
-            
-            # 解析JSON响应
-            try:
-                result = response.json()
-            except Exception as e:
-                return {"success": False, "error": f"解析响应JSON失败: {str(e)}"}
+            result = await LLMVisionService._make_request(base_url, headers, data)
             
             # 检查错误
             if 'error' in result:

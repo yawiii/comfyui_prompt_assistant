@@ -93,11 +93,20 @@ async def update_llm_config(request):
     try:
         data = await request.json()
         api_key = data.get('api_key')
-        
-        if not api_key:
-            return web.json_response({'error': '参数不完整'}, status=400)
-            
-        success = config_manager.update_llm_config(api_key)
+        base_url = data.get('base_url')
+        model = data.get('model')
+        vision_model = data.get('vision_model')
+
+        # 至少要有一个参数
+        if all(x is None for x in [api_key, base_url, model, vision_model]):
+            return web.json_response({'error': '未提供任何更新参数'}, status=400)
+
+        success = config_manager.update_llm_config(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            vision_model=vision_model
+        )
         if success:
             return web.json_response({'message': '配置已更新'})
         else:
@@ -124,7 +133,7 @@ async def baidu_translate(request):
         print(f"{PREFIX} 百度翻译请求 | 请求ID:{request_id} | 语言方向:{from_lang}->{to_lang}")
         
         # 调用服务
-        result = BaiduTranslateService.translate(text, from_lang, to_lang, request_id)
+        result = await BaiduTranslateService.translate(text, from_lang, to_lang, request_id)
 
         # 输出结构化成功日志
         result_text = get_result_text(result)
@@ -147,7 +156,7 @@ async def llm_expand(request):
         
         print(f"{PREFIX} LLM扩写请求 | ID:{request_id} | 内容:{prompt[:30]}...")
         
-        result = LLMService.expand_prompt(prompt, request_id)
+        result = await LLMService.expand_prompt(prompt, request_id)
 
         # 输出结构化成功日志
         result_text = get_result_text(result)
@@ -174,9 +183,10 @@ async def llm_translate(request):
         print(f"{PREFIX} LLM翻译请求 | 请求ID:{request_id} | 语言方向:{from_lang}->{to_lang}")
         
         # 调用服务
-        result = LLMService.translate(text, from_lang, to_lang, request_id)
+        result = await LLMService.translate(text, from_lang, to_lang, request_id)
 
         # 输出结构化成功日志
+        print(f"{PREFIX} LLM翻译结果 | 请求ID:{request_id} | 结果:{result}")
         result_text = get_result_text(result)
         result_length = len(result_text.encode('utf-8'))
         print(f"{PREFIX} LLM翻译成功 | 请求ID:{request_id} | 结果字符数:{result_length}")
@@ -226,7 +236,7 @@ async def llm_vision(request):
         # 调用服务
         print(f"{PREFIX} 调用LLMVisionService.analyze_image | 请求ID:{request_id} | 语言:{lang}")
         try:
-            result = LLMVisionService.analyze_image(image_data, request_id, lang)
+            result = await LLMVisionService.analyze_image(image_data, request_id, lang)
         except Exception as service_error:
             error_msg = str(service_error)
             print(f"{ERROR_PREFIX} LLMVisionService调用异常 | 请求ID:{request_id} | 错误:{error_msg}")

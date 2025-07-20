@@ -15,7 +15,10 @@ class ConfigManager:
                 "secret_key": ""
             },
             "llm": {
-                "api_key": ""
+                "api_key": "",
+                "base_url": "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+                "model": "glm-4-flash",
+                "vision_model": "glm-4v-flash"
             }
         }
         
@@ -53,10 +56,18 @@ class ConfigManager:
         return config.get("baidu_translate", self.default_config["baidu_translate"])
     
     def get_llm_config(self):
-        """获取LLM配置"""
+        """
+        获取LLM配置。如果未配置，则提供默认值。
+        """
         config = self.load_config()
-        return config.get("llm", self.default_config["llm"])
-    
+        llm_config = config.get('llm', {})
+        
+        # 从self.default_config中获取默认值，避免重复定义
+        defaults = self.default_config.get('llm', {})
+        
+        # 合并默认值和用户配置
+        return {**defaults, **llm_config}
+
     def update_baidu_translate_config(self, app_id, secret_key):
         """更新百度翻译配置"""
         config = self.load_config()
@@ -66,12 +77,23 @@ class ConfigManager:
         }
         return self.save_config(config)
     
-    def update_llm_config(self, api_key):
-        """更新LLM配置"""
+    def update_llm_config(self, api_key=None, base_url=None, model=None, vision_model=None):
+        """
+        更新LLM配置
+        """
         config = self.load_config()
-        config["llm"] = {
-            "api_key": api_key
-        }
+        if 'llm' not in config:
+            config['llm'] = {}
+
+        if api_key is not None:
+            config['llm']['api_key'] = api_key
+        if base_url is not None:
+            config['llm']['base_url'] = base_url
+        if model is not None:
+            config['llm']['model'] = model
+        if vision_model is not None:
+            config['llm']['vision_model'] = vision_model
+            
         return self.save_config(config)
 
 # 创建全局配置管理器实例
