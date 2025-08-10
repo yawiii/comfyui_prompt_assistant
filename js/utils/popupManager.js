@@ -27,8 +27,12 @@ class PopupManager {
     /**
      * 显示弹窗，确保同时只有一个弹窗显示
      */
-    static showPopup(options) {
+    static async showPopup(options) {
         const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [], enableResize = false } = options;
+
+        // Close any open context menus first
+        const { buttonMenu } = await import('../services/btnMenu.js');
+        buttonMenu.hideMenu();
 
         // 如果已有其他弹窗，先关闭它
         if (this.activePopup && this.activePopup !== popup) {
@@ -79,6 +83,12 @@ class PopupManager {
     static _showNewPopup(options) {
         const { popup, anchorButton, buttonInfo, onClose, preventCloseOnElementTypes = [], enableResize = false } = options;
 
+        // 在所有其他窗口关闭后，设置活动按钮状态
+        if (buttonInfo) {
+            UIToolkit.setActiveButton(buttonInfo);
+            logger.debug(`弹窗管理器 | 设置活动按钮 | 按钮ID: ${buttonInfo.buttonId}`);
+        }
+
         // 保存当前弹窗信息
         this.activePopup = popup;
         this.activePopupInfo = {
@@ -121,10 +131,14 @@ class PopupManager {
         // 清理全局事件监听器
         Object.entries(this.eventHandlers).forEach(([event, handler]) => {
             if (handler) {
-                if (event === 'focus') {
-                    document.removeEventListener(event, handler, true);
-                } else {
-                    document.removeEventListener(event, handler);
+                try {
+                    if (event === 'focus') {
+                        document.removeEventListener(event, handler, true);
+                    } else {
+                        document.removeEventListener(event, handler);
+                    }
+                } catch (error) {
+                    logger.error(`移除事件监听器失败: ${event}, ${error.message}`);
                 }
                 this.eventHandlers[event] = null;
             }
@@ -144,6 +158,17 @@ class PopupManager {
                 logger.error(`执行弹窗清理函数失败: ${error.message}`);
             }
         }
+
+        // 确保所有事件处理函数引用都被重置
+        this.eventHandlers = {
+            mousedown: null,
+            keydown: null,
+            focus: null,
+            mousemove: null,
+            mouseup: null
+        };
+
+        logger.debug('弹窗管理 | 动作:清理所有事件监听器');
     }
 
     /**
@@ -242,7 +267,7 @@ class PopupManager {
         if (!popup._cleanupFunctions) {
             popup._cleanupFunctions = [];
         }
-        
+
         popup._cleanupFunctions.push(() => {
             titleBar.removeEventListener('mousedown', handleMouseDown);
             // 确保清理可能残留的事件监听器
@@ -274,13 +299,13 @@ class PopupManager {
         // 创建右下角拖拽手柄
         const resizeHandle = document.createElement('div');
         resizeHandle.className = 'popup_resize_handle';
-        
+
         // 添加调节手柄图标
         const handleIcon = ResourceManager.getIcon('icon-resize-handle.svg');
         if (handleIcon) {
             resizeHandle.appendChild(handleIcon);
         }
-        
+
         popup.appendChild(resizeHandle);
 
         // 强制回流确保手柄正确渲染
@@ -391,11 +416,11 @@ class PopupManager {
         if (!popup._cleanupFunctions) {
             popup._cleanupFunctions = [];
         }
-        
+
         popup._cleanupFunctions.push(() => {
             resizeHandle.removeEventListener('mousedown', handleResizeStart, { capture: true });
-            resizeHandle.removeEventListener('mouseenter', () => {});
-            resizeHandle.removeEventListener('mouseleave', () => {});
+            resizeHandle.removeEventListener('mouseenter', () => { });
+            resizeHandle.removeEventListener('mouseleave', () => { });
             // 确保清理可能残留的事件监听器
             document.removeEventListener('mousemove', handleResizeMove, { capture: true });
             document.removeEventListener('mouseup', handleResizeEnd, { capture: true });
@@ -649,6 +674,15 @@ class PopupManager {
         this.eventHandlers.keydown = handleEscKey;
         this.eventHandlers.focus = handleFocus;
 
+        // 确保移除可能存在的旧事件监听器
+        try {
+            document.removeEventListener('mousedown', this.eventHandlers.mousedown);
+            document.removeEventListener('keydown', this.eventHandlers.keydown);
+            document.removeEventListener('focus', this.eventHandlers.focus, true);
+        } catch (error) {
+            // 忽略可能的错误
+        }
+
         // 添加事件监听
         document.addEventListener('mousedown', handleOutsideClick);
         document.addEventListener('keydown', handleEscKey);
@@ -666,6 +700,8 @@ class PopupManager {
                 popup._originalOnSelectionChange = null;
             }
         };
+
+        logger.debug('弹窗管理 | 动作:设置关闭事件');
     }
 
     /**
@@ -678,6 +714,16 @@ class PopupManager {
         if (this.activePopup === popup) {
             // 保存信息用于下面的回调
             const popupInfo = this.activePopupInfo;
+
+            // 执行弹窗自身的清理函数
+            if (popup._cleanup && typeof popup._cleanup === 'function') {
+                try {
+                    popup._cleanup();
+                    popup._cleanup = null; // 防止重复调用
+                } catch (error) {
+                    logger.error(`执行弹窗清理函数失败: ${error.message}`);
+                }
+            }
 
             // 清除活跃弹窗引用
             this.activePopup = null;
@@ -696,7 +742,6 @@ class PopupManager {
                 // 强制更新当前widget的状态
                 if (widget) {
                     promptAssistant.updateAssistantVisibility(widget);
-                    promptAssistant.forceUpdateMouseState(widget);
                 }
             }
 
@@ -738,6 +783,17 @@ class PopupManager {
         if (this.activePopup) {
             // 保存当前活动弹窗信息
             const popupInfo = this.activePopupInfo;
+            const activePopup = this.activePopup;
+
+            // 执行弹窗自身的清理函数
+            if (activePopup._cleanup && typeof activePopup._cleanup === 'function') {
+                try {
+                    activePopup._cleanup();
+                    activePopup._cleanup = null; // 防止重复调用
+                } catch (error) {
+                    logger.error(`执行弹窗清理函数失败: ${error.message}`);
+                }
+            }
 
             // 清除活跃弹窗引用
             this.activePopup = null;
@@ -756,7 +812,6 @@ class PopupManager {
                 // 强制更新当前widget的状态
                 if (widget) {
                     promptAssistant.updateAssistantVisibility(widget);
-                    promptAssistant.forceUpdateMouseState(widget);
                 }
             }
 
@@ -782,6 +837,16 @@ class PopupManager {
 
         // 为所有弹窗添加关闭动画
         popups.forEach(popup => {
+            // 执行弹窗自身的清理函数
+            if (popup._cleanup && typeof popup._cleanup === 'function') {
+                try {
+                    popup._cleanup();
+                    popup._cleanup = null; // 防止重复调用
+                } catch (error) {
+                    logger.error(`执行弹窗清理函数失败: ${error.message}`);
+                }
+            }
+
             const isPopupUp = popup.classList.contains('popup-up');
             popup.classList.add(isPopupUp ? 'popup-closing-up' : 'popup-closing-down');
 

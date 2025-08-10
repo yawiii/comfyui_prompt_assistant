@@ -11,22 +11,108 @@
     pointer-events: all;
     display: none;
     align-items: center;
-    justify-content: center;
-    padding: 4px;
+    justify-content: flex-end;
+    /* 始终右对齐 */
+    padding: 2px;
     background-color: color-mix(in srgb, var(--bg-color), transparent 20%);
     border: 1px solid color-mix(in srgb, var(--p-panel-border-color), transparent 60%);
     border-radius: 6px;
     z-index: 9999;
     opacity: 0.95;
-    backdrop-filter: blur(8px);
+    backdrop-filter: blur(4px);
     transform-origin: bottom right;
     user-select: none;
-    will-change: transform, opacity;
+    will-change: width, opacity, background-color, border-color, backdrop-filter, box-shadow;
     width: auto;
-    height: 28px !important;
+    height: 26px !important;
     max-width: fit-content;
     box-sizing: border-box !important;
-    overflow: visible;
+    overflow: hidden;
+    /* 防止内容溢出 */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* 折叠状态的小助手容器 */
+.prompt-assistant-container.collapsed {
+    width: 28px !important;
+    overflow: hidden;
+    justify-content: flex-end;
+    pointer-events: none !important;
+    /* 折叠时穿透鼠标事件 */
+    background-color: transparent !important;
+    border-color: transparent !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+}
+
+/* 折叠状态指示器图标 - 基础样式 */
+.prompt-assistant-indicator {
+    position: absolute;
+    top: 50%;
+    right: 5px;
+    transform: translateY(-50%) scale(0);
+    width: 18px;
+    height: 18px;
+    opacity: 0;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* 指示器图标显示动画 */
+.prompt-assistant-container.collapsed .prompt-assistant-indicator {
+    opacity: var(--assistant-icon-opacity, 0.3);
+    transform: translateY(-50%) scale(0.8);
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 4px rgba(100, 200, 255, 0.5));
+    transition: opacity 0.3s cubic-bezier(.49, 1.98, .67, .83) 0.25s,
+        transform 0.4s cubic-bezier(.78, 1.76, .68, .96) 0.25s;
+}
+
+/* 指示器图标隐藏动画 */
+.prompt-assistant-container:not(.collapsed) .prompt-assistant-indicator {
+    opacity: 0;
+    transform: translateY(-50%) scale(0);
+    transition: opacity 0s ease-in,
+        transform 0.3s ease-in;
+}
+
+/* 内部内容容器 - 使用common.css中定义的固定内容样式 */
+.prompt-assistant-inner,
+.image-assistant-inner {
+    /* 使用common.css中定义的固定内容样式 */
+    display: flex;
+    gap: 2px;
+    position: relative;
+    right: 0;
+    justify-content: flex-end;
+    width: auto;
+    flex-grow: 1;
+    transition: none;
+}
+
+/* 折叠状态下的内部容器 */
+.prompt-assistant-container.collapsed .prompt-assistant-inner {
+    pointer-events: none !important;
+}
+
+/* 悬停区域 - 用于检测鼠标悬停 */
+.prompt-assistant-hover-area {
+    position: absolute;
+    top: 0;
+    right: 6px;
+    width: 16px;
+    height: 100%;
+    z-index: 1;
+    /* 降低z-index，确保在按钮下方 */
+    cursor: pointer;
+    pointer-events: auto;
+    /* 初始状态隐藏 */
+    display: none;
+    background-color: transparent;
+}
+
+/* 折叠状态下的悬停区域 */
+.prompt-assistant-container.collapsed .prompt-assistant-hover-area {
+    display: block;
 }
 
 /* ======== 图像小助手样式 ======== */
@@ -34,55 +120,149 @@
 /* 图像小助手容器 */
 .image-assistant-container {
     position: fixed;
-    /* 使用fixed定位 */
     pointer-events: all;
     display: none;
     align-items: center;
-    justify-content: center;
-    padding: 4px;
+    justify-content: flex-start;
+    /* 改为左对齐 */
+    padding: 2px;
     background-color: color-mix(in srgb, var(--bg-color), transparent 20%);
     border: 1px solid color-mix(in srgb, var(--p-panel-border-color), transparent 40%);
-    border-radius: 6px;
+    border-radius: 8px;
     z-index: 9999;
     opacity: 0.95;
-    backdrop-filter: blur(8px);
-    transform-origin: bottom right;
+    backdrop-filter: blur(4px);
+    transform-origin: bottom left;
+    /* 改为左下角 */
     user-select: none;
-    will-change: transform, opacity;
+    will-change: width, opacity, background-color, border-color, backdrop-filter, box-shadow;
     width: auto;
-    height: 28px !important;
+    height: 24px !important;
     max-width: fit-content;
     box-sizing: border-box !important;
-    overflow: visible;
+    overflow: hidden;
     transform: scale(var(--assistant-scale, 1));
-    /* 添加transform属性 */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.image-assistant-container:hover {
-    opacity: 1;
+/* 折叠状态的图像小助手容器 */
+.image-assistant-container.collapsed {
+    width: 28px !important;
+    overflow: hidden;
+    justify-content: flex-start;
+    /* 改为左对齐 */
+    background-color: transparent;
+    border-color: transparent;
+    backdrop-filter: blur(0px);
+    box-shadow: none;
 }
 
-/* 图像小助手显示和隐藏动画类 */
+/* 折叠状态指示器图标 - 基础样式 */
+.image-assistant-indicator {
+    position: absolute;
+    top: 50%;
+    left: 5px;
+    /* 改为左侧 */
+    transform: translateY(-50%) scale(0);
+    width: 18px;
+    height: 18px;
+    opacity: 0;
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* 指示器图标显示动画 */
+.image-assistant-container.collapsed .image-assistant-indicator {
+    opacity: var(--assistant-icon-opacity, 0.3);
+    transform: translateY(-50%) scale(0.8);
+    filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 4px rgba(100, 200, 255, 0.5));
+    transition: opacity 0.3s cubic-bezier(.49, 1.98, .67, .83) 0.25s,
+        transform 0.4s cubic-bezier(.78, 1.76, .68, .96) 0.25s;
+}
+
+/* 指示器图标创建时的动画 */
+.image-assistant-container.collapsed .image-assistant-indicator.animate-creation {
+    animation: indicator-creation 0.6s cubic-bezier(.49, 1.98, .67, .83);
+}
+
+/* 指示器创建动画 */
+@keyframes indicator-creation {
+    0% {
+        opacity: 0;
+        transform: translateY(-50%) scale(0);
+    }
+
+    60% {
+        opacity: 0.5;
+        transform: translateY(-50%) scale(1.0);
+    }
+
+    100% {
+        opacity: 0.3;
+        transform: translateY(-50%) scale(0.8);
+    }
+}
+
+/* 指示器图标隐藏动画 */
+.image-assistant-container:not(.collapsed) .image-assistant-indicator {
+    opacity: 0;
+    transform: translateY(-50%) scale(0);
+    transition: opacity 0s ease-in,
+        transform 0.3s ease-in;
+}
+
+/* 悬停区域 - 用于检测鼠标悬停 */
+.image-assistant-hover-area {
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* 改为左侧 */
+    width: 28px;
+    height: 100%;
+    z-index: 1;
+    cursor: pointer;
+    pointer-events: auto;
+    display: none;
+    background-color: transparent;
+}
+
+/* 折叠状态下的悬停区域 */
+.image-assistant-container.collapsed .image-assistant-hover-area {
+    display: block;
+}
+
+/* 折叠状态下按钮的透明度过渡 */
+.image-assistant-container.collapsed .image-assistant-button {
+    transition: opacity 0.3s cubic-bezier(0.11, 0, 0.5, 0);
+    opacity: 0;
+}
+
+/* 图像小助手过渡效果 */
+.image-assistant-transition {
+    transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        border-color 0.5s ease-out,
+        backdrop-filter 0.5s ease-out,
+        box-shadow 0.2s ease-out,
+        background-color 0.5s ease-out;
+}
+
+/* 图像小助手显示动画类 */
 .image-assistant-show {
     display: flex !important;
-    animation: image-assistant-fade-in 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.image-assistant-hide {
-    display: flex !important;
-    animation: image-assistant-fade-out 0.2s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards !important;
-    pointer-events: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
 /* ======== 共用组件样式 ======== */
 
-/* 内部内容容器 */
-.prompt-assistant-inner,
-.image-assistant-inner {
-    display: flex;
-    gap: 2px;
+/* 自动翻译指示器 - 黄色图标样式 */
+.prompt-assistant-container.auto-translate-enabled .prompt-assistant-indicator {
+    color: rgb(246, 252, 163);
+    filter: drop-shadow(0 0 2px rgba(247, 187, 6, 0.755)) drop-shadow(0 0 4px rgba(255, 255, 0, 0.7));
+}
+
+.prompt-assistant-container.auto-translate-enabled.collapsed .prompt-assistant-indicator {
+    opacity: var(--assistant-icon-opacity, 0.5);
 }
 
 /* 按钮分割线样式 */
@@ -98,17 +278,10 @@
     border-radius: 0.5px;
 }
 
-/* 显示和隐藏动画类 */
+/* 显示动画类 */
 .assistant-show {
     display: flex !important;
     animation: clipFadeInDown 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.assistant-hide {
-    display: flex !important;
-    animation: clipFadeOutUp 0.2s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards !important;
-    pointer-events: none;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
@@ -139,6 +312,22 @@
     flex-shrink: 0;
     border-radius: 3px;
     color: var(--p-dialog-color);
+    position: relative;
+    /* 确保按钮相对定位 */
+}
+
+/* 展开状态下恢复按钮的透明度 */
+.prompt-assistant-container:not(.collapsed) .prompt-assistant-button {
+    opacity: 0.8;
+}
+
+/* 折叠状态下隐藏并禁用按钮 */
+.prompt-assistant-container.collapsed .prompt-assistant-button,
+.prompt-assistant-container.collapsed .prompt-assistant-button.button-active,
+.prompt-assistant-container.collapsed .prompt-assistant-button.button-processing {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 0.4s ease-out, pointer-events 0s 0.4s;
 }
 
 /* SVG图标样式 */
@@ -198,21 +387,30 @@
 }
 
 .button-active {
+    opacity: 1;
+    transform: scale(1.15);
     background-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 4px rgba(255, 255, 255, 0.2);
-    position: relative;
-    z-index: 1;
-    opacity: 1 !important;
-}
-
-.button-active .svg-icon svg {
-    fill: var(--active-color);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+    color: var(--p-listbox-option-selected-color);
 }
 
 .button-disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+    opacity: 0.4 !important;
+    filter: grayscale(60%);
+    cursor: not-allowed !important;
     pointer-events: none;
+    transform: none !important;
+    color: var(--p-text-muted-color);
+}
+
+.button-disabled:hover {
+    transform: none !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+
+.button-disabled .svg-icon svg {
+    filter: brightness(0.9) grayscale(100%);
 }
 
 /* 状态提示样式 */
@@ -253,5 +451,9 @@
 
 .statustip.info {
     color: color-mix(in srgb, var(--p-inputtext-color), rgb(82, 70, 255) 60%) !important;
+    background-color: color-mix(in srgb, var(--p-content-background), rgb(55, 8, 113)30%);
+}
+
+.prompt_assistant_container .icon_button:hover {
     background-color: color-mix(in srgb, var(--p-content-background), rgb(55, 8, 113)30%);
 }

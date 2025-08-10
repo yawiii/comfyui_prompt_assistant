@@ -5,6 +5,7 @@
 
 import { logger } from './logger.js';
 import { ResourceManager } from "./resourceManager.js";
+import { APIService } from "../services/api.js";
 
 class UIToolkit {
     // 中央按钮状态管理器 - 记录激活状态的按钮
@@ -151,19 +152,31 @@ class UIToolkit {
 
     /**
      * 为按钮添加图标
+     * @param {HTMLElement} button 按钮元素
+     * @param {string} icon 图标名称，支持SVG或PrimeIcons，例如'icon-history.svg'或'pi-times'
+     * @param {string} alt 替代文本
      */
     static addIconToButton(button, icon, alt) {
         if (!icon) return;
 
         try {
+            button.innerHTML = '';
+
+            // 判断是否是PrimeIcon
+            if (icon.startsWith('pi-')) {
+                const iconSpan = document.createElement('span');
+                iconSpan.className = `pi ${icon}`;
+                iconSpan.title = alt || '';
+                button.appendChild(iconSpan);
+                return;
+            }
+
             // 获取图标名称（确保带有.svg后缀）
             const iconName = icon.endsWith('.svg') ? icon : `${icon}.svg`;
 
             // 从ResourceManager获取图标
             const cachedImg = ResourceManager.getIcon(iconName);
             if (cachedImg) {
-                // 清空按钮并添加图片
-                button.innerHTML = '';
                 button.appendChild(cachedImg);
                 cachedImg.alt = alt || '';
                 cachedImg.draggable = false;
@@ -285,8 +298,8 @@ class UIToolkit {
             timestamp: Date.now()
         };
 
-        // 先设置按钮状态
-        this.setActiveButton(buttonInfo);
+        // **不要**在这里设置激活按钮，让弹窗管理器在清理完其他窗口后设置
+        // this.setActiveButton(buttonInfo);
 
         // 显示弹窗
         showPopupFn({
@@ -365,15 +378,15 @@ class UIToolkit {
      * 更新按钮可点击状态
      */
     static _updateButtonClickability(button) {
-        // 检查按钮是否处于禁用或处理中状态
+        // 检查按钮是否处于禁用状态
         const isDisabled = button.classList.contains('button-disabled');
-        const isProcessing = button.classList.contains('button-processing');
 
-        if (isDisabled || isProcessing) {
-            // 如果按钮被禁用或正在处理中，阻止点击事件
+        if (isDisabled) {
+            // 如果按钮被禁用，阻止点击事件
             button.style.pointerEvents = 'none';
         } else {
-            // 恢复点击事件
+            // 其他所有情况（包括processing）都允许点击，
+            // 具体操作由事件监听器内部逻辑决定
             button.style.pointerEvents = 'auto';
         }
     }
@@ -624,10 +637,13 @@ class UIToolkit {
             error: (msg) => msg || '操作失败'
         };
 
+        let currentRequestId = null;
+        let cancellationTimer = null;
+        let cancelClickHandler = null;
+
         try {
             // 设置当前按钮为处理中状态
             this.setButtonState(widget, buttonId, 'processing', true);
-
             // 禁用其他按钮
             Object.keys(widget.buttons).forEach(id => {
                 if (id !== buttonId) {
@@ -635,8 +651,40 @@ class UIToolkit {
                 }
             });
 
-            // 执行异步操作
-            const result = await asyncOperation();
+            // 执行异步操作，并捕获请求ID
+            const result = await asyncOperation((requestId) => {
+                currentRequestId = requestId;
+
+                // 0.5秒后允许取消
+                cancellationTimer = setTimeout(() => {
+                    // 检查按钮是否仍在处理中
+                    const currentState = this.getButtonState(widget, buttonId);
+                    if (currentState && currentState.processing) {
+                        buttonElement.classList.add('cancellable');
+                        // 临时添加取消事件
+                        cancelClickHandler = async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (currentRequestId) {
+                                logger.debug(`用户取消请求 | ID: ${currentRequestId}`);
+                                await APIService.cancelRequest(currentRequestId);
+
+                                // 根据按钮ID显示不同的取消提示
+                                let cancelMessage = '请求已取消';
+                                if (buttonId === 'expand') {
+                                    cancelMessage = '扩写已取消';
+                                } else if (buttonId === 'translate') {
+                                    cancelMessage = '翻译已取消';
+                                }
+
+                                // 显示取消提示
+                                this.showStatusTip(buttonElement, 'info', cancelMessage);
+                            }
+                        };
+                        buttonElement.addEventListener('click', cancelClickHandler);
+                    }
+                }, 500);
+            });
 
             // 根据操作结果显示不同的提示
             if (result && result.success) {
@@ -644,49 +692,63 @@ class UIToolkit {
                 const tipPosition = { x: btnRect.left + btnRect.width / 2, y: btnRect.top };
 
                 if (result.useCache && result.tipType && result.tipMessage) {
-                    // 处理缓存结果的提示
                     this.showStatusTip(
-                        result.buttonElement || buttonElement, // 使用传入的按钮元素或当前按钮
+                        result.buttonElement || buttonElement,
                         result.tipType,
                         result.tipMessage,
                         tipPosition
                     );
                 } else if (!result.useCache) {
-                    // 非缓存操作时显示默认的成功提示
                     this.showStatusTip(
                         buttonElement,
                         'success',
-                        typeof statusConfig.success === 'function'
-                            ? statusConfig.success(result.from, result.to)
-                            : statusConfig.success,
+                        typeof statusConfig.success === 'function' ? statusConfig.success(result.from, result.to) : statusConfig.success,
                         tipPosition
                     );
                 }
             } else {
-                throw new Error(statusConfig.error(result?.error));
+                // 如果是用户取消的，则不显示错误
+                if (!result?.cancelled) {
+                    throw new Error(statusConfig.error(result?.error));
+                }
             }
 
         } catch (error) {
-            // 显示错误提示
-            const btnRect = buttonElement.getBoundingClientRect();
-            this.showStatusTip(
-                buttonElement,
-                'error',
-                error.message,
-                { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
-            );
-            logger.error(`按钮操作失败 | 按钮:${buttonId} | 错误:${error.message}`);
+            // 如果是用户取消的，错误信息已在API层处理，这里不再显示
+            if (error.name !== 'AbortError' && !error.message.includes('aborted')) {
+                const btnRect = buttonElement.getBoundingClientRect();
+                this.showStatusTip(
+                    buttonElement,
+                    'error',
+                    error.message,
+                    { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
+                );
+                logger.error(`按钮操作失败 | 按钮:${buttonId} | 错误:${error.message}`);
+            }
 
         } finally {
+            // 清理
+            if (cancellationTimer) clearTimeout(cancellationTimer);
+            if (cancelClickHandler) buttonElement.removeEventListener('click', cancelClickHandler);
+            buttonElement.classList.remove('cancellable');
+
+            // 恢复为旧的、可靠的重置逻辑
             // 重置当前按钮状态
             this.setButtonState(widget, buttonId, 'processing', false);
-
             // 恢复其他按钮状态
             Object.keys(widget.buttons).forEach(id => {
                 if (id !== buttonId) {
                     this.setButtonState(widget, id, 'disabled', false);
                 }
             });
+
+            // 操作完成后，触发小助手自动折叠
+            setTimeout(() => {
+                if (window.promptAssistant && typeof window.promptAssistant.triggerAutoCollapse === 'function') {
+                    window.promptAssistant.triggerAutoCollapse(widget);
+                    logger.debug(`异步操作完成 | 触发自动折叠 | 按钮:${buttonId}`);
+                }
+            }, 1500);
         }
     }
 }

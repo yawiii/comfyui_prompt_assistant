@@ -85,6 +85,11 @@
     height: 20px;
 }
 
+/* 添加 PrimeIcons 尺寸控制 */
+.popup_btn .pi {
+    font-size: 12px;
+}
+
 .popup_btn:hover {
     /* color: rgba(255, 255, 255, 0.9); */
     color: var(--p-button-text-secondary-color);
@@ -397,7 +402,7 @@
     margin-bottom: 4px;
     border-radius: 6px;
     overflow: hidden;
-
+    /* 移除整体的指针样式，只在标题和标签上保留 */
     /* background-color: rgba(40, 40, 40, 0.5); */
 }
 
@@ -444,6 +449,11 @@
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* 添加手风琴图标尺寸控制 */
+.tag_accordion_icon .pi {
+    font-size: 12px;
+}
+
 .tag_accordion_icon img,
 .tag_accordion_icon .svg-icon,
 .accordion_arrow_icon {
@@ -463,6 +473,8 @@
     padding: 0;
     background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 90%);
     overflow: hidden;
+    cursor: default;
+    /* 确保内容区域使用默认指针 */
     transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -471,6 +483,8 @@
     max-height: 200px;
     padding: 2px 0;
     overflow-y: auto;
+    cursor: default;
+    /* 确保激活状态下内容区域也使用默认指针 */
 }
 
 /* 标签容器样式 */
@@ -491,6 +505,7 @@
     /* border: 1px solid rgba(255, 255, 255, 0.1); */
     border-radius: 12px;
     cursor: pointer;
+    /* 确保默认使用指针光标 */
     transition: all 0.2s ease;
     position: relative;
     z-index: 1;
@@ -507,7 +522,7 @@
 .tag_item_text {
     font-size: 14px;
     /* color: rgba(255, 255, 255, 0.731); */
-    color: var(--p-text-muted-color);
+    color: var(--p-inputtext-color);
 }
 
 /* 标签使用状态样式 */
@@ -574,7 +589,7 @@
 }
 
 /* ---可滚动Tabs栏样式--- */
-.popup_tabs_container {
+.popup_container .popup_tabs_container {
     position: relative;
     border-bottom: 1px solid var(--p-content-border-color);
     /* background-color: rgba(30, 30, 30, 0.8); */
@@ -588,7 +603,7 @@
 }
 
 /* 滚动区域 */
-.popup_tabs_scroll {
+.popup_container .popup_tabs_scroll {
     overflow-x: auto;
     overflow-y: hidden;
     white-space: nowrap;
@@ -605,13 +620,13 @@
 }
 
 /* 隐藏滚动条 */
-.popup_tabs_scroll::-webkit-scrollbar {
+.popup_container .popup_tabs_scroll::-webkit-scrollbar {
     display: none;
     /* Chrome, Safari, Opera */
 }
 
 /* Tabs栏 */
-.popup_tabs {
+.popup_container .popup_tabs {
     display: inline-flex;
     flex-wrap: nowrap;
     gap: 2px;
@@ -620,12 +635,12 @@
 }
 
 /* 为第一个标签添加左侧边距 */
-.popup_tabs .popup_tab:first-child {
+.popup_container .popup_tabs .popup_tab:first-child {
     margin-left: 6px;
 }
 
 /* 单个Tab标签 */
-.popup_tab {
+.popup_container .popup_tab {
     display: inline-block;
     padding: 4px 10px 8px 10px;
     font-size: 12px;
@@ -643,7 +658,7 @@
 }
 
 /* Tab激活状态 - 添加底部高亮条 */
-.popup_tab.active {
+.popup_container .popup_tab.active {
     /* color: rgba(255, 255, 255, 0.9); */
     color: var(--p-listbox-option-selected-color);
     background-color: transparent;
@@ -651,7 +666,7 @@
 }
 
 /* 底部高亮条基础样式 */
-.popup_tab::after {
+.popup_container .popup_tab::after {
     content: '';
     position: absolute;
     bottom: 0;
@@ -667,47 +682,47 @@
 }
 
 /* 底部高亮条激活状态 */
-.popup_tab.active::after {
+.popup_container .popup_tab.active::after {
     transform: translateX(-50%) scaleX(1);
 }
 
 /* 底部高亮条退出动画 */
-.popup_tab.active.exiting::after {
+.popup_container .popup_tab.active.exiting::after {
     transform: translateX(-50%) scaleX(0);
 }
 
 /* 当前节点的底部高亮条颜色 */
-.popup_tab.current_node::after {
+.popup_container .popup_tab.current_node::after {
     background-color: var(--p-green-500);
 }
 
 /* Tab悬停效果 */
-.popup_tab:hover {
+.popup_container .popup_tab:hover {
     /* color: rgba(255, 255, 255, 0.9); */
     color: var(--p-inputtext-color);
 
 }
 
 /* 当前节点标识 */
-.popup_tab.current_node {
+.popup_container .popup_tab.current_node {
     background-color: transparent;
     /* color: rgba(200, 255, 200, 0.8); */
     color: var(--p-listbox-option-selected-color);
 }
 
-.popup_tab.current_node.active {
+.popup_container .popup_tab.current_node.active {
     background-color: transparent;
     color: var(--p-green-500);
     box-shadow: none;
 }
 
-.popup_tab.current_node:hover {
+.popup_container .popup_tab.current_node:hover {
     background-color: rgba(0, 170, 80, 0.1);
     border-radius: 8px 8px 0 0;
 }
 
 /* Tab内容容器 */
-.popup_tab_content {
+.popup_container .popup_tab_content {
     display: none;
     max-height: 290px;
     overflow-y: auto;
@@ -716,25 +731,25 @@
     padding-bottom: 8px;
 }
 
-.popup_tab_content::-webkit-scrollbar {
+.popup_container .popup_tab_content::-webkit-scrollbar {
     width: 6px;
 }
 
-.popup_tab_content::-webkit-scrollbar-track {
+.popup_container .popup_tab_content::-webkit-scrollbar-track {
     background: transparent;
 }
 
-.popup_tab_content::-webkit-scrollbar-thumb {
+.popup_container .popup_tab_content::-webkit-scrollbar-thumb {
     background-color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%);
     border-radius: 3px;
 }
 
-.popup_tab_content.active {
+.popup_container .popup_tab_content.active {
     display: block;
 }
 
 /* 滚动指示器 - PrimeVue 风格 */
-.tabs_scroll_indicator {
+.popup_container .tabs_scroll_indicator {
     position: relative;
     width: 20px;
     height: 20px;
@@ -753,21 +768,26 @@
     border-radius: 50%;
 }
 
+/* 添加滚动指示器图标尺寸控制 */
+.popup_container .tabs_scroll_indicator .pi {
+    font-size: 14px;
+}
+
 /* 左侧滚动指示器 */
-.tabs_scroll_indicator.left {
+.popup_container .tabs_scroll_indicator.left {
     order: -1;
     /* 确保在滚动区域左侧 */
     margin: 0 4px;
 }
 
 /* 右侧滚动指示器 */
-.tabs_scroll_indicator.right {
+.popup_container .tabs_scroll_indicator.right {
     order: 1;
     /* 确保在滚动区域右侧 */
     margin: 0 4px;
 }
 
-.tabs_scroll_indicator:hover {
+.popup_container .tabs_scroll_indicator:hover {
     color: rgba(255, 255, 255, 1);
     background-color: rgba(60, 60, 60, 0.7);
     transform: scale(1.1);
@@ -776,7 +796,7 @@
 }
 
 /* 滚动指示器图标样式 */
-.scroll_indicator_icon {
+.popup_container .scroll_indicator_icon {
     width: 12px;
     height: 12px;
     display: block;
@@ -784,16 +804,16 @@
 }
 
 /* 左侧滚动指示器图标旋转 */
-.rotate_left {
+.popup_container .rotate_left {
     transform: rotate(-90deg);
 }
 
 /* 右侧滚动指示器图标旋转 */
-.rotate_right {
+.popup_container .rotate_right {
     transform: rotate(-90deg);
 }
 
-.rotate-180 {
+.popup_container .rotate-180 {
     transform: rotate(180deg);
 }
 
@@ -815,14 +835,16 @@
     bottom: 0 !important;
     width: 14px !important;
     height: 18px !important;
-    cursor: nw-resize !important;
+    cursor: se-resize !important;
     border-radius: 0 0 8px 0;
-    z-index: 1001 !important; /* 确保在最上层 */
+    z-index: 1001 !important;
+    /* 确保在最上层 */
     background: transparent;
     transition: opacity 0.2s ease;
     color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%);
     opacity: 0.7;
-    pointer-events: auto !important; /* 确保可以接收鼠标事件 */
+    pointer-events: auto !important;
+    /* 确保可以接收鼠标事件 */
 }
 
 .popup_resize_handle:hover {
@@ -835,7 +857,8 @@
     width: 12px !important;
     height: 12px !important;
     display: block !important;
-    pointer-events: none; /* 图标不接收事件，让父元素处理 */
+    pointer-events: none;
+    /* 图标不接收事件，让父元素处理 */
 }
 
 /* 窗口调节中的样式 */
@@ -949,8 +972,9 @@
     overflow: hidden;
 }
 
-.popup_container.tag_popup:has(.tag_search_result_list) > *:not(.popup_title_bar) {
-    height: calc(100% - 60px); /* 减去标题栏高度 */
+.popup_container.tag_popup:has(.tag_search_result_list)>*:not(.popup_title_bar) {
+    height: calc(100% - 60px);
+    /* 减去标题栏高度 */
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -961,4 +985,141 @@
     display: block;
     height: 100%;
     min-height: 300px;
+}
+
+/* ====================== 按钮右键菜单样式 ====================== */
+
+/* 菜单容器样式 */
+.button-context-menu {
+    position: fixed;
+    background-color: var(--p-content-background);
+    border: 1px solid var(--p-content-border-color);
+    border-radius: 8px;
+    min-width: 100px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    z-index: 10000;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    color: var(--p-text-color, #ddd);
+    backdrop-filter: blur(8px) !important;
+    overflow: hidden;
+}
+
+/* 菜单显示状态 */
+.button-context-menu.button-menu-visible {
+    opacity: 1;
+    transform: translateY(0);
+    animation: clipFadeInDown 0.2s ease-in-out;
+}
+
+/* 菜单项列表 */
+.button-menu-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px 0;
+}
+
+/* 菜单项 */
+.button-menu-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+    user-select: none;
+}
+
+/* 菜单项悬停状态 */
+.button-menu-item:hover {
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 84%);
+}
+
+/* 菜单分隔线 */
+.button-menu-separator {
+    height: 1px;
+    margin: 4px 0;
+    background-color: var(--p-content-border-color, #444);
+}
+
+/* 菜单图标 */
+.button-menu-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+    color: var(--p-text-muted-color, #aaa);
+}
+
+/* 菜单图标中的SVG */
+.button-menu-icon svg {
+    width: 16px;
+    height: 16px;
+    fill: currentColor;
+}
+
+/* 菜单标签 */
+.button-menu-label {
+    flex: 1;
+    color: var(--p-text-muted-color, #aaa);
+}
+
+/* 快捷键提示 */
+.button-menu-shortcut {
+    color: var(--p-text-muted-color, #999);
+    margin-left: 8px;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+/* 禁用菜单项 */
+.button-menu-item-disabled {
+    opacity: 0.5;
+    cursor: default;
+    pointer-events: none;
+}
+
+/* 禁用菜单项悬停状态 */
+.button-menu-item-disabled:hover {
+    background-color: transparent;
+}
+
+/* 选中状态的菜单项 */
+.button-menu-item.selected {
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 90%);
+}
+
+.button-menu-item.selected .button-menu-label,
+.button-menu-item.selected .button-menu-icon {
+    color: var(--p-listbox-option-selected-color, #fff);
+}
+
+/* 菜单项激活状态 */
+.button-menu-item:active {
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 70%);
+}
+
+/* 菜单项键盘焦点状态 */
+.button-menu-item-focus {
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 84%);
+    outline: none;
+}
+
+/* 菜单项键盘焦点状态下的标签 */
+.button-menu-item-focus .button-menu-label {
+    color: var(--p-inputtext-color, #fff);
+}
+
+/* 激活状态图标样式 */
+.active-status {
+    color: var(--p-green-500, #4caf50) !important;
+}
+
+/* 未激活状态图标样式 */
+.inactive-status {
+    color: var(--p-text-muted-color, #aaa) !important;
 }

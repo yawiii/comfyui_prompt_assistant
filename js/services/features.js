@@ -54,6 +54,7 @@ export const FEATURES = {
     tag: true,
     expand: true,
     translate: true,
+    autoTranslate: false, // 自动翻译功能
     imageCaption: true, // 图像反推提示词功能
 
     /**
@@ -116,7 +117,8 @@ export const FEATURES = {
                     if (assistant.element) {
                         if (!this.imageCaption) {
                             assistant.element.style.display = 'none';
-                        } else if (assistant.isMouseOver || assistant.isFirstCreate || assistant.isActive) {
+                        } else {
+                            // 始终显示图像小助手
                             assistant.element.style.display = 'flex';
                         }
                     }
@@ -187,4 +189,4 @@ export function handleFeatureChange(featureName, value, oldValue) {
             imageCaption.cleanup();
         }
     }
-}
+} 

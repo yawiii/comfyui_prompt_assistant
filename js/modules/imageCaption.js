@@ -10,11 +10,9 @@ import { UIToolkit } from "../utils/UIToolkit.js";
 import { EventManager } from "../utils/eventManager.js";
 import { APIService } from '../services/api.js';
 import { HistoryCacheService } from '../services/cache.js';
+import { buttonMenu } from "../services/btnMenu.js";
+import { rulesConfigManager } from "./rulesConfigManager.js";
 
-// 调试开关
-window.DEBUG_BOUNDS = false;        // 显示边界框
-window.DEBUG_BOUNDS_INFO = false;   // 显示边界框信息
-window.DEBUG_BOUNDS_LOG = false;    // 显示调试日志
 
 class ImageCaption {
     /** 存储所有小助手实例的Map集合 */
@@ -22,163 +20,192 @@ class ImageCaption {
 
     constructor() {
         this.initialized = false;
-        // 初始化白名单节点列表
-        this.initAllowedNodeTypes();
     }
 
     /**
-     * 初始化允许的节点类型白名单
-     * 只有这些节点类型会创建图像小助手
+     * 获取低画质渲染阈值
+     * 将此方法提取为类方法，确保所有地方使用相同的阈值计算逻辑
      */
-    initAllowedNodeTypes() {
-        // ---图像节点类型白名单---
-        this.allowedNodeTypes = new Set([
-            // 基础图像节点
-            'PreviewImage',
-            'SaveImage', 
-            'LoadImage',
-            'ImageUpload',
-            'ImageInput',
-            'ImageOutput',
-            'ImageDisplay',
-            'ImageViewer',
-       
-        ]);
-
-        // logger.log(`图像小助手白名单初始化 | 允许节点类型数量: ${this.allowedNodeTypes.size}`);
-    }
-
-    /**
-     * 检查节点类型是否在白名单中
-     * @param {string} nodeType 节点类型
-     * @returns {boolean} 是否允许创建小助手
-     */
-    isNodeTypeAllowed(nodeType) {
-        if (!nodeType) return false;
-
-        // 直接匹配白名单
-        if (this.allowedNodeTypes.has(nodeType)) {
-            return true;
+    _getQualityThreshold() {
+        // 优先从系统设置获取
+        if (app.ui?.settings) {
+            try {
+                // 修复：不使用已弃用的defaultValue参数
+                const settingValue = app.ui.settings.getSettingValue('Comfy.Graph.CanvasInfo');
+                if (typeof settingValue === 'number') {
+                    return settingValue;
+                }
+            } catch (e) {
+                // 忽略错误，使用默认值
+            }
         }
+        // 从canvas对象获取
+        return app.canvas?.low_quality_zoom_threshold || 0.6;
+    }
 
-        // 模糊匹配 - 检查是否包含图像相关关键词
-        const imageKeywords = [
-            'image',
-            'img',
-            'picture',
-            'photo',
-            'preview',
-            'load',
-            'save',
-            'display',
-            'viewer',
-            'preprocessor',
-            'preprocess',
-            'frame',
-            'video'
-        ];
-
-        const nodeTypeLower = nodeType.toLowerCase();
+    /**
+     * 检查节点类型是否是允许的图像节点类型
+     * @param {object} node - LiteGraph节点对象
+     * @param {boolean} debug - 是否打印调试日志
+     * @returns {boolean} 是否是允许的节点类型
+     */
+    _isAllowedNodeType(node, debug = false) {
+        if (!node || !node.type) return false;
         
-        // 检查是否包含图像相关关键词
-        const containsImageKeyword = imageKeywords.some(keyword => 
-            nodeTypeLower.includes(keyword)
+        // 允许的节点类型列表（可根据实际情况调整）
+        const allowedTypes = [
+            // 加载图像节点
+            'LoadImage',
+            'LoadImageFromUrl',
+            
+            // 预览图像节点
+            'PreviewImage',
+            'ImagePreview',
+            
+            // 保存图像节点
+            'SaveImage',
+            'SaveImages'
+        ];
+        
+        // 检查节点类型是否在允许列表中
+        // 使用部分匹配方式，以便兼容不同插件中的类似节点
+        const isAllowed = allowedTypes.some(type => 
+            node.type.includes(type) || 
+            (node.title && node.title.includes(type))
         );
-
-        if (containsImageKeyword) {
-            logger.debug(`节点类型模糊匹配允许 | 类型: ${nodeType} | 原因: 包含图像关键词`);
-            return true;
+        
+        // 开发阶段可打开调试日志
+        if (debug && !isAllowed) {
+            logger.debug(`[图像小助手] 节点类型不允许: ${node.type || '未知'} | 标题: ${node.title || '未知'}`);
         }
-
-        return false;
+        
+        return isAllowed;
     }
 
     /**
-     * 添加节点类型到白名单
-     * @param {string|Array<string>} nodeTypes 要添加的节点类型
+     * 检查节点和画布状态是否适合显示小助手
+     * @param {object} node - LiteGraph节点对象
+     * @returns {object} 返回检测结果对象
      */
-    addAllowedNodeTypes(nodeTypes) {
-        const types = Array.isArray(nodeTypes) ? nodeTypes : [nodeTypes];
-        const addedCount = types.filter(type => {
-            if (type && !this.allowedNodeTypes.has(type)) {
-                this.allowedNodeTypes.add(type);
-                return true;
+    _checkNodeAndCanvasState(node) {
+        const result = {
+            isValid: false,
+            isCollapsed: false,
+            isLowQuality: false,
+            hasValidImage: false
+        };
+
+        if (!node) {
+            return result;
+        }
+
+        // 检查节点是否是允许的图像节点类型
+        if (!this._isAllowedNodeType(node)) {
+            return result;
+        }
+
+        // 检查节点是否被折叠
+        if (node.flags && node.flags.collapsed) {
+            result.isCollapsed = true;
+            return result;
+        }
+
+        // 检查是否处于低质量渲染状态
+        if (app.canvas) {
+            // 获取低画质渲染阈值
+            const threshold = this._getQualityThreshold();
+            const scale = app.canvas.ds.scale;
+
+            // 添加一个较大的容差值，解决浮点数比较和阈值应用延迟问题
+            const epsilon = 0.001;
+            if (scale <= threshold + epsilon) {
+                result.isLowQuality = true;
+                return result;
             }
-            return false;
-        }).length;
-
-        if (addedCount > 0) {
-            logger.log(`图像小助手白名单更新 | 新增节点类型: ${addedCount}个 | 总数: ${this.allowedNodeTypes.size}`);
         }
-    }
 
-    /**
-     * 从白名单中移除节点类型
-     * @param {string|Array<string>} nodeTypes 要移除的节点类型
-     */
-    removeAllowedNodeTypes(nodeTypes) {
-        const types = Array.isArray(nodeTypes) ? nodeTypes : [nodeTypes];
-        const removedCount = types.filter(type => {
-            if (type && this.allowedNodeTypes.has(type)) {
-                this.allowedNodeTypes.delete(type);
-                return true;
+        // 检查节点是否有有效图像
+        if (node.imgs && Array.isArray(node.imgs) && node.imgs.length > 0) {
+            const imageIndex = node.imageIndex || 0;
+            if (imageIndex >= 0 && imageIndex < node.imgs.length && node.imgs[imageIndex]) {
+                result.hasValidImage = true;
+                result.isValid = true;
             }
-            return false;
-        }).length;
-
-        if (removedCount > 0) {
-            logger.log(`图像小助手白名单更新 | 移除节点类型: ${removedCount}个 | 总数: ${this.allowedNodeTypes.size}`);
         }
+
+        return result;
     }
 
     /**
-     * 获取当前白名单
-     * @returns {Array<string>} 允许的节点类型列表
+     * 检查节点是否有有效图像
+     * @param {object} node - LiteGraph节点对象
+     * @returns {boolean} 是否有有效图像
      */
-    getAllowedNodeTypes() {
-        return Array.from(this.allowedNodeTypes);
+    hasValidImage(node) {
+        if (!node) return false;
+
+        // 检查节点类型是否允许
+        if (!this._isAllowedNodeType(node)) {
+            return false;
+        }
+
+        // 检查节点是否有imgs属性
+        if (!node.imgs || !Array.isArray(node.imgs) || node.imgs.length === 0) {
+            return false;
+        }
+
+        // 获取当前显示的图像
+        const imageIndex = node.imageIndex || 0;
+        return imageIndex >= 0 && imageIndex < node.imgs.length && node.imgs[imageIndex] != null;
+    }
+
+    /**
+     * 获取节点当前显示的图像对象
+     * @param {object} node - LiteGraph节点对象
+     * @returns {object|null} 返回图像对象或null
+     */
+    getNodeImage(node) {
+        // 检查节点类型是否允许
+        if (!this._isAllowedNodeType(node)) {
+            return null;
+        }
+        
+        const state = this._checkNodeAndCanvasState(node);
+
+        if (!state.isValid) {
+            return null;
+        }
+
+        // 返回当前显示的图像
+        const imageIndex = node.imageIndex || 0;
+        return node.imgs[imageIndex];
     }
 
     /**
      * 初始化图像小助手
      */
     async initialize() {
-        if (this.initialized) {
-            return;
-        }
+        if (this.initialized) return true;
 
         try {
-            // 检查总开关状态
-            if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                logger.log("图像小助手初始化跳过：功能已禁用");
-                return;
-            }
+            // 检查总开关的初始状态
+            const initialEnabled = app.ui.settings.getSettingValue("PromptAssistant.Features.ImageCaption");
+            window.FEATURES.imageCaption = initialEnabled !== undefined ? initialEnabled : true;
 
-            // 检查app.canvas是否可用
-            if (!app.canvas) {
-                throw new Error("画布未初始化");
-            }
+            // 只在调试模式下记录初始化状态
+            logger.debug(`图像反推功能初始化 | 状态:${window.FEATURES.imageCaption ? "启用" : "禁用"}`);
 
-            // 初始化事件管理器
-            EventManager.init();
-            // 初始化资源管理器
-            ResourceManager.init();
-            // 注册节点选择事件监听
+            // 注册节点选择监听器
             this.registerNodeSelectionListener();
-            // 注册全局鼠标监听
-            this.registerGlobalMouseListener();
 
+            // 标记为已初始化
             this.initialized = true;
             logger.log("图像小助手初始化完成");
-
-            // 如果有当前选中的节点，立即处理
-            if (app.canvas.selected_nodes && Object.keys(app.canvas.selected_nodes).length > 0) {
-                app.canvas._imageCaptionSelectionHandler(app.canvas.selected_nodes);
-            }
+            return true;
         } catch (error) {
-            logger.error(`图像小助手初始化失败: ${error.message}`);
+            logger.error(`图像小助手初始化失败 | 错误: ${error.message}`);
             this.initialized = false;
-            this.cleanup();
+            return false;
         }
     }
 
@@ -188,6 +215,12 @@ class ImageCaption {
     registerNodeSelectionListener() {
         if (!app.canvas) {
             logger.error("画布未初始化，无法注册节点选择事件监听器");
+            return;
+        }
+
+        // 如果已经注册过选择事件处理器，则不再重复注册
+        if (app.canvas._imageCaptionSelectionHandler) {
+            logger.debug("图像小助手节点选择监听器已存在，跳过注册");
             return;
         }
 
@@ -221,14 +254,12 @@ class ImageCaption {
         // 设置新的选择事件处理器
         app.canvas._imageCaptionSelectionHandler = selectionHandler;
 
-        // 不覆盖现有的 onSelectionChange，因为提示词小助手可能已经设置了它
-        // 而是在 index.js 中的 onSelected 方法中调用我们的处理器
-
         // 添加到LiteGraph的事件系统
         if (app.canvas.graph) {
-            // 不覆盖现有的 onNodeSelectionChange，因为提示词小助手可能已经设置了它
             app.canvas.graph._imageCaptionNodeSelectionChange = selectionHandler;
         }
+
+        logger.debug("图像小助手节点选择监听器注册成功");
 
         // 初始检查当前选中的节点
         if (app.canvas.selected_nodes && Object.keys(app.canvas.selected_nodes).length > 0) {
@@ -248,158 +279,58 @@ class ImageCaption {
         // 检查节点是否有效
         if (!node) return;
 
-        // 检查节点是否被折叠
-        if (node.flags && node.flags.collapsed) {
-            // 如果节点被折叠，清理已存在的小助手实例
+        // 检查节点类型是否允许
+        if (!this._isAllowedNodeType(node)) {
+            return;
+        }
+
+        // 检查节点是否已被删除（只有在删除时才清理实例）
+        if (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[node.id]) {
+            // 节点已被删除，清理实例
             if (ImageCaption.hasInstance(node.id)) {
                 this.cleanup(node.id);
             }
             return;
         }
 
-        // 检查是否处于低质量渲染状态
-        if (app.canvas) {
-            const threshold = app.canvas.low_quality_zoom_threshold || 0.6;
-            const scale = app.canvas.ds.scale;
-            // 当处于低质量渲染状态时，清理小助手
-            if (scale < threshold) {
-                if (ImageCaption.hasInstance(node.id)) {
+        // 检查节点和画布状态
+        const nodeState = this._checkNodeAndCanvasState(node);
+
+        // 如果节点折叠或画布缩放过小，隐藏已存在的实例但不创建新实例
+        if (nodeState.isCollapsed || nodeState.isLowQuality) {
+            if (ImageCaption.hasInstance(node.id)) {
+                const instance = ImageCaption.getInstance(node.id);
+                if (instance) {
+                    this.updateAssistantVisibility(instance);
+                }
+            }
+            return;
+        }
+
+        // 使用新的方法检查节点是否有有效且可见的图像
+        const currentImage = this.getNodeImage(node);
+
+        if (currentImage) {
+            // 有效图像，创建或显示小助手
+            const existingInstance = ImageCaption.getInstance(node.id);
+
+            // 验证现有实例是否有效
+            if (existingInstance && existingInstance.element && document.body.contains(existingInstance.element)) {
+                // 实例有效，显示它
+                this.showAssistantUI(existingInstance);
+            } else {
+                // 实例无效或不存在，清理并创建新实例
+                if (existingInstance) {
+                    // 先清理可能存在但无效的实例
                     this.cleanup(node.id);
                 }
-                return;
-            }
-        }
 
-        // 检查是否有有效图像
-        if (!this.hasValidImage(node)) {
-            // 如果节点没有有效图像，清理已存在的小助手实例
-            if (ImageCaption.hasInstance(node.id)) {
-                this.cleanup(node.id);
-            }
-            return;
-        }
-
-        // 检查实例是否已存在
-        if (ImageCaption.hasInstance(node.id)) {
-            // 显示已存在的实例
-            const instance = ImageCaption.getInstance(node.id);
-            if (instance) {
-                this.showAssistantUI(instance);
-            }
-            return;
-        }
-
-        // 创建新的小助手实例
-        const assistant = this.setupNodeAssistant(node);
-        if (assistant) {
-            logger.log(`创建图像小助手 | ID: ${node.id}`);
-        }
-    }
-
-    /**
-     * 检查节点是否包含有效图像
-     */
-    hasValidImage(node) {
-        if (!node) return false;
-
-        try {
-            // ---白名单检查---
-            // 检查节点类型是否在白名单中
-            if (!this.isNodeTypeAllowed(node.type)) {
-                logger.debug(`节点白名单检查 | 节点ID: ${node.id} | 类型: ${node.type} | 结果: 不在白名单`);
-                return false;
-            }
-
-            // 检查节点是否被折叠
-            if (node.flags && node.flags.collapsed) {
-                return false;
-            }
-
-            // 检查是否处于低质量渲染状态
-            if (app.canvas) {
-                // 获取画布的low_quality_zoom_threshold（默认0.6）
-                const threshold = app.canvas.low_quality_zoom_threshold || 0.6;
-                // 当前缩放比例
-                const scale = app.canvas.ds.scale;
-                // 如果缩放比例小于阈值，说明处于低质量渲染状态
-                if (scale < threshold) {
-                    return false;
+                // 创建新的小助手实例
+                const assistant = this.setupNodeAssistant(node);
+                if (assistant) {
+                    logger.log(`创建图像小助手 | ID: ${node.id}`);
                 }
             }
-
-            // 检查节点类型
-            const imageNodeTypes = [
-                'PreviewImage',
-                'SaveImage',
-                'LoadImage',
-                'ImageUpload',
-                'VHS_LoadImage',
-                'IPAdapter_Preprocessor',
-                'Image Preprocessor'
-            ];
-
-            // 检查图像相关属性
-            const imageProperties = {
-                // 标准图像属性
-                hasImgs: !!(node.imgs && Array.isArray(node.imgs) && node.imgs.length > 0),
-                hasImageIndex: typeof node.imageIndex === 'number',
-                hasOverIndex: typeof node.overIndex === 'number',
-                // 预览相关属性
-                hasPreview: !!node.preview,
-                hasPreviewImage: !!node.preview_image,
-                // 输出相关属性（优化：只有同时满足输出类型为image且有实际图像数据时才返回true）
-                hasRealImageOutput: false
-            };
-
-            // 检查是否有实际的图像输出
-            if (node.outputs && node.outputs.some(output => output && (output.type === 'image' || output.name === 'IMAGE'))) {
-                // 只有当节点同时有图像数据时才认为有真实图像输出
-                imageProperties.hasRealImageOutput = imageProperties.hasImgs || imageProperties.hasPreview || imageProperties.hasPreviewImage;
-            }
-
-            // 对于PreviewImage和SaveImage类型的节点，只检查是否有实际的图像数据
-            if (['PreviewImage', 'SaveImage'].includes(node.type)) {
-                // 检查节点是否有图像数据
-                if (imageProperties.hasImgs) {
-                    // 如果有imageIndex，检查对应索引的图像是否存在
-                    if (imageProperties.hasImageIndex) {
-                        return !!node.imgs[node.imageIndex];
-                    }
-                    // 如果没有imageIndex但有图像数组，说明有图像
-                    return true;
-                }
-                return false;
-            }
-
-            // 其他已知的图像节点类型
-            if (imageNodeTypes.includes(node.type)) {
-                return true;
-            }
-
-            // 检查标准图像属性
-            if (imageProperties.hasImgs) {
-                if (imageProperties.hasImageIndex && node.imgs[node.imageIndex]) {
-                    return true;
-                }
-                if (imageProperties.hasOverIndex && node.imgs[node.overIndex]) {
-                    return true;
-                }
-            }
-
-            // 检查预览图像
-            if (imageProperties.hasPreview || imageProperties.hasPreviewImage) {
-                return true;
-            }
-
-            // 检查图像输出（优化：必须有实际图像数据）
-            if (imageProperties.hasRealImageOutput) {
-                return true;
-            }
-
-            return false;
-        } catch (error) {
-            logger.error(`检查节点图像失败 | ID: ${node.id} | ${error.message}`);
-            return false;
         }
     }
 
@@ -423,49 +354,43 @@ class ImageCaption {
      * 创建小助手实例
      */
     createAssistant(node) {
-        if (!node) return null;
-
-        const nodeId = node.id;
+        // 检查节点是否有效
+        if (!node || !node.id || node.id === -1) {
+            return null;
+        }
 
         // 检查是否已存在实例
-        if (ImageCaption.hasInstance(nodeId)) {
-            return ImageCaption.getInstance(nodeId);
+        if (ImageCaption.hasInstance(node.id)) {
+            return ImageCaption.getInstance(node.id);
         }
 
         // 创建小助手对象
         const assistant = {
-            type: "image_caption",
-            nodeId,
-            buttons: {},
             node,
+            nodeId: node.id,
+            buttons: {},
+            isActive: false,
             isTransitioning: false,
-            isFirstCreate: true,  // 标记是否为首次创建
-            isMouseOver: false,   // 鼠标悬停状态
-            isActive: false       // 激活状态
+            _eventCleanupFunctions: [], // 用于存储事件清理函数
+            _timers: {} // 用于存储定时器引用
         };
 
-        // 创建UI并添加到实例集合
-        try {
-            this.createAssistantUI(assistant);
-            ImageCaption.addInstance(nodeId, assistant);
+        // 创建UI
+        this.createAssistantUI(assistant);
 
-            // 设置初始显示状态
-            assistant.isMouseOver = true;
+        // 添加到实例集合
+        ImageCaption.addInstance(node.id, assistant);
 
-            // 2秒后恢复正常的鼠标检测行为
-            setTimeout(() => {
-                if (assistant) {
-                    assistant.isFirstCreate = false;
-                    assistant.isMouseOver = false;
-                    this.updateAssistantVisibility(assistant);
-                }
-            }, 2000);
+        // 设置节点折叠状态监听
+        this._setupNodeCollapseListener(assistant);
 
-            return assistant;
-        } catch (error) {
-            logger.error(`创建小助手实例失败 | ID: ${nodeId} | ${error.message}`);
-            return null;
-        }
+        // 设置画布缩放监听
+        this._setupCanvasScaleListener(assistant);
+
+        // 显示小助手
+        this.updateAssistantVisibility(assistant);
+
+        return assistant;
     }
 
     /**
@@ -481,16 +406,38 @@ class ImageCaption {
 
             // 创建主容器
             const containerDiv = document.createElement('div');
-            containerDiv.className = 'image-assistant-container';
+            containerDiv.className = 'image-assistant-container image-assistant-transition';
             containerDiv.dataset.nodeId = assistant.nodeId;
 
             // 添加内容容器到主容器
             containerDiv.appendChild(innerContentDiv);
 
+            // 创建悬停区域 - 用于检测鼠标悬停
+            const hoverAreaDiv = document.createElement('div');
+            hoverAreaDiv.className = 'image-assistant-hover-area';
+            // 由于初始状态为折叠，所以显示悬停区域
+            hoverAreaDiv.style.display = 'block';
+            containerDiv.appendChild(hoverAreaDiv);
+
+            // 创建折叠状态指示器图标
+            const indicatorDiv = document.createElement('div');
+            indicatorDiv.className = 'image-assistant-indicator animate-creation';
+
+            // 从ResourceManager获取图标并添加到指示器
+            const mainIcon = ResourceManager.getIcon('icon-main.svg');
+            if (mainIcon) {
+                indicatorDiv.appendChild(mainIcon);
+            }
+
+            containerDiv.appendChild(indicatorDiv);
+
             // 保存引用
             assistant.element = containerDiv;
             assistant.innerContent = innerContentDiv;
+            assistant.hoverArea = hoverAreaDiv;
+            assistant.indicator = indicatorDiv;
             assistant.buttons = {};
+            assistant.isCollapsed = true; // 初始状态为折叠
 
             // 初始化UI组件和事件
             this.addFunctionButtons(assistant);
@@ -500,16 +447,26 @@ class ImageCaption {
 
             // 使用固定定位样式
             containerDiv.style.position = 'fixed';
-            containerDiv.style.zIndex = '999';
+            containerDiv.style.zIndex = '1';
             document.body.appendChild(containerDiv);
 
-            // 新增：添加鼠标事件监听
-            // this._setupMouseEvents(assistant); // 改为全局监听器处理
+            // 初始状态为折叠，添加折叠样式类
+            containerDiv.classList.add('collapsed');
 
-            // 新增：延迟设置位置，确保canvas已经初始化
+            // 延迟设置位置
             requestAnimationFrame(() => {
                 this._setupUIPosition(assistant);
             });
+
+            // 设置展开折叠事件
+            this._setupCollapseExpandEvents(assistant);
+
+            // 移除动画类的定时器
+            setTimeout(() => {
+                if (indicatorDiv && indicatorDiv.classList.contains('animate-creation')) {
+                    indicatorDiv.classList.remove('animate-creation');
+                }
+            }, 1000);
 
             return containerDiv;
         } catch (error) {
@@ -533,12 +490,78 @@ class ImageCaption {
                 e.preventDefault();
                 e.stopPropagation();
                 await this.handleImageAnalysis(assistant, 'zh');
+            },
+            // 添加中文反推按钮的右键菜单
+            contextMenu: async (assistant) => {
+                let activePromptId = null;
+                let visionPrompts = [];
+
+                try {
+                    const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                    if (response.ok) {
+                        const data = await response.json();
+                        activePromptId = data.active_prompts?.vision_zh || null;
+
+                        if (data.vision_prompts) {
+                            const originalOrder = Object.keys(data.vision_prompts);
+                            originalOrder.forEach(key => {
+                                if (key.startsWith('vision_zh')) {
+                                    const prompt = data.vision_prompts[key];
+                                    visionPrompts.push({
+                                        id: key,
+                                        name: prompt.name || key,
+                                        isActive: key === activePromptId
+                                    });
+                                }
+                            });
+                            visionPrompts.sort((a, b) =>
+                                originalOrder.indexOf(a.id) - originalOrder.indexOf(b.id)
+                            );
+                        }
+                    }
+                } catch (error) {
+                    logger.error(`获取中文反推提示词失败: ${error.message}`);
+                }
+
+                if (visionPrompts.length === 0) {
+                    return [{ label: '未找到提示词', disabled: true }];
+                }
+
+                // 添加分割线和规则管理按钮
+                const menuItems = visionPrompts.map(prompt => ({
+                    label: prompt.name,
+                    icon: `<span class="pi ${prompt.isActive ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                    onClick: async (context) => {
+                        try {
+                            const response = await fetch('/prompt_assistant/api/config/active_prompt', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: 'vision_zh', prompt_id: prompt.id })
+                            });
+                            if (response.ok) {
+                                UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${prompt.name}`);
+                            } else {
+                                throw new Error(`服务器返回错误: ${response.status}`);
+                            }
+                        } catch (error) {
+                            logger.error(`切换中文反推提示词失败: ${error.message}`);
+                            UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${error.message}`);
+                        }
+                    }
+                }));
+
+                menuItems.push({ type: 'separator' });
+                menuItems.push({
+                    label: '规则管理',
+                    icon: '<span class="pi pi-pen-to-square"></span>',
+                    onClick: () => {
+                        rulesConfigManager.showRulesConfigModal();
+                    }
+                });
+                return menuItems;
+
             }
         });
-
-        // 创建分割线
-        const divider = document.createElement('div');
-        divider.className = 'image-assistant-divider';
 
         // 创建反推按钮（英文）
         const buttonEn = this.addButtonWithIcon(assistant, {
@@ -549,14 +572,83 @@ class ImageCaption {
                 e.preventDefault();
                 e.stopPropagation();
                 await this.handleImageAnalysis(assistant, 'en');
+            },
+            // 添加英文反推按钮的右键菜单
+            contextMenu: async (assistant) => {
+                let activePromptId = null;
+                let visionPrompts = [];
+
+                try {
+                    const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                    if (response.ok) {
+                        const data = await response.json();
+                        activePromptId = data.active_prompts?.vision_en || null;
+
+                        if (data.vision_prompts) {
+                            const originalOrder = Object.keys(data.vision_prompts);
+                            originalOrder.forEach(key => {
+                                if (key.startsWith('vision_en')) {
+                                    const prompt = data.vision_prompts[key];
+                                    visionPrompts.push({
+                                        id: key,
+                                        name: prompt.name || key,
+                                        isActive: key === activePromptId
+                                    });
+                                }
+                            });
+                            visionPrompts.sort((a, b) =>
+                                originalOrder.indexOf(a.id) - originalOrder.indexOf(b.id)
+                            );
+                        }
+                    }
+                } catch (error) {
+                    logger.error(`获取英文反推提示词失败: ${error.message}`);
+                }
+
+                if (visionPrompts.length === 0) {
+                    return [{ label: '未找到提示词', disabled: true }];
+                }
+
+                // 添加分割线和规则管理按钮
+                const menuItems = visionPrompts.map(prompt => ({
+                    label: prompt.name,
+                    icon: `<span class="pi ${prompt.isActive ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                    onClick: async (context) => {
+                        try {
+                            const response = await fetch('/prompt_assistant/api/config/active_prompt', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ type: 'vision_en', prompt_id: prompt.id })
+                            });
+                            if (response.ok) {
+                                UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${prompt.name}`);
+                            } else {
+                                throw new Error(`服务器返回错误: ${response.status}`);
+                            }
+                        } catch (error) {
+                            logger.error(`切换英文反推提示词失败: ${error.message}`);
+                            UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${error.message}`);
+                        }
+                    }
+                }));
+
+                menuItems.push({ type: 'separator' });
+                menuItems.push({
+                    label: '规则管理',
+                    icon: '<span class="pi pi-pen-to-square"></span>',
+                    onClick: () => {
+                        rulesConfigManager.showRulesConfigModal();
+                    }
+                });
+                return menuItems;
+
             }
         });
 
-        // 按顺序添加元素：中文按钮 -> 分割线 -> 英文按钮
+        // 按顺序添加元素：中文按钮 -> 英文按钮
         if (buttonZh) {
             assistant.innerContent.appendChild(buttonZh);
         }
-        assistant.innerContent.appendChild(divider);
         if (buttonEn) {
             assistant.innerContent.appendChild(buttonEn);
         }
@@ -566,6 +658,9 @@ class ImageCaption {
      * 处理图像分析
      */
     async handleImageAnalysis(assistant, lang) {
+        // 存储当前请求ID，用于取消操作
+        let currentRequestId = null;
+
         try {
             const node = assistant.node;
             if (!node || !node.imgs || node.imgs.length === 0) {
@@ -583,6 +678,38 @@ class ImageCaption {
             const buttonElement = assistant.buttons[buttonId];
             if (!buttonElement) {
                 throw new Error('未找到按钮元素');
+            }
+
+            // 检查按钮是否已经处于处理状态，如果是，则取消当前请求
+            if (buttonElement.classList.contains('button-processing') && assistant.currentRequestId) {
+                // 取消当前请求
+                await APIService.cancelRequest(assistant.currentRequestId);
+
+                // 显示取消提示
+                UIToolkit.showStatusTip(
+                    buttonElement,
+                    'info',
+                    '反推已取消',
+                    { x: buttonElement.getBoundingClientRect().left + buttonElement.offsetWidth / 2, y: buttonElement.getBoundingClientRect().top }
+                );
+
+                // 重置按钮状态
+                this._setButtonState(assistant, buttonId, 'processing', false);
+
+                // 恢复其他按钮状态
+                Object.keys(assistant.buttons).forEach(id => {
+                    if (id !== buttonId) {
+                        this._setButtonState(assistant, id, 'disabled', false);
+                    }
+                });
+
+                // 更新小助手状态为非激活状态
+                this._updateAssistantActiveState(assistant, false);
+
+                // 清除当前请求ID
+                assistant.currentRequestId = null;
+
+                return;
             }
 
             // 设置当前按钮为处理中状态
@@ -608,43 +735,45 @@ class ImageCaption {
             );
 
             // 生成请求ID
-            const request_id = `${node.id}_${Date.now()}`;
+            currentRequestId = `${node.id}_${Date.now()}`;
+            // 保存到assistant对象中，以便取消操作
+            assistant.currentRequestId = currentRequestId;
 
             // 将图像转换为Base64
-            console.log("处理图像 - 开始转换为Base64", typeof currentImage, currentImage);
             let imageBase64;
             try {
                 imageBase64 = await APIService.imageToBase64(currentImage);
-                console.log("图像转换成功 - Base64长度:", imageBase64 ? imageBase64.length : 0);
                 if (!imageBase64) {
                     throw new Error('图像转换失败');
                 }
             } catch (e) {
-                console.error("图像转换失败:", e);
                 throw new Error(`图像转换失败: ${e.message || e}`);
             }
 
             // 确保图像数据格式正确
             if (typeof imageBase64 !== 'string') {
-                console.error("图像数据类型错误:", typeof imageBase64);
                 throw new Error(`图像数据类型错误: ${typeof imageBase64}`);
             }
 
             // 确保图像数据是Base64格式
             if (!imageBase64.startsWith('data:image')) {
-                console.log("添加Base64前缀");
                 imageBase64 = `data:image/jpeg;base64,${imageBase64}`;
             }
 
-            console.log("发送图像分析请求 - 语言:", lang);
-
             // 调用图像分析服务，传入语言参数
-            const result = await APIService.llmAnalyzeImage(imageBase64, lang, request_id);
-            console.log("图像分析结果:", result);
+            const result = await APIService.llmAnalyzeImage(imageBase64, lang, currentRequestId);
+
+            // 清除当前请求ID
+            assistant.currentRequestId = null;
+
+            // 检查是否被取消
+            if (result && result.cancelled) {
+                logger.debug(`图像分析请求已取消 | ID: ${currentRequestId}`);
+                return;
+            }
 
             if (!result || !result.success) {
                 const errorMsg = result?.error || '未知错误';
-                console.error("图像分析失败:", errorMsg);
                 throw new Error(errorMsg);
             }
 
@@ -687,9 +816,7 @@ class ImageCaption {
                     document.body.removeChild(textarea);
                 }
 
-                if (copySuccess) {
-                    logger.debug('文本复制成功');
-                } else {
+                if (!copySuccess) {
                     throw new Error('复制到剪贴板操作未能成功执行');
                 }
             } catch (copyError) {
@@ -705,7 +832,7 @@ class ImageCaption {
                 content: description,
                 operation_type: 'caption',
                 timestamp: Date.now(),
-                request_id: request_id
+                request_id: currentRequestId
             });
 
             // 显示成功提示
@@ -742,7 +869,9 @@ class ImageCaption {
             }
 
         } catch (error) {
-            console.error("图像分析最终错误:", error);
+            // 清除当前请求ID
+            assistant.currentRequestId = null;
+
             logger.error(`图像分析失败: ${error.message}`);
 
             // 获取按钮元素
@@ -757,7 +886,7 @@ class ImageCaption {
                     error.message,
                     { x: buttonElement.getBoundingClientRect().left + buttonElement.offsetWidth / 2, y: buttonElement.getBoundingClientRect().top }
                 );
-            }
+            };
 
             app.extensionManager.toast.add({
                 severity: "error",
@@ -807,7 +936,7 @@ class ImageCaption {
         };
 
         // 添加关闭图标
-        UIToolkit.addIconToButton(closeButton, 'icon-close', '关闭');
+        UIToolkit.addIconToButton(closeButton, 'pi-times', '关闭');
         dialogContainer.appendChild(closeButton);
 
         // 创建文本区域
@@ -876,7 +1005,7 @@ class ImageCaption {
             }
 
             // 更新按钮可点击状态
-            this._updateButtonClickability(button);
+            this._updateButtonClickability(button, stateType, value);
 
         } catch (error) {
             logger.error(`按钮状态 | 设置失败 | 按钮:${buttonId} | 状态:${stateType} | 错误:${error.message}`);
@@ -886,16 +1015,18 @@ class ImageCaption {
     /**
      * 更新按钮可点击状态
      */
-    _updateButtonClickability(button) {
-        // 检查按钮是否处于禁用或处理中状态
+    _updateButtonClickability(button, stateType, value) {
+        // 检查按钮是否处于禁用状态
         const isDisabled = button.classList.contains('button-disabled');
+
+        // 处理中的按钮仍然可点击（用于取消操作）
         const isProcessing = button.classList.contains('button-processing');
 
-        if (isDisabled || isProcessing) {
-            // 如果按钮被禁用或正在处理中，阻止点击事件
+        if (isDisabled) {
+            // 如果按钮被禁用，阻止点击事件
             button.style.pointerEvents = 'none';
         } else {
-            // 恢复点击事件
+            // 恢复点击事件，包括处理中的按钮
             button.style.pointerEvents = 'auto';
         }
     }
@@ -931,9 +1062,266 @@ class ImageCaption {
         if (isActive) {
             this.showAssistantUI(assistant);
         } else {
-            // 如果不再激活，根据鼠标悬停状态决定是否显示
+            // 如果不再激活，先更新可见性
             this.updateAssistantVisibility(assistant);
+
+            // 然后手动触发自动折叠（如果小助手仍然可见且处于展开状态）
+            if (assistant.element &&
+                assistant.element.style.display !== 'none' &&
+                !assistant.isCollapsed &&
+                !assistant.isTransitioning) {
+                // 延迟一点时间再触发折叠，让用户有时间看到结果
+                setTimeout(() => {
+                    this.triggerAutoCollapse(assistant);
+                }, 1500); // 1.5秒后自动折叠，给用户足够时间查看结果
+            }
         }
+    }
+
+    /**
+     * 显示小助手UI 
+     */
+    showAssistantUI(assistant) {
+        if (!assistant?.element) return;
+
+        // 避免重复显示
+        if (assistant.element.classList.contains('image-assistant-show')) {
+            // 确保元素可见
+            assistant.element.style.display = 'flex';
+            assistant.element.style.opacity = '1';
+            return;
+        }
+
+        // 直接显示，无动画过渡
+        assistant.element.style.opacity = '1';
+        assistant.element.style.display = 'flex';
+        assistant.element.classList.add('image-assistant-show');
+
+        // 确保悬停区域可见（用于折叠状态下的交互）
+        if (assistant.isCollapsed && assistant.hoverArea) {
+            assistant.hoverArea.style.display = 'block';
+        }
+
+        // 重置过渡状态
+        assistant.isTransitioning = false;
+
+        // 只有当明确不是折叠状态时才触发自动折叠
+        if (!assistant.isCollapsed) {
+            this.triggerAutoCollapse(assistant);
+        }
+    }
+
+    /**
+     * 隐藏小助手UI
+     */
+    hideAssistantUI(assistant) {
+        if (!assistant?.element) return;
+
+        // 清除自动折叠定时器
+        if (assistant._autoCollapseTimer) {
+            clearTimeout(assistant._autoCollapseTimer);
+            assistant._autoCollapseTimer = null;
+        }
+
+        // 隐藏元素
+        assistant.element.style.display = 'none';
+        assistant.element.classList.remove('image-assistant-show');
+
+        // 重置状态
+        assistant.isTransitioning = false;
+    }
+
+    /**
+     * 更新小助手可见性
+     */
+    updateAssistantVisibility(assistant) {
+        if (!assistant) return;
+
+        // 记录当前显示状态，用于检测变化
+        const wasVisible = assistant.element &&
+            assistant.element.style.display !== 'none' &&
+            assistant.element.classList.contains('image-assistant-show');
+
+        // 检查总开关和图像反推功能开关状态
+        if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
+            this.cleanup(assistant.node.id);
+            return;
+        }
+
+        // 检查节点是否已被删除（关键修复）
+        if (assistant.node && (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[assistant.node.id])) {
+            // 清理已删除节点的实例
+            this.cleanup(assistant.node.id);
+            return;
+        }
+
+        // 使用统一的状态检测方法
+        const nodeState = this._checkNodeAndCanvasState(assistant.node);
+
+        // 检查是否有按钮处于激活状态
+        const hasActiveButtons = this._checkAssistantActiveState(assistant);
+
+        // 确定新的可见性状态
+        let shouldBeVisible = true;
+
+        // 如果有激活的按钮，强制显示小助手（覆盖其他隐藏条件）
+        if (hasActiveButtons) {
+            this.showAssistantUI(assistant);
+
+            // 如果当前是折叠状态，则展开
+            if (assistant.isCollapsed) {
+                this._expandAssistant(assistant);
+            }
+
+            return;
+        }
+
+        // 如果节点折叠或画布缩放过小，隐藏小助手但不清理实例
+        if (nodeState.isCollapsed || nodeState.isLowQuality) {
+            shouldBeVisible = false;
+        }
+
+        // 如果节点没有有效图像，隐藏小助手但不清理实例
+        if (!nodeState.hasValidImage) {
+            shouldBeVisible = false;
+        }
+
+        // 跳过正在过渡的实例，避免动画中断
+        if (assistant.isTransitioning) {
+            return;
+        }
+
+        // 根据可见性状态更新UI
+        if (shouldBeVisible) {
+            // 条件满足时显示小助手
+            this.showAssistantUI(assistant);
+        } else {
+            // 隐藏小助手
+            this.hideAssistantUI(assistant);
+        }
+    }
+
+    /**
+     * 展开小助手
+     */
+    _expandAssistant(assistant) {
+        if (!assistant || !assistant.element || !assistant.isCollapsed || assistant.isTransitioning) return;
+
+        assistant.isTransitioning = true;
+
+        // 隐藏悬停区域，避免覆盖按钮
+        if (assistant.hoverArea) {
+            assistant.hoverArea.style.display = 'none';
+        }
+
+        const containerDiv = assistant.element;
+
+        // 计算展开后的宽度
+        let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
+
+        // 如果没有保存宽度或需要重新计算
+        if (!targetWidth || targetWidth === '') {
+            // 先移除折叠类，但保持不可见状态进行测量
+            containerDiv.classList.remove('collapsed');
+            const originalDisplay = containerDiv.style.display;
+            const originalOpacity = containerDiv.style.opacity;
+
+            // 临时设置样式以便测量
+            containerDiv.style.opacity = '0';
+            containerDiv.style.display = 'flex';
+            containerDiv.style.position = 'fixed';
+
+            // 强制回流并测量
+            void containerDiv.offsetWidth;
+
+            // 获取自然宽度
+            const naturalWidth = containerDiv.offsetWidth;
+            targetWidth = naturalWidth + 'px';
+
+            // 保存宽度供将来使用
+            containerDiv.style.setProperty('--expanded-width', targetWidth);
+
+            // 恢复原始样式
+            containerDiv.style.opacity = originalOpacity;
+            containerDiv.style.position = 'fixed';
+
+            // 重新应用折叠类以准备动画
+            containerDiv.classList.add('collapsed');
+            void containerDiv.offsetWidth; // 强制回流
+        }
+
+        // 手动设置宽度转换
+        containerDiv.style.width = '28px'; // 起始宽度
+
+        // 强制回流
+        void containerDiv.offsetWidth;
+
+        // 移除折叠类
+        containerDiv.classList.remove('collapsed');
+
+        // 设置目标宽度以触发过渡
+        containerDiv.style.width = targetWidth;
+
+        // 动画结束后清理
+        setTimeout(() => {
+            // 移除固定宽度，恢复自动宽度
+            containerDiv.style.width = '';
+            assistant.isCollapsed = false;
+            assistant.isTransitioning = false;
+        }, 300);
+    }
+
+    /**
+     * 触发自动折叠
+     */
+    triggerAutoCollapse(assistant) {
+        // 如果widget没有初始化或者已经处于折叠状态，则不处理
+        if (!assistant || !assistant.element || assistant.isCollapsed || assistant.isTransitioning) return;
+
+        // 如果有活跃按钮，不自动折叠
+        if (this._checkAssistantActiveState(assistant)) return;
+
+        // 如果鼠标当前悬停在容器上，不自动折叠
+        if (assistant.isMouseOver) return;
+
+        // 清除可能已存在的自动折叠定时器
+        if (assistant._autoCollapseTimer) {
+            clearTimeout(assistant._autoCollapseTimer);
+        }
+
+        // 设置自动折叠定时器
+        assistant._autoCollapseTimer = setTimeout(() => {
+            // 再次检查条件
+            if (!assistant.isCollapsed && !assistant.isTransitioning &&
+                !this._checkAssistantActiveState(assistant) && !assistant.isMouseOver) {
+
+                const containerDiv = assistant.element;
+
+                // 保存当前宽度用于展开动画
+                if (containerDiv.offsetWidth > 0) {
+                    containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
+                }
+
+                // 设置过渡状态
+                assistant.isTransitioning = true;
+
+                // 直接添加折叠类
+                containerDiv.classList.add('collapsed');
+                assistant.isCollapsed = true;
+
+                // 显示悬停区域，用于检测鼠标悬停以展开UI
+                if (assistant.hoverArea) {
+                    assistant.hoverArea.style.display = 'block';
+                }
+
+                // 动画结束后重置过渡状态
+                setTimeout(() => {
+                    assistant.isTransitioning = false;
+                }, 300);
+            }
+
+            assistant._autoCollapseTimer = null;
+        }, 1000);
     }
 
     /**
@@ -942,7 +1330,7 @@ class ImageCaption {
     addButtonWithIcon(assistant, config) {
         if (!assistant?.element || !assistant?.innerContent) return null;
 
-        const { id, title, icon, onClick } = config;
+        const { id, title, icon, onClick, contextMenu } = config;
 
         // 创建按钮
         const button = document.createElement('button');
@@ -961,18 +1349,7 @@ class ImageCaption {
                 e.preventDefault();
                 e.stopPropagation();
 
-                if (button.classList.contains('button-processing')) {
-                    // 如果按钮正在处理中，显示"处理中"提示
-                    const tipMessage = id.includes('en') ? "反推提示词...（英文）" : "反推提示词...（中文）";
-                    UIToolkit.showStatusTip(
-                        button,
-                        'loading',
-                        tipMessage,
-                        { x: button.getBoundingClientRect().left + button.offsetWidth / 2, y: button.getBoundingClientRect().top }
-                    );
-                    return;
-                }
-
+                // 即使按钮正在处理中也允许点击，用于取消操作
                 // 如果按钮被禁用，不执行操作
                 if (button.classList.contains('button-disabled')) {
                     return;
@@ -981,6 +1358,11 @@ class ImageCaption {
                 // 执行点击回调
                 onClick(e, assistant);
             });
+        }
+
+        // 添加右键菜单（如果有）
+        if (contextMenu && typeof contextMenu === 'function') {
+            this._setupButtonContextMenu(button, contextMenu, assistant);
         }
 
         // 保存引用
@@ -1021,14 +1403,13 @@ class ImageCaption {
                 const INNER_OFFSET_X = 6; // 水平偏移量
                 const INNER_OFFSET_Y = 6; // 垂直偏移量
 
-                // 计算定位点位置（节点右下角）
-                const anchorX = nodeX + nodeWidth - INNER_OFFSET_X;
+                // 计算定位点位置（节点左下角）
+                const anchorX = nodeX + INNER_OFFSET_X;
                 const anchorY = nodeY + nodeHeight - INNER_OFFSET_Y;
 
                 // 获取画布元素的边界
                 const rect = canvas.canvas.getBoundingClientRect();
 
-                // 使用LGraphCanvas的坐标转换方法
                 // 将定位点位置转换为屏幕坐标
                 const canvasPoint = canvas.convertOffsetToCanvas([anchorX, anchorY]);
 
@@ -1038,10 +1419,10 @@ class ImageCaption {
                 const screenX = canvasPoint[0] + rect.left;
                 const screenY = canvasPoint[1] + rect.top;
 
-                // 设置容器位置，使其右下角与定位点对齐
-                containerDiv.style.right = `${window.innerWidth - screenX}px`;
+                // 设置容器位置，使其左下角与定位点对齐
+                containerDiv.style.left = `${screenX}px`;
                 containerDiv.style.bottom = `${window.innerHeight - screenY}px`;
-                containerDiv.style.left = 'auto';
+                containerDiv.style.right = 'auto';
                 containerDiv.style.top = 'auto';
 
                 // 应用缩放
@@ -1056,7 +1437,7 @@ class ImageCaption {
         updatePosition();
 
         // 使用防抖函数优化位置更新
-        const debouncedUpdatePosition = EventManager.debounce(updatePosition, 16); // 降低到16ms提高流畅度
+        const debouncedUpdatePosition = EventManager.debounce(updatePosition, 16);
 
         // 添加窗口resize事件监听
         assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
@@ -1069,7 +1450,7 @@ class ImageCaption {
             const originalDrawBackground = app.canvas.onDrawBackground;
             app.canvas.onDrawBackground = function () {
                 const ret = originalDrawBackground?.apply(this, arguments);
-                // 直接调用updatePosition而不是防抖版本，保证重绘时位置准确
+                // 直接调用updatePosition确保位置准确
                 updatePosition();
                 return ret;
             };
@@ -1092,7 +1473,6 @@ class ImageCaption {
 
                     // 仅当移动的是当前节点时更新位置
                     if (node_dragged && node_dragged.id === assistant.node.id) {
-                        // 直接调用updatePosition而不是防抖版本，确保拖动时UI跟随节点
                         updatePosition();
                     }
                 };
@@ -1108,7 +1488,6 @@ class ImageCaption {
                 const nodeOriginalOnNodeMoved = assistant.node.onNodeMoved;
                 assistant.node.onNodeMoved = function () {
                     const ret = nodeOriginalOnNodeMoved?.apply(this, arguments);
-                    // 直接调用updatePosition而不是防抖版本
                     updatePosition();
                     return ret;
                 };
@@ -1127,7 +1506,7 @@ class ImageCaption {
                 if (originalDSModified) {
                     originalDSModified.apply(this, args);
                 }
-                // 缩放时直接更新，不使用防抖
+                // 缩放时直接更新
                 updatePosition();
             };
 
@@ -1148,322 +1527,390 @@ class ImageCaption {
     }
 
     /**
-     * 设置鼠标事件监听
+     * 设置节点折叠状态监听
      */
-    _setupMouseEvents(assistant) {
-        // 此函数已废弃，由 registerGlobalMouseListener 统一处理
-    }
+    _setupNodeCollapseListener(assistant) {
+        if (!assistant?.node) return;
 
-    /**
-     * 更新小助手可见性
-     */
-    updateAssistantVisibility(assistant) {
-        if (!assistant) return;
+        const node = assistant.node;
 
-        // 检查总开关和图像反推功能开关状态
-        if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-            this.hideAssistantUI(assistant);
-            return;
-        }
+        // 保存原始的 collapse 方法
+        const originalCollapse = node.collapse;
 
-        // 检查节点是否已被删除（关键修复）
-        if (assistant.node && (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[assistant.node.id])) {
-            this.hideAssistantUI(assistant);
-            // 清理已删除节点的实例
-            this.cleanup(assistant.node.id);
-            return;
-        }
+        // 重写 collapse 方法
+        node.collapse = function () {
+            // 调用原始的 collapse 方法
+            originalCollapse.apply(this, arguments);
 
-        // 检查是否处于低质量渲染状态
-        if (app.canvas) {
-            const threshold = app.canvas.low_quality_zoom_threshold || 0.6;
-            const scale = app.canvas.ds.scale;
-            // 当处于低质量渲染状态时，隐藏小助手
-            if (scale < threshold) {
-                this.hideAssistantUI(assistant);
-                return;
+            // 调用统一的可见性更新方法，而不是直接操作DOM
+            const imageCaptionInstance = window.imageCaptionInstance || imageCaption;
+            if (imageCaptionInstance && typeof imageCaptionInstance.updateAssistantVisibility === 'function') {
+                imageCaptionInstance.updateAssistantVisibility(assistant);
             }
-        }
+        };
 
-        // 跳过正在过渡的实例，避免动画中断
-        if (assistant.isTransitioning) {
-            return;
-        }
-
-        // 检查是否有按钮处于激活状态
-        const hasActiveButtons = this._checkAssistantActiveState(assistant);
-
-        // 如果有激活的按钮，强制显示小助手
-        if (assistant.isActive || hasActiveButtons) {
-            this.showAssistantUI(assistant);
-            return;
-        }
-
-        // 根据鼠标悬停状态或首次创建标记决定显示或隐藏
-        if (assistant.isFirstCreate || assistant.isMouseOver) {
-            // 使用requestAnimationFrame确保在下一帧渲染，提高流畅性
-            requestAnimationFrame(() => {
-                this.showAssistantUI(assistant);
-            });
-        } else {
-            // 使用requestAnimationFrame确保在下一帧渲染，提高流畅性
-            requestAnimationFrame(() => {
-                this.hideAssistantUI(assistant);
-            });
-        }
-    }
-
-    /**
-     * 显示小助手UI
-     */
-    showAssistantUI(assistant, forceAnimation = false) {
-        if (!assistant?.element) return;
-
-        // 避免重复显示
-        if (assistant.element.classList.contains('image-assistant-show') && !forceAnimation) {
-            assistant.element.style.display = 'flex';
-            assistant.element.style.opacity = '1';
-            return;
-        }
-
-        // 取消任何隐藏计时器
-        if (assistant.hideTimeout) {
-            clearTimeout(assistant.hideTimeout);
-            assistant.hideTimeout = null;
-        }
-
-        // 设置过渡状态
-        assistant.isTransitioning = true;
-
-        // 优化渲染性能
-        assistant.element.style.willChange = 'auto';
-        assistant.element.style.transform = 'translateZ(0)';
-        assistant.element.style.opacity = '1';
-
-        // 显示元素并应用动画类
-        assistant.element.style.display = 'flex';
-        void assistant.element.offsetWidth; // 触发回流
-        assistant.element.classList.remove('image-assistant-hide');
-        assistant.element.classList.add('image-assistant-show');
-
-        // 动画结束后重置过渡状态
-        setTimeout(() => {
-            assistant.isTransitioning = false;
-            // 动画结束后检查鼠标状态（关键修复）
-            setTimeout(() => this.forceUpdateMouseState(assistant), 10);
-        }, 300);
-    }
-
-    /**
-     * 隐藏小助手UI
-     */
-    hideAssistantUI(assistant) {
-        if (!assistant?.element) return;
-
-        // 避免重复隐藏
-        if (!assistant.element.classList.contains('image-assistant-show')) return;
-
-        // 如果小助手处于激活状态且功能开关开启，不隐藏
-        if (window.FEATURES && window.FEATURES.enabled && window.FEATURES.imageCaption &&
-            (assistant.isActive || this._checkAssistantActiveState(assistant))) {
-            return;
-        }
-
-        // 设置过渡状态
-        assistant.isTransitioning = true;
-
-        // 应用隐藏动画类
-        assistant.element.classList.add('image-assistant-hide');
-        assistant.element.classList.remove('image-assistant-show');
-
-        // 触发回流确保动画生效
-        void assistant.element.offsetWidth;
-
-        // 动画结束后隐藏元素
-        assistant.hideTimeout = setTimeout(() => {
-            if (assistant.element) {
-                assistant.element.style.display = 'none';
+        // 保存清理函数
+        assistant._eventCleanupFunctions.push(() => {
+            // 恢复原始的 collapse 方法
+            if (node.collapse !== originalCollapse) {
+                node.collapse = originalCollapse;
             }
-            assistant.isTransitioning = false;
-            // 动画结束后检查鼠标状态（关键修复）
-            setTimeout(() => this.forceUpdateMouseState(assistant), 10);
-        }, 300);
-    }
-
-    /**
-     * 隐藏所有小助手
-     */
-    hideAllAssistants() {
-        ImageCaption.instances.forEach(assistant => {
-            this.hideAssistantUI(assistant);
         });
     }
 
     /**
-     * 清理资源
+     * 设置画布缩放监听
      */
-    cleanup(nodeId = null, silent = false) {
-        try {
-            // 检查nodeId是否有效
-            if (nodeId !== null && nodeId !== undefined) {
-                // 确保nodeId是字符串类型，便于后续比较
-                const nodeIdStr = String(nodeId);
+    _setupCanvasScaleListener(assistant) {
+        if (!assistant?.node || !app.canvas) return;
 
-                // 清理特定节点
-                const instance = ImageCaption.getInstance(nodeIdStr);
-                if (instance) {
-                    // 记录删除前的实例数量
-                    const beforeCount = ImageCaption.instances.size;
-                    logger.debug(`[删除前] 图像小助手实例数量: ${beforeCount}`);
+        let lastScale = app.canvas.ds.scale;
 
-                    // 清理实例内部资源
-                    this._cleanupInstance(instance, nodeIdStr);
+        // 使用类方法获取阈值，确保一致性
+        const threshold = this._getQualityThreshold();
 
-                    // 从实例集合中移除
-                    ImageCaption.instances.delete(nodeIdStr);
+        // 直接检测缩放状态并更新UI可见性
+        const checkScaleAndUpdate = () => {
+            if (!assistant.element || !assistant.node || !app.canvas) return;
 
-                    // 记录删除后的实例数量
-                    const afterCount = ImageCaption.instances.size;
+            const currentScale = app.canvas.ds.scale;
+            const threshold = imageCaption._getQualityThreshold(); // 修复：使用全局实例的方法
+            const epsilon = 0.001; // 增加容差值
 
-                    if (!silent) {
-                        // 获取当前剩余的统计信息
-                        logger.log(`清理图像小助手 | 节点ID: ${nodeId}`);
-                        logger.log(`[剩余统计] 图像小助手实例: ${afterCount}个 | 删除前: ${beforeCount}个`);
-                    }
-                }
+            // 计算与上次缩放的差值
+            const scaleDiff = Math.abs(currentScale - lastScale);
 
-                // 检查是否有以该nodeId开头的实例（关键修复）
-                const keysToDelete = Array.from(ImageCaption.instances.keys())
-                    .filter(key => key.startsWith(`${nodeIdStr}_`));
+            // 更新上次缩放值
+            lastScale = currentScale;
 
-                if (keysToDelete.length > 0) {
-                    const beforeCount = ImageCaption.instances.size;
+            // 判断当前画质状态（使用容差值）
+            const isCurrentlyLowQuality = currentScale <= threshold + epsilon;
 
-                    // 清理所有匹配的实例
-                    keysToDelete.forEach(key => {
-                        const instance = ImageCaption.getInstance(key);
-                        if (instance) {
-                            this._cleanupInstance(instance, key);
-                            ImageCaption.instances.delete(key);
+            // 无条件更新UI可见性，让_checkNodeAndCanvasState方法决定是否显示
+            this.updateAssistantVisibility(assistant);
+        };
+
+        // 确保立即响应
+        const immediateUpdate = checkScaleAndUpdate;
+
+        // 监听画布的鼠标滚轮事件（缩放）
+        const wheelHandler = (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                // 立即更新并安排延迟检查
+                immediateUpdate();
+                setTimeout(immediateUpdate, 50);
+            }
+        };
+
+        // 监听画布的触摸事件（移动端缩放）
+        const touchHandler = (e) => {
+            if (e.touches && e.touches.length === 2) {
+                // 立即更新并安排延迟检查
+                immediateUpdate();
+                setTimeout(immediateUpdate, 50);
+            }
+        };
+
+        // 添加事件监听器
+        const canvas = app.canvas.canvas;
+        if (canvas) {
+            canvas.addEventListener('wheel', wheelHandler, { passive: true });
+            canvas.addEventListener('touchmove', touchHandler, { passive: true });
+        }
+
+        // 定期检查缩放变化
+        const scaleCheckInterval = setInterval(immediateUpdate, 50);
+
+        // 初始检查一次当前状态
+        immediateUpdate();
+
+        // 保存清理函数
+        assistant._eventCleanupFunctions.push(() => {
+            if (canvas) {
+                canvas.removeEventListener('wheel', wheelHandler);
+                canvas.removeEventListener('touchmove', touchHandler);
+            }
+            clearInterval(scaleCheckInterval);
+        });
+
+        // 监听画布缩放事件（直接监听ds.scale变化）
+        const originalDSScale = Object.getOwnPropertyDescriptor(app.canvas.ds, 'scale');
+        if (originalDSScale && originalDSScale.set) {
+            const originalSetter = originalDSScale.set;
+
+            Object.defineProperty(app.canvas.ds, 'scale', {
+                get: originalDSScale.get,
+                set: function (value) {
+                    // 获取旧值
+                    const oldValue = this.scale;
+                    const threshold = imageCaption._getQualityThreshold();
+
+                    // 调用原始setter
+                    originalSetter.call(this, value);
+
+                    // 检测是否跨越了阈值边界
+                    const epsilon = 0.001;
+                    const crossedThreshold =
+                        (oldValue <= threshold + epsilon && value > threshold + epsilon) ||
+                        (oldValue > threshold + epsilon && value <= threshold + epsilon);
+
+                    if (crossedThreshold) {
+                        // 如果跨越了阈值，只记录一次日志
+                        // 使用静态变量记录上次跨越阈值的时间，避免短时间内重复输出
+                        const now = Date.now();
+                        if (!ImageCaption._lastThresholdCrossTime || now - ImageCaption._lastThresholdCrossTime > 500) {
+                            logger.log(`[图像小助手-缩放监听] 跨越阈值 | 旧值: ${oldValue.toFixed(4)} | 新值: ${value.toFixed(4)} | 阈值: ${threshold}`);
+                            ImageCaption._lastThresholdCrossTime = now;
                         }
-                    });
-
-                    const afterCount = ImageCaption.instances.size;
-
-                    if (!silent) {
-                        logger.log(`清理图像小助手 | 节点ID: ${nodeId} | 关联实例: ${keysToDelete.length}个`);
-                        logger.log(`[剩余统计] 图像小助手实例: ${afterCount}个 | 删除前: ${beforeCount}个`);
                     }
+
+                    // 无论是否跨越阈值，都立即更新
+                    immediateUpdate();
+
+                    // 多次检查确保状态正确应用
+                    setTimeout(immediateUpdate, 10);
+                    setTimeout(immediateUpdate, 50);
+                    setTimeout(() => {
+                        // 更新所有已存在的图像小助手实例
+                        ImageCaption.instances.forEach((instance) => {
+                            if (instance && instance.node) {
+                                imageCaption.updateAssistantVisibility(instance);
+                            }
+                        });
+                    }, 100);
+                },
+                configurable: true
+            });
+
+            // 添加清理函数
+            assistant._eventCleanupFunctions.push(() => {
+                if (app.canvas && app.canvas.ds) {
+                    Object.defineProperty(app.canvas.ds, 'scale', originalDSScale);
                 }
-                return;
-            }
-
-            // 清理所有实例
-            const instanceCount = ImageCaption.instances.size;
-            if (instanceCount > 0) {
-                logger.debug(`[全部删除前] 图像小助手实例数量: ${instanceCount}`);
-
-                ImageCaption.instances.forEach((instance, key) => {
-                    this._cleanupInstance(instance, key);
-                });
-                ImageCaption.instances.clear();
-
-                if (!silent) {
-                    logger.log(`清理所有图像小助手 | 实例数: ${instanceCount}`);
-                    logger.log(`[剩余统计] 图像小助手实例: 0个`);
-                }
-            }
-        } catch (error) {
-            logger.error(`清理资源失败: ${error.message}`);
+            });
         }
     }
 
     /**
-     * 清理单个实例
+     * 设置展开折叠事件
      */
-    _cleanupInstance(instance, instanceKey) {
-        try {
-            // 检查实例是否有效
-            if (!instance) {
-                logger.debug(`图像小助手实例清理 | 结果:跳过 | 实例:${instanceKey || 'unknown'} | 原因:实例不存在`);
-                return;
+    _setupCollapseExpandEvents(assistant) {
+        if (!assistant?.element) return;
+
+        const containerDiv = assistant.element;
+
+        // 记录原始宽度，用于展开动画
+        const saveOriginalWidth = () => {
+            if (!assistant.isCollapsed && containerDiv.offsetWidth > 0) {
+                containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
+            }
+        };
+
+        // 延迟保存宽度，确保DOM已完全渲染
+        setTimeout(saveOriginalWidth, 300);
+
+        // 折叠函数
+        const collapseAssistant = () => {
+            if (assistant.isCollapsed || assistant.isTransitioning) return;
+
+            // 保存当前宽度用于展开动画
+            saveOriginalWidth();
+            assistant.isTransitioning = true;
+
+            // 直接添加折叠类
+            containerDiv.classList.add('collapsed');
+            assistant.isCollapsed = true;
+
+            // 显示悬停区域，用于检测鼠标悬停以展开UI
+            assistant.hoverArea.style.display = 'block';
+
+            // 动画结束后重置过渡状态
+            setTimeout(() => {
+                assistant.isTransitioning = false;
+            }, 300);
+        };
+
+        // 展开函数
+        const expandAssistant = () => {
+            if (!assistant.isCollapsed || assistant.isTransitioning) return;
+
+            assistant.isTransitioning = true;
+
+            // 隐藏悬停区域，避免覆盖按钮
+            assistant.hoverArea.style.display = 'none';
+
+            // 计算展开后的宽度
+            let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
+
+            // 如果没有保存宽度或需要重新计算
+            if (!targetWidth || targetWidth === '') {
+                // 先移除折叠类，但保持不可见状态进行测量
+                containerDiv.classList.remove('collapsed');
+                const originalDisplay = containerDiv.style.display;
+                const originalOpacity = containerDiv.style.opacity;
+
+                // 临时设置样式以便测量
+                containerDiv.style.opacity = '0';
+                containerDiv.style.display = 'flex';
+                containerDiv.style.position = 'fixed';
+
+                // 强制回流并测量
+                void containerDiv.offsetWidth;
+
+                // 获取自然宽度
+                const naturalWidth = containerDiv.offsetWidth;
+                targetWidth = naturalWidth + 'px';
+
+                // 保存宽度供将来使用
+                containerDiv.style.setProperty('--expanded-width', targetWidth);
+
+                // 恢复原始样式
+                containerDiv.style.opacity = originalOpacity;
+                containerDiv.style.position = 'fixed';
+
+                // 重新应用折叠类以准备动画
+                containerDiv.classList.add('collapsed');
+                void containerDiv.offsetWidth; // 强制回流
             }
 
-            // 1. 重置所有按钮状态
-            if (instance.buttons) {
-                Object.keys(instance.buttons).forEach(buttonId => {
-                    try {
-                        const button = instance.buttons[buttonId];
-                        if (button) {
-                            // 移除所有状态类
-                            button.classList.remove('button-active', 'button-processing', 'button-disabled');
-                            // 移除所有事件监听器
-                            button.replaceWith(button.cloneNode(true));
-                        }
-                    } catch (err) {
-                        logger.debug(`按钮清理 | 按钮:${buttonId} | 错误:${err.message}`);
-                    }
-                });
-                // 清空按钮引用
-                instance.buttons = {};
+            // 手动设置宽度转换
+            containerDiv.style.width = '28px'; // 起始宽度
+
+            // 强制回流
+            void containerDiv.offsetWidth;
+
+            // 移除折叠类
+            containerDiv.classList.remove('collapsed');
+
+            // 设置目标宽度以触发过渡
+            containerDiv.style.width = targetWidth;
+
+            // 动画结束后清理
+            setTimeout(() => {
+                // 移除固定宽度，恢复自动宽度
+                containerDiv.style.width = '';
+                assistant.isCollapsed = false;
+                assistant.isTransitioning = false;
+            }, 300);
+        };
+
+        // 创建折叠定时器变量
+        let collapseTimer = null;
+        let autoCollapseTimer = null;
+
+        // 鼠标离开容器时折叠
+        const handleMouseLeave = () => {
+            // 如果有活跃按钮，不折叠
+            if (this._checkAssistantActiveState(assistant)) return;
+
+            // 设置延时，避免鼠标短暂离开就触发折叠
+            collapseTimer = setTimeout(() => {
+                collapseAssistant();
+            }, 500);
+        };
+
+        // 鼠标进入容器时取消折叠定时器
+        const handleMouseEnter = () => {
+            if (collapseTimer) {
+                clearTimeout(collapseTimer);
+                collapseTimer = null;
             }
 
-            // 2. 清理事件监听器
-            if (instance._eventCleanupFunctions && Array.isArray(instance._eventCleanupFunctions)) {
-                instance._eventCleanupFunctions.forEach(cleanup => {
-                    if (typeof cleanup === 'function') {
-                        try {
-                            cleanup();
-                        } catch (err) {
-                            logger.debug(`事件清理 | 错误:${err.message}`);
-                        }
-                    }
-                });
-                instance._eventCleanupFunctions = [];
+            // 取消自动折叠定时器
+            if (autoCollapseTimer) {
+                clearTimeout(autoCollapseTimer);
+                autoCollapseTimer = null;
             }
 
-            // 3. 从DOM中移除元素
-            if (instance.element) {
-                try {
-                    // 确保在移除元素前清理所有子元素的事件
-                    const allButtons = instance.element.querySelectorAll('button');
-                    allButtons.forEach(button => {
-                        button.replaceWith(button.cloneNode(true));
-                    });
+            // 如果当前是折叠状态，则展开
+            if (assistant.isCollapsed) {
+                expandAssistant();
+            }
+        };
 
-                    if (instance.element.parentNode) {
-                        instance.element.parentNode.removeChild(instance.element);
-                    }
-                } catch (err) {
-                    logger.debug(`DOM元素清理 | 错误:${err.message}`);
+        // 为容器添加鼠标事件
+        const removeContainerMouseLeave = EventManager.addDOMListener(containerDiv, 'mouseleave', handleMouseLeave);
+        const removeContainerMouseEnter = EventManager.addDOMListener(containerDiv, 'mouseenter', handleMouseEnter);
+
+        // 为悬停区域添加鼠标事件
+        const removeHoverAreaMouseEnter = EventManager.addDOMListener(assistant.hoverArea, 'mouseenter', handleMouseEnter);
+
+        // 添加清理函数
+        assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
+        assistant._eventCleanupFunctions.push(removeContainerMouseLeave);
+        assistant._eventCleanupFunctions.push(removeContainerMouseEnter);
+        assistant._eventCleanupFunctions.push(removeHoverAreaMouseEnter);
+
+        // 添加清理定时器的函数
+        assistant._eventCleanupFunctions.push(() => {
+            if (collapseTimer) {
+                clearTimeout(collapseTimer);
+                collapseTimer = null;
+            }
+            if (autoCollapseTimer) {
+                clearTimeout(autoCollapseTimer);
+                autoCollapseTimer = null;
+            }
+        });
+
+        // 创建后自动折叠功能
+        const setupAutoCollapse = () => {
+            // 如果有活跃按钮，不自动折叠
+            if (this._checkAssistantActiveState(assistant)) return;
+
+            // 设置自动折叠定时器，1秒后自动折叠
+            autoCollapseTimer = setTimeout(() => {
+                // 再次检查是否有活跃按钮或鼠标悬停在容器上
+                if (!this._checkAssistantActiveState(assistant) && !assistant.isMouseOver) {
+                    collapseAssistant();
                 }
-            }
+            }, 1000);
+        };
 
-            // 4. 清理节点引用（关键修复）
-            if (instance.node) {
-                try {
-                    delete instance.node;
-                } catch (err) {
-                    logger.debug(`节点引用清理 | 错误:${err.message}`);
-                }
-            }
+        // 添加鼠标悬停状态跟踪
+        assistant.isMouseOver = false;
+        const trackMouseOver = () => {
+            assistant.isMouseOver = true;
+        };
+        const trackMouseOut = () => {
+            assistant.isMouseOver = false;
+        };
 
-            // 5. 清理实例属性
-            try {
-                Object.keys(instance).forEach(key => {
-                    try {
-                        delete instance[key];
-                    } catch (err) {
-                        logger.debug(`属性清理 | 属性:${key} | 错误:${err.message}`);
-                    }
-                });
-            } catch (err) {
-                logger.debug(`属性清理 | 错误:${err.message}`);
-            }
+        // 为容器和悬停区域添加鼠标悬停状态跟踪
+        const removeContainerMouseOverTracking = EventManager.addDOMListener(containerDiv, 'mouseover', trackMouseOver);
+        const removeContainerMouseOutTracking = EventManager.addDOMListener(containerDiv, 'mouseout', trackMouseOut);
+        const removeHoverAreaMouseOverTracking = EventManager.addDOMListener(assistant.hoverArea, 'mouseover', trackMouseOver);
+        const removeHoverAreaMouseOutTracking = EventManager.addDOMListener(assistant.hoverArea, 'mouseout', trackMouseOut);
 
-            logger.debug(`图像小助手实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
-        } catch (error) {
-            logger.error(`图像小助手实例清理失败 | 实例:${instanceKey || 'unknown'} | 错误:${error.message}`);
+        // 添加清理函数
+        assistant._eventCleanupFunctions.push(removeContainerMouseOverTracking);
+        assistant._eventCleanupFunctions.push(removeContainerMouseOutTracking);
+        assistant._eventCleanupFunctions.push(removeHoverAreaMouseOverTracking);
+        assistant._eventCleanupFunctions.push(removeHoverAreaMouseOutTracking);
+
+        // 设置自动折叠（延迟执行，确保DOM已完全渲染）
+        setTimeout(setupAutoCollapse, 500);
+    }
+
+    /**
+     * 设置按钮右键菜单
+     * @param {HTMLElement} button 按钮元素
+     * @param {Function} getMenuItems 获取菜单项的函数
+     * @param {Object} assistant 小助手实例
+     */
+    _setupButtonContextMenu(button, getMenuItems, assistant) {
+        if (!button || typeof getMenuItems !== 'function') return;
+
+        // 确保assistant对象具有正确的类型标识，方便右键菜单关闭时识别
+        assistant.type = 'image_caption_assistant';
+
+        const cleanup = buttonMenu.setupButtonMenu(button, () => {
+            return getMenuItems(assistant);
+        }, { widget: assistant, buttonElement: button }); // 传递正确的上下文
+
+        if (cleanup) {
+            assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
+            assistant._eventCleanupFunctions.push(cleanup);
         }
     }
 
@@ -1489,12 +1936,6 @@ class ImageCaption {
         const key = String(nodeId);
         const instance = this.instances.get(key);
 
-        // 添加调试日志
-        if (instance) {
-            logger.debug(`获取图像小助手实例 | 节点ID: ${key} | 结果: 成功`);
-        } else {
-            logger.debug(`获取图像小助手实例 | 节点ID: ${key} | 结果: 未找到`);
-        }
 
         return instance;
     }
@@ -1509,33 +1950,141 @@ class ImageCaption {
     }
 
     /**
-     * 统一控制总开关功能
-     * 集中管理所有受总开关控制的服务功能
+     * 清理小助手实例
+     * @param {string|null} nodeId - 节点ID，如果为null则清理所有实例
+     * @param {boolean} silent - 是否静默清理（不输出日志）
      */
-    async toggleGlobalFeature(enable, force = false) {
-        try {
-            // 更新状态
-            const oldValue = window.FEATURES.imageCaption;
-
-            // 状态未变化时不执行操作，除非force为true
-            if (!force && oldValue === enable) {
-                return;
+    cleanup(nodeId = null, silent = false) {
+        // 如果正在切换工作流，完全清理图像小助手实例
+        if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
+            // 单个节点清理时打印详细日志，全局清理时不打印
+            if (nodeId !== null) {
+                logger.debug(`[清理跳过] 正在切换工作流，清理图像小助手UI，节点ID: ${nodeId}`);
             }
 
-            logger.log(`图像小助手功能开关 | 动作:${enable ? "启用" : "禁用"} | 白名单节点类型: ${this.allowedNodeTypes.size}个`);
+            if (nodeId === null) {
+                // 清理所有实例，并从集合中移除
+                const instanceCount = ImageCaption.instances.size;
+                if (instanceCount > 0) {
+                    ImageCaption.instances.forEach((assistant, id) => {
+                        this._cleanupSingleInstance(assistant);
+                    });
+                    // 清空实例集合
+                    ImageCaption.instances.clear();
+                }
+            } else {
+                // 清理特定节点实例
+                const assistant = ImageCaption.getInstance(nodeId);
+                if (assistant) {
+                    this._cleanupSingleInstance(assistant);
+                    ImageCaption.instances.delete(String(nodeId));
+                }
+            }
 
+            return;
+        }
+
+        try {
+            if (nodeId === null) {
+                // 清理所有实例
+                const instanceCount = ImageCaption.instances.size;
+                if (instanceCount > 0) {
+                    ImageCaption.instances.forEach((assistant, id) => {
+                        this._cleanupSingleInstance(assistant);
+                    });
+                    ImageCaption.instances.clear();
+                    if (!silent) {
+                        logger.log(`清理所有图像小助手实例 | 数量: ${instanceCount}`);
+                    }
+                }
+            } else {
+                // 清理指定实例
+                const assistant = ImageCaption.getInstance(nodeId);
+                if (assistant) {
+                    this._cleanupSingleInstance(assistant);
+                    ImageCaption.instances.delete(String(nodeId));
+                    if (!silent) {
+                        logger.log(`清理图像小助手实例 | ID: ${nodeId}`);
+                    }
+                }
+            }
+        } catch (error) {
+            logger.error(`清理图像小助手实例失败 | ${error.message}`);
+        }
+    }
+
+    /**
+     * 清理单个实例的内部方法
+     * @param {object} assistant - 小助手实例
+     */
+    _cleanupSingleInstance(assistant) {
+        if (!assistant) return;
+
+        try {
+            // 清理DOM元素
+            if (assistant.element && assistant.element.parentNode) {
+                assistant.element.parentNode.removeChild(assistant.element);
+            }
+
+            // 清理事件监听器
+            if (assistant._eventCleanupFunctions && Array.isArray(assistant._eventCleanupFunctions)) {
+                assistant._eventCleanupFunctions.forEach(cleanup => {
+                    if (typeof cleanup === 'function') {
+                        cleanup();
+                    }
+                });
+                assistant._eventCleanupFunctions = [];
+            }
+
+            // 清理定时器
+            if (assistant._timers) {
+                Object.values(assistant._timers).forEach(timer => {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
+                });
+                assistant._timers = {};
+            }
+
+            // 清理引用
+            assistant.element = null;
+            assistant.innerContent = null;
+            assistant.hoverArea = null;
+            assistant.indicator = null;
+            assistant.buttons = {};
+            assistant.node = null;
+        } catch (error) {
+            logger.error(`清理单个实例失败 | ${error.message}`);
+        }
+    }
+
+    /**
+     * 统一控制总开关功能
+     */
+    async toggleGlobalFeature(enable, force = false) {
+        // 更新状态
+        const oldValue = window.FEATURES.imageCaption;
+        window.FEATURES.imageCaption = enable;
+
+        // 状态未变化时不执行操作，除非force为true
+        if (!force && oldValue === enable) {
+            return;
+        }
+
+        // 仅当状态变化或强制执行时才记录日志
+        if (oldValue !== enable || force) {
+            logger.log(`图像反推功能 | 动作:${enable ? "启用" : "禁用"}`);
+        }
+
+        try {
             if (enable) {
-                // === 启用图像小助手 ===
-
-                // 1. 初始化图像小助手（如果尚未初始化）
-                if (!this.initialized) {
-                    await this.initialize();
-                } else {
-                    // 如果已初始化，确保全局监听器是注册状态
-                    this.registerGlobalMouseListener();
+                // === 启用图像反推功能 ===
+                // 确保管理器已初始化
+                if (!EventManager.initialized) {
+                    EventManager.init();
                 }
 
-                // 2. 重置节点初始化标记，准备重新检测
+                // 1. 重置节点初始化标记，准备重新检测
                 if (app.canvas && app.canvas.graph) {
                     const nodes = app.canvas.graph._nodes || [];
                     nodes.forEach(node => {
@@ -1545,308 +2094,34 @@ class ImageCaption {
                     });
                 }
 
-                // 3. 设置或恢复节点选择事件监听
+                // 2. 设置或恢复节点选择事件监听
                 this.registerNodeSelectionListener();
 
-                // 4. 如果有当前选中的节点，立即处理
-                if (app.canvas && app.canvas.selected_nodes && Object.keys(app.canvas.selected_nodes).length > 0) {
+                // 3. 检查当前选中的节点
+                if (app.canvas && app.canvas.selected_nodes) {
                     app.canvas._imageCaptionSelectionHandler(app.canvas.selected_nodes);
                 }
             } else {
-                // === 禁用图像小助手 ===
-
-                // 移除全局鼠标监听
-                this.removeGlobalMouseListener();
-                // 清理所有图像小助手实例
+                // === 禁用图像反推功能 ===
+                // 1. 清理所有实例
+                const instanceCount = ImageCaption.instances.size;
                 this.cleanup(null, true);
+            }
+
+            // 更新按钮可见性
+            if (window.FEATURES.updateButtonsVisibility) {
+                window.FEATURES.updateButtonsVisibility();
             }
         } catch (error) {
             logger.error(`图像小助手功能开关操作失败 | 错误: ${error.message}`);
         }
     }
 
-    /**
-     * 强制更新鼠标悬停状态
-     */
-    forceUpdateMouseState(assistant) {
-        if (!assistant || !assistant.node || !assistant.element) return;
-
-        // 总开关关闭时不处理鼠标状态更新
-        if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-            return;
-        }
-
-        // 检查节点是否已被删除（关键修复）
-        if (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[assistant.node.id]) {
-            assistant.isMouseOver = false;
-            this.updateAssistantVisibility(assistant);
-            return;
-        }
-
-        try {
-            // 获取鼠标在画布中的位置
-            const mousePos = EventManager.getMousePosition();
-            const canvas = app.canvas;
-
-            if (!canvas) return;
-
-            // 将屏幕坐标转换为画布坐标
-            const canvasPos = canvas.convertEventToCanvasOffset({
-                clientX: mousePos.x,
-                clientY: mousePos.y
-            });
-
-            if (!canvasPos) return;
-
-            const [canvasX, canvasY] = canvasPos;
-
-            // 获取节点边界
-            const [nodeX, nodeY, nodeWidth, nodeHeight] = assistant.node.getBounding();
-
-            // 计算标题栏高度 - 根据ComfyUI的节点样式
-            const titleHeight = assistant.node.flags?.collapsed ? 0 : (assistant.node.title_height || 30);
-
-            // 计算内容区域（排除标题栏）
-            const contentY = nodeY + titleHeight;
-            const contentHeight = nodeHeight - titleHeight;
-
-            // 检查鼠标是否在内容区域内
-            const isOverNode = canvasX >= nodeX && canvasX <= nodeX + nodeWidth &&
-                canvasY >= contentY && canvasY <= contentY + contentHeight;
-
-            // 检查鼠标是否在小助手UI上
-            const isOverUI = assistant.element.style.display !== 'none' &&
-                this.isMouseOverElement(assistant.element);
-
-            // 更新状态
-            const oldState = assistant.isMouseOver;
-            assistant.isMouseOver = isOverNode || isOverUI;
-
-            // 如果状态变化，更新可见性
-            if (oldState !== assistant.isMouseOver) {
-                logger.debug(`鼠标状态 | 手动更新 | 节点:${assistant.node.id} | 原状态:${oldState} | 新状态:${assistant.isMouseOver}`);
-                this.updateAssistantVisibility(assistant);
-            }
-
-            return assistant.isMouseOver;
-        } catch (error) {
-            logger.error(`强制更新鼠标状态失败: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 判断鼠标是否在元素上方
-     */
-    isMouseOverElement(element) {
-        if (!element) return false;
-
-        try {
-            // 获取鼠标位置
-            const mousePos = EventManager.getMousePosition();
-            const rect = element.getBoundingClientRect();
-
-            return (
-                mousePos.x >= rect.left &&
-                mousePos.x <= rect.right &&
-                mousePos.y >= rect.top &&
-                mousePos.y <= rect.bottom
-            );
-        } catch (error) {
-            logger.error(`鼠标位置检测失败 | 错误: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 检查鼠标是否在节点区域内
-     * @param {MouseEvent} e 鼠标事件
-     * @param {object} assistant 小助手实例
-     * @returns {boolean}
-     */
-    isMouseOverNodeArea(e, assistant) {
-        // 检查总开关和图像反推功能开关状态
-        if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-            return false;
-        }
-
-        const node = assistant.node;
-        if (!node) return false;
-
-        // 检查节点是否已被删除
-        if (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[node.id]) {
-            return false;
-        }
-
-        const canvas = app.canvas;
-        if (!canvas) return false;
-
-        try {
-            // 获取鼠标在画布中的位置
-            const canvasPos = canvas.convertEventToCanvasOffset(e);
-            if (!canvasPos) return false;
-
-            const [canvasX, canvasY] = canvasPos;
-
-            // 获取节点边界
-            const [nodeX, nodeY, nodeWidth, nodeHeight] = node.getBounding();
-
-            // 计算标题栏高度
-            const titleHeight = node.flags?.collapsed ? 0 : (node.title_height || 30);
-
-            // 计算内容区域（排除标题栏）
-            const contentY = nodeY + titleHeight;
-            const contentHeight = nodeHeight - titleHeight;
-
-            // 检查鼠标是否在内容区域内
-            const isInside = canvasX >= nodeX && canvasX <= nodeX + nodeWidth &&
-                canvasY >= contentY && canvasY <= contentY + contentHeight;
-
-            // 检查鼠标是否在小助手UI上
-            const isOverUI = assistant.element &&
-                assistant.element.style.display !== 'none' &&
-                this.isMouseOverElement(assistant.element);
-
-            return isInside || isOverUI;
-        } catch (error) {
-            logger.error(`检查节点区域失败: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 注册全局鼠标移动事件监听
-     */
-    registerGlobalMouseListener() {
-        if (this._globalMouseListenerRegistered) return;
-
-        try {
-            EventManager.init();
-
-            // 防抖的全局监听函数
-            const debouncedListener = EventManager.debounce((e) => {
-                if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-                    return;
-                }
-
-                ImageCaption.instances.forEach(assistant => {
-                    if (assistant.isTransitioning || assistant.isFirstCreate) return;
-
-                    if (assistant.isActive || this._checkAssistantActiveState(assistant)) {
-                        if (!assistant.isMouseOver) {
-                            assistant.isMouseOver = true;
-                            this.updateAssistantVisibility(assistant);
-                        }
-                        return;
-                    }
-
-                    const isOver = this.isMouseOverNodeArea(e, assistant);
-
-                    if (isOver !== assistant.isMouseOver) {
-                        assistant.isMouseOver = isOver;
-                        this.updateAssistantVisibility(assistant);
-                    }
-                });
-            }, 50);
-
-            // 注册全局鼠标移动事件
-            EventManager.on('global_mouse_move', 'image_caption_manager', debouncedListener);
-
-            // 监听画布变换（缩放/平移）
-            if (app.canvas && app.canvas.ds) {
-                const canvas = app.canvas;
-                const originalDSModified = canvas.ds.onModified;
-                this._originalDSModified = originalDSModified; // 保存原始函数
-
-                canvas.ds.onModified = (...args) => {
-                    if (originalDSModified) {
-                        originalDSModified.apply(canvas.ds, args);
-                    }
-                    const lastMouseEvent = EventManager.getLastMouseEvent();
-                    if (lastMouseEvent) {
-                        debouncedListener(lastMouseEvent);
-                    }
-                };
-            }
-
-            this._globalMouseListenerRegistered = true;
-            logger.log("图像小助手全局鼠标监听器已注册");
-        } catch (error) {
-            logger.error(`图像小助手全局鼠标监听注册失败 | 错误: ${error.message}`);
-        }
-    }
-
-    /**
-     * 移除全局鼠标移动事件监听
-     */
-    removeGlobalMouseListener() {
-        if (!this._globalMouseListenerRegistered) return;
-        try {
-            // 移除鼠标移动监听
-            EventManager.off('global_mouse_move', 'image_caption_manager');
-
-            // 恢复原始的画布变换处理器
-            if (app.canvas && app.canvas.ds && this._originalDSModified) {
-                app.canvas.ds.onModified = this._originalDSModified;
-                delete this._originalDSModified;
-            }
-
-            this._globalMouseListenerRegistered = false;
-            logger.log("图像小助手全局鼠标监听器已移除");
-        } catch (error) {
-            logger.error(`图像小助手全局鼠标监听移除失败 | 错误: ${error.message}`);
-        }
-    }
 }
 
 // 创建单例实例
 const imageCaption = new ImageCaption();
 
-// ---全局管理接口---
-// 将图像小助手实例挂载到全局对象，方便控制台调试和配置
-if (typeof window !== 'undefined') {
-    window.ImageCaptionManager = {
-        // 获取当前白名单
-        getAllowedTypes: () => imageCaption.getAllowedNodeTypes(),
-        
-        // 添加白名单节点类型
-        addAllowedTypes: (types) => imageCaption.addAllowedNodeTypes(types),
-        
-        // 移除白名单节点类型  
-        removeAllowedTypes: (types) => imageCaption.removeAllowedNodeTypes(types),
-        
-        // 检查节点类型是否在白名单中
-        isAllowed: (nodeType) => imageCaption.isNodeTypeAllowed(nodeType),
-        
-        // 显示白名单统计信息
-        showStats: () => {
-            const allowedTypes = imageCaption.getAllowedNodeTypes();
-            console.group('📋 图像小助手白名单统计');
-            console.log(`总计允许节点类型: ${allowedTypes.length}个`);
-            console.log('白名单:', allowedTypes.sort());
-            console.groupEnd();
-            return {
-                total: allowedTypes.length,
-                types: allowedTypes
-            };
-        },
-        
-        // 清空白名单
-        clearAllowedTypes: () => {
-            const beforeCount = imageCaption.allowedNodeTypes.size;
-            imageCaption.allowedNodeTypes.clear();
-            logger.log(`图像小助手白名单已清空 | 原数量: ${beforeCount}个`);
-        },
-        
-        // 重置为默认白名单
-        resetToDefault: () => {
-            imageCaption.initAllowedNodeTypes();
-            logger.log(`图像小助手白名单已重置为默认配置 | 数量: ${imageCaption.allowedNodeTypes.size}个`);
-        }
-    };
-    
-
-}
 
 // 导出
 export { imageCaption, ImageCaption };

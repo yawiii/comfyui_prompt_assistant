@@ -26,24 +26,24 @@ class Logger {
         this.level = LOG_LEVELS.DEBUG; // 默认使用详细日志级别
     }
 
-    log(...args) {
+    log(message) {
         if (this.level >= LOG_LEVELS.BASIC) {
-            console.log("[PromptAssistant-系统]", ...args);
+            console.log(`[PromptAssistant-系统] ${message}`);
         }
     }
 
-    debug(...args) {
+    debug(message) {
         if (this.level >= LOG_LEVELS.DEBUG) {
-            console.log("[PromptAssistant-调试]", ...args);
+            console.debug(`[PromptAssistant-调试] ${message}`);
         }
     }
 
-    error(...args) {
-        console.error("[PromptAssistant-错误]", ...args);
+    error(message) {
+        console.error(`[PromptAssistant-错误] ${message}`);
     }
 
-    warn(...args) {
-        console.warn("[PromptAssistant-警告]", ...args);
+    warn(message) {
+        console.warn(`[PromptAssistant-警告] ${message}`);
     }
 
     /**

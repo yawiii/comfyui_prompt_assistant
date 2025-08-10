@@ -5,7 +5,7 @@
 
 import { app } from "../../../../scripts/app.js";
 import { logger } from '../utils/logger.js';
-import { FEATURES } from "../config/features.js";
+import { FEATURES } from "../services/features.js";
 import { HistoryManager } from "./history.js";
 import { TagManager } from "./tag.js";
 import { HistoryCacheService, TagCacheService, TranslateCacheService, CACHE_CONFIG, CacheService } from "../services/cache.js";
@@ -14,6 +14,54 @@ import { ResourceManager } from "../utils/resourceManager.js";
 import { UIToolkit } from "../utils/UIToolkit.js";
 import { PromptFormatter } from "../utils/promptFormatter.js";
 import { APIService } from "../services/api.js";
+// import { CLIP_NODE_TYPES } from "../services/interceptor.js";
+import { buttonMenu } from "../services/btnMenu.js";
+import { rulesConfigManager } from "./rulesConfigManager.js";
+
+/**
+ * 更新指定CLIP编码器节点的自动翻译指示器状态
+ * 使用从interceptor.js导入的CLIP_NODE_TYPES，确保UI指示器与实际功能一致
+ * @param {boolean} enabled 
+ */
+/* 
+export function updateAutoTranslateIndicators(enabled) {
+    if (!app.canvas?.graph) return;
+
+    app.canvas.graph._nodes.forEach(node => {
+        // 检查是否为指定的CLIP编码器节点
+        const isClipNode = node.type && CLIP_NODE_TYPES.includes(node.type);
+
+        if (isClipNode) {
+            // 查找该节点的小助手实例
+            const nodeId = node.id;
+            if (node.widgets) {
+                node.widgets.forEach(widget => {
+                    const inputId = widget.name || widget.id;
+                    if (inputId) {
+                        const assistantKey = `${nodeId}_${inputId}`;
+                        const assistantInstance = PromptAssistant.getInstance(assistantKey);
+
+                        // 如果找到小助手实例，更新其样式
+                        if (assistantInstance && assistantInstance.element) {
+                            assistantInstance.element.classList.toggle('auto-translate-enabled', enabled);
+                        }
+                    }
+                });
+            }
+        }
+    });
+}
+*/
+
+/**
+ * 暂时禁用的自动翻译指示器功能的空占位函数
+ * 保持导出以避免其他模块的导入错误
+ */
+export function updateAutoTranslateIndicators(enabled) {
+    // 空实现，不执行任何操作
+    logger.debug("自动翻译指示器功能已暂时禁用");
+    return;
+}
 
 // ====================== 工具函数 ======================
 
@@ -95,19 +143,16 @@ class PromptAssistant {
             const initialEnabled = app.ui.settings.getSettingValue("PromptAssistant.Features.Enabled");
             window.FEATURES.enabled = initialEnabled !== undefined ? initialEnabled : true;
 
-            // 记录总开关状态
-            logger.log(`总开关状态 | 状态:${window.FEATURES.enabled ? "启用" : "禁用"}`);
-
-            // 迁移旧的缓存数据到新的键名格式
-            CacheService.migrateCache();
+            // 记录总开关状态（改为调试级别）
+            logger.debug(`初始化时检测总开关状态 | 状态:${window.FEATURES.enabled ? "启用" : "禁用"}`);
 
             // 初始化资源管理器
             ResourceManager.init();
 
             // 只有在总开关打开时才做完整初始化
             if (window.FEATURES.enabled) {
-                // 注册全局鼠标监听
-                this.registerGlobalMouseListener();
+                // 更新CLIP节点的指示器状态
+                updateAutoTranslateIndicators(window.FEATURES.autoTranslate);
             }
 
             this.initialized = true;
@@ -136,7 +181,10 @@ class PromptAssistant {
             return;
         }
 
-        logger.log(`总开关 | 动作:${enable ? "启用" : "禁用"}`);
+        // 仅当状态真正变化或强制执行时才记录日志
+        if (oldValue !== enable || force === true) {
+            logger.log(`总开关 | 动作:${enable ? "启用" : "禁用"}`);
+        }
 
         try {
             if (enable) {
@@ -192,10 +240,6 @@ class PromptAssistant {
 
                     app.canvas.onSelectionChange = app.canvas._promptAssistantSelectionHandler;
                 }
-
-                // 3. 注册全局鼠标监听
-                await this.registerGlobalMouseListener();
-
             } else {
                 // === 禁用所有服务 ===
 
@@ -211,13 +255,17 @@ class PromptAssistant {
                         app.canvas.onSelectionChange = null;
                     }
                 }
-
-                // 3. 移除全局鼠标监听
-                this.removeGlobalMouseListener();
             }
 
             // 按钮可见性更新在features中单独处理
             window.FEATURES.updateButtonsVisibility();
+
+            // 如果功能已启用，更新自动翻译指示器状态
+            /* 暂时禁用自动翻译指示器
+            if (enable) {
+                updateAutoTranslateIndicators(window.FEATURES.autoTranslate);
+            }
+            */
         } catch (error) {
             logger.error(`总开关操作失败 | 错误: ${error.message}`);
             // 恢复原始状态
@@ -230,6 +278,30 @@ class PromptAssistant {
      * 清理所有资源
      */
     cleanup(nodeId = null, silent = false) {
+        // 如果正在切换工作流，则只清理UI实例，不删除缓存
+        if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
+            // 单个节点清理时打印详细日志，全局清理时打印简化日志
+            if (nodeId !== null) {
+                logger.debug(`[清理跳过] 正在切换工作流，仅清理提示词小助手UI，节点ID: ${nodeId}`);
+            }
+
+            const keysToDelete = Array.from(PromptAssistant.instances.keys())
+                .filter(key => nodeId === null || key.startsWith(`${String(nodeId)}_`));
+
+            keysToDelete.forEach(key => {
+                const instance = PromptAssistant.getInstance(key);
+                if (instance) {
+                    this._cleanupInstance(instance, key, false); // false表示从实例集合中移除
+                }
+            });
+
+            // 如果是全局清理，清空实例集合
+            if (nodeId === null) {
+                PromptAssistant.instances.clear();
+            }
+            return;
+        }
+
         // 检查nodeId是否有效
         if (nodeId !== null && nodeId !== undefined) {
             // 确保nodeId是字符串类型，便于后续比较
@@ -274,16 +346,9 @@ class PromptAssistant {
                     if (!silent) {
                         // 获取当前剩余的统计信息
                         const remainingInstances = PromptAssistant.instances.size;
-                        const remainingTags = Object.keys(localStorage)
-                            .filter(key => key.startsWith(CACHE_CONFIG.TAG_KEY_PREFIX))
-                            .reduce((total, key) => {
-                                try {
-                                    const cacheData = JSON.parse(localStorage.getItem(key));
-                                    return total + (cacheData ? Object.keys(cacheData).length : 0);
-                                } catch (e) {
-                                    return total;
-                                }
-                            }, 0);
+                        // 获取标签缓存统计
+                        const tagStats = TagCacheService.getTagStats();
+                        const remainingTags = tagStats.total;
                         const remainingHistory = HistoryCacheService.getAllHistory().length;
 
                         logger.log(`[节点清理] 节点ID: ${nodeId} | 实例: ${instanceNames.join(', ')} | 历史: ${historyCount}条 | 标签: ${tagCount}个`);
@@ -309,13 +374,17 @@ class PromptAssistant {
                 totalHistoryCount = allHistory.length;
                 HistoryCacheService.clearAllHistory();
 
-                // 统计并清理所有标签缓存和实例
+                // 统计标签缓存
+                const tagStats = TagCacheService.getTagStats();
+                totalTagCount = tagStats.total;
+
+                // 清理所有标签缓存
+                TagCacheService.clearAllTagCache();
+
+                // 清理所有实例
                 for (const [key, instance] of PromptAssistant.instances) {
-                    if (instance && instance.nodeId && instance.inputId) {
-                        const tags = TagCacheService.getAllRawTags(instance.nodeId, instance.inputId);
-                        totalTagCount += tags ? tags.length : 0;
-                        TagCacheService.clearCache(instance.nodeId, instance.inputId);
-                        allInstanceNames.push(instance.inputId);
+                    if (instance) {
+                        allInstanceNames.push(instance.inputId || key);
                         this._cleanupInstance(instance, key, true);
                     }
                 }
@@ -378,22 +447,15 @@ class PromptAssistant {
      */
     checkAndSetupNode(node) {
         // 始终首先检查总开关状态
-        if (!window.FEATURES.enabled || !PromptAssistant.isValidNode(node) || (node.flags && node.flags.collapsed)) {
+        if (!window.FEATURES.enabled || !node || !node.widgets) {
             return;
         }
 
-        // 查找有效的文本输入控件
-        const validInputs = [];
-        if (node.widgets) {
-            node.widgets.forEach(widget => {
-                // 不再直接设置 node 引用，因为它现在是只读的
-                if (UIToolkit.isValidInput(widget)) {
-                    validInputs.push(widget);
-                }
-            });
-        }
+        // 获取所有有效的输入控件
+        const validInputs = node.widgets.filter(widget => {
+            return UIToolkit.isValidInput(widget);
+        });
 
-        // 如果没有找到有效的文本输入控件，直接返回
         if (validInputs.length === 0) {
             return;
         }
@@ -405,7 +467,14 @@ class PromptAssistant {
 
             // 检查实例是否已存在
             if (PromptAssistant.hasInstance(assistantKey)) {
-                return; // 跳过已存在的实例
+                // 如果实例存在，检查输入控件是否已更新
+                const instance = PromptAssistant.getInstance(assistantKey);
+                if (instance && instance.text_element !== inputWidget.inputEl) {
+                    // 如果输入控件已更新，清理旧实例并创建新实例
+                    this.cleanup(node.id);
+                } else {
+                    return; // 跳过已存在且未更新的实例
+                }
             }
 
             // 再次检查总开关状态，确保在创建过程中没有被禁用
@@ -417,8 +486,17 @@ class PromptAssistant {
             const assistant = this.setupNodeAssistant(node, inputWidget);
             if (assistant) {
                 logger.log(`创建小助手 | 节点:${node.id} | 控件:${inputId} | 实例:${assistantKey}`);
-                
 
+                // 检查是否为指定的CLIP编码器节点，并应用自动翻译样式
+                // 使用从interceptor.js导入的CLIP_NODE_TYPES，确保UI指示器与实际功能一致
+                // 暂时禁用自动翻译检测
+                /* 
+                const isClipNode = node.type && CLIP_NODE_TYPES.includes(node.type);
+
+                if (isClipNode && assistant.element) {
+                    assistant.element.classList.toggle('auto-translate-enabled', window.FEATURES.autoTranslate);
+                }
+                */
             }
         });
     }
@@ -440,6 +518,7 @@ class PromptAssistant {
 
             // 简化节点信息
             const nodeInfo = {
+                workflow_id: app.graph?._workflow_id || 'unknown',
                 nodeType: node.type,
                 inputType: inputId,
                 isNoteNode: isNoteNode
@@ -454,21 +533,9 @@ class PromptAssistant {
             );
 
             if (assistant) {
-                // 初始化显示状态
-                assistant.isFirstCreate = true;
+                // 初始化显示状态，始终显示
                 this.showAssistantUI(assistant);
-
-                // 设置初始悬停状态，2秒后恢复正常行为
-                assistant.isMouseOver = true;
-                setTimeout(() => {
-                    if (assistant) {
-                        assistant.isFirstCreate = false;
-                        if (!assistant.isMouseOver) {
-                            this.updateAssistantVisibility(assistant);
-                        }
-                    }
-                }, 2000);
-
+                logger.log("小助手创建并显示 | 节点ID:" + nodeId);
                 return assistant;
             }
 
@@ -519,8 +586,6 @@ class PromptAssistant {
                 nodeId: node.id,
                 nodeType: node.type
             },
-            isMouseOver: false, // 鼠标悬停状态
-            isFirstCreate: false, // 首次创建标记
             isTransitioning: false // 添加状态标记，避免频繁切换
         };
 
@@ -597,21 +662,43 @@ class PromptAssistant {
 
             // 创建内部内容容器（分离视觉效果）
             const innerContentDiv = document.createElement('div');
-            innerContentDiv.className = 'prompt-assistant-inner';
+            innerContentDiv.className = 'prompt-assistant-inner prompt-assistant-content-fixed';
 
             // 创建主容器 - 简化样式，减少触发栅格化的属性
             const containerDiv = document.createElement('div');
-            containerDiv.className = 'prompt-assistant-container';
+            containerDiv.className = 'prompt-assistant-container prompt-assistant-transition';
             containerDiv.dataset.nodeId = nodeId;
             containerDiv.dataset.inputId = inputId;
 
             // 添加内容容器到主容器
             containerDiv.appendChild(innerContentDiv);
 
+            // 创建悬停区域 - 用于检测鼠标悬停
+            const hoverAreaDiv = document.createElement('div');
+            hoverAreaDiv.className = 'prompt-assistant-hover-area';
+            // 将悬停区域添加到容器中
+            containerDiv.appendChild(hoverAreaDiv);
+
+            // 创建折叠状态指示器图标
+            const indicatorDiv = document.createElement('div');
+            indicatorDiv.className = 'prompt-assistant-indicator';
+
+            // 从ResourceManager获取图标并添加到指示器
+            const mainIcon = ResourceManager.getIcon('icon-main.svg');
+            if (mainIcon) {
+                indicatorDiv.appendChild(mainIcon);
+            }
+
+            // 将指示器添加到容器中
+            containerDiv.appendChild(indicatorDiv);
+
             // 保存引用并初始化
             widget.element = containerDiv;
             widget.innerContent = innerContentDiv;
+            widget.hoverArea = hoverAreaDiv;
+            widget.indicator = indicatorDiv;
             widget.buttons = {};
+            widget.isCollapsed = false; // 初始状态为展开
 
             // 初始化UI组件和事件
             this.addFunctionButtons(widget);
@@ -631,7 +718,7 @@ class PromptAssistant {
 
     /**
      * 显示小助手UI
-     * 控制UI显示动画和状态
+     * 控制UI显示动画和状态，始终保持显示
      */
     showAssistantUI(widget, forceAnimation = false) {
         if (!widget?.element) return;
@@ -645,12 +732,6 @@ class PromptAssistant {
             return;
         }
 
-        // 取消任何隐藏计时器
-        if (widget.hideTimeout) {
-            clearTimeout(widget.hideTimeout);
-            widget.hideTimeout = null;
-        }
-
         // 设置过渡状态
         widget.isTransitioning = true;
 
@@ -662,54 +743,160 @@ class PromptAssistant {
         // 显示元素并应用动画类
         widget.element.style.display = 'flex';
         void widget.element.offsetWidth; // 触发回流，确保动画生效
-        widget.element.classList.remove('assistant-hide');
         widget.element.classList.add('assistant-show');
 
         // 动画结束后重置过渡状态
         setTimeout(() => {
             widget.isTransitioning = false;
-            // 动画结束后检查鼠标状态
-            setTimeout(() => this.forceUpdateMouseState(widget), 10);
+
+            // 检查是否需要自动折叠
+            this.triggerAutoCollapse(widget);
         }, 300); // 与CSS动画时长匹配
     }
 
     /**
-     * 隐藏小助手UI
-     * 控制UI隐藏动画和状态
+     * 检查并触发自动折叠（如果需要）
      */
-    hideAssistantUI(widget) {
-        if (!widget?.element) return;
+    _triggerAutoCollapseIfNeeded(widget) {
+        // 如果widget没有初始化或者已经处于折叠状态，则不处理
+        if (!widget || !widget.element || widget.isCollapsed || widget.isTransitioning) return;
 
-        // 避免重复隐藏
-        if (!widget.element.classList.contains('assistant-show')) return;
+        // 如果有活跃按钮，不自动折叠
+        if (this._checkAssistantActiveState(widget)) return;
 
-        // 设置过渡状态
-        widget.isTransitioning = true;
+        // 如果鼠标当前悬停在容器上，不自动折叠
+        if (widget.isMouseOver) return;
 
-        // 应用隐藏动画类
-        widget.element.classList.add('assistant-hide');
-        widget.element.classList.remove('assistant-show');
+        // 设置自动折叠定时器
+        if (widget._autoCollapseTimer) {
+            clearTimeout(widget._autoCollapseTimer);
+        }
 
-        // 触发回流确保动画生效
-        void widget.element.offsetWidth;
+        widget._autoCollapseTimer = setTimeout(() => {
+            // 再次检查条件
+            if (!widget.isCollapsed && !widget.isTransitioning &&
+                !this._checkAssistantActiveState(widget) && !widget.isMouseOver) {
 
-        // 动画结束后隐藏元素
-        widget.hideTimeout = setTimeout(() => {
-            if (widget.element) {
-                widget.element.style.display = 'none';
+                const containerDiv = widget.element;
+
+                // 保存当前宽度用于展开动画
+                if (containerDiv.offsetWidth > 0) {
+                    containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
+                }
+
+                // 设置过渡状态
+                widget.isTransitioning = true;
+
+                // 直接添加折叠类
+                containerDiv.classList.add('collapsed');
+                widget.isCollapsed = true;
+
+                // 显示悬停区域，用于检测鼠标悬停以展开UI
+                if (widget.hoverArea) {
+                    widget.hoverArea.style.display = 'block';
+                }
+
+                // 动画结束后重置过渡状态
+                setTimeout(() => {
+                    widget.isTransitioning = false;
+                }, 300);
             }
 
-            // 重置过渡状态
-            widget.isTransitioning = false;
+            widget._autoCollapseTimer = null;
+        }, 1000);
 
-            // 动画结束后检查鼠标状态
-            setTimeout(() => this.forceUpdateMouseState(widget), 10);
-        }, 300); // 与CSS动画时长匹配
+        // 确保清理函数中包含这个定时器
+        if (widget._eventCleanupFunctions) {
+            widget._eventCleanupFunctions.push(() => {
+                if (widget._autoCollapseTimer) {
+                    clearTimeout(widget._autoCollapseTimer);
+                    widget._autoCollapseTimer = null;
+                }
+            });
+        }
+    }
+
+    /**
+     * 展开小助手
+     */
+    _expandAssistant(widget) {
+        if (!widget || !widget.element || !widget.isCollapsed || widget.isTransitioning) return;
+
+        widget.isTransitioning = true;
+
+        // 隐藏悬停区域，避免覆盖按钮
+        if (widget.hoverArea) {
+            widget.hoverArea.style.display = 'none';
+        }
+
+        const containerDiv = widget.element;
+
+        // 计算展开后的宽度
+        let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
+
+        // 如果没有保存宽度或需要重新计算
+        if (!targetWidth || targetWidth === '') {
+            // 先移除折叠类，但保持不可见状态进行测量
+            containerDiv.classList.remove('collapsed');
+            const originalDisplay = containerDiv.style.display;
+            const originalOpacity = containerDiv.style.opacity;
+
+            // 临时设置样式以便测量
+            containerDiv.style.opacity = '0';
+            containerDiv.style.display = 'flex';
+            containerDiv.style.position = 'absolute';
+
+            // 强制回流并测量
+            void containerDiv.offsetWidth;
+
+            // 获取自然宽度
+            const naturalWidth = containerDiv.offsetWidth;
+            targetWidth = naturalWidth + 'px';
+
+            // 保存宽度供将来使用
+            containerDiv.style.setProperty('--expanded-width', targetWidth);
+
+            // 恢复原始样式
+            containerDiv.style.opacity = originalOpacity;
+            containerDiv.style.position = '';
+
+            // 重新应用折叠类以准备动画
+            containerDiv.classList.add('collapsed');
+            void containerDiv.offsetWidth; // 强制回流
+        }
+
+        // 手动设置宽度转换
+        containerDiv.style.width = '28px'; // 起始宽度
+
+        // 强制回流
+        void containerDiv.offsetWidth;
+
+        // 移除折叠类
+        containerDiv.classList.remove('collapsed');
+
+        // 设置目标宽度以触发过渡
+        containerDiv.style.width = targetWidth;
+
+        // 动画结束后清理
+        setTimeout(() => {
+            // 移除固定宽度，恢复自动宽度
+            containerDiv.style.width = '';
+            widget.isCollapsed = false;
+            widget.isTransitioning = false;
+        }, 300);
+    }
+
+    /**
+     * 公开方法：触发小助手自动折叠
+     * 供外部模块调用，用于在操作完成后折叠小助手UI
+     */
+    triggerAutoCollapse(widget) {
+        return this._triggerAutoCollapseIfNeeded(widget);
     }
 
     /**
      * 更新小助手可见性
-     * 根据鼠标悬停和首次创建状态决定是否显示
+     * 始终显示小助手，不再根据鼠标悬停状态来决定
      */
     updateAssistantVisibility(widget) {
         if (!widget) return;
@@ -722,31 +909,32 @@ class PromptAssistant {
         // 检查是否有按钮处于激活或处理中状态
         const hasActiveButtons = this._checkAssistantActiveState(widget);
 
-        // 如果有激活的按钮，强制显示小助手（带动画）
+        // 如果有激活的按钮，强制显示小助手（带动画）并取消自动折叠
         if (hasActiveButtons) {
             this.showAssistantUI(widget, true);
+
+            // 取消可能的自动折叠定时器
+            if (widget._autoCollapseTimer) {
+                clearTimeout(widget._autoCollapseTimer);
+                widget._autoCollapseTimer = null;
+            }
+
+            // 如果当前是折叠状态，则展开
+            if (widget.isCollapsed) {
+                this._expandAssistant(widget);
+            }
+
             return;
         }
 
-        const isMouseOver = widget.isMouseOver === true;
-        const isFirstCreate = widget.isFirstCreate === true;
-
-        // 显示条件：首次创建或鼠标悬停
-        const shouldShow = isFirstCreate || isMouseOver;
+        // 始终显示小助手，不再检查鼠标状态
         const isCurrentlyShown = widget.element?.classList.contains('assistant-show');
-
-        // 仅在状态需变化时更新
-        if (shouldShow !== isCurrentlyShown) {
-            const reason = isFirstCreate ? "首次创建" : (isMouseOver ? "鼠标悬停" : "鼠标离开");
-
-            if (shouldShow) {
-                // 首次创建时使用动画，鼠标悬停时不使用动画
-                this.showAssistantUI(widget, isFirstCreate);
-                logger.debug(`UI显示 | 节点:${widget.nodeId} | 原因:${reason}`);
-            } else {
-                this.hideAssistantUI(widget);
-                logger.debug(`UI隐藏 | 节点:${widget.nodeId} | 原因:${reason}`);
-            }
+        if (!isCurrentlyShown) {
+            this.showAssistantUI(widget, false);
+            logger.debug(`UI显示 | 节点:${widget.nodeId} | 原因:始终显示`);
+        } else {
+            // 已经显示，检查是否需要自动折叠
+            this.triggerAutoCollapse(widget);
         }
     }
 
@@ -780,9 +968,7 @@ class PromptAssistant {
      */
     updateAllInstancesVisibility() {
         PromptAssistant.instances.forEach(widget => {
-            if (!widget.isTransitioning) {
-                this.updateAssistantVisibility(widget);
-            }
+            this.updateAssistantVisibility(widget);
         });
     }
 
@@ -797,17 +983,19 @@ class PromptAssistant {
     // ---事件处理功能---
     /**
      * 设置UI事件处理
-     * 配置鼠标悬停相关的事件监听 - 简化版本
+     * 配置按钮事件监听 - 简化版本
      */
     _setupUIEventHandling(widget, inputEl, containerDiv) {
-        // 设置容器的事件穿透
-        containerDiv.style.pointerEvents = 'none';
+        // 设置容器可以接收事件，而不是穿透
+        containerDiv.style.pointerEvents = 'auto';
         widget.innerContent.style.pointerEvents = 'auto'; // 确保内容容器可以接收事件
+        widget.hoverArea.style.pointerEvents = 'auto'; // 确保悬停区域可以接收事件
+        widget.hoverArea.style.display = 'none'; // 初始状态下隐藏悬停区域，避免覆盖按钮
 
         // 确保所有按钮可点击
         const buttons = containerDiv.querySelectorAll('button');
         buttons.forEach(button => {
-            button.style.pointerEvents = 'auto';
+            // button.style.pointerEvents = 'auto'; // 移除此行，由CSS控制指针事件
             button.classList.add('prompt-assistant-button-active');
         });
 
@@ -816,6 +1004,215 @@ class PromptAssistant {
 
         // 使用清理函数数组存储所有事件清理函数
         widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
+
+        // 折叠和展开功能
+        const setupCollapseExpandEvents = () => {
+            // 记录原始宽度，用于展开动画
+            const saveOriginalWidth = () => {
+                if (!widget.isCollapsed && containerDiv.offsetWidth > 0) {
+                    containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
+                }
+            };
+
+            // 延迟保存宽度，确保DOM已完全渲染
+            setTimeout(saveOriginalWidth, 300);
+
+            // 折叠函数
+            const collapseAssistant = () => {
+                if (widget.isCollapsed || widget.isTransitioning) return;
+
+                // 保存当前宽度用于展开动画
+                saveOriginalWidth();
+                widget.isTransitioning = true;
+
+                // 直接添加折叠类，不使用动画类
+                containerDiv.classList.add('collapsed');
+                widget.isCollapsed = true;
+
+                // 显示悬停区域，用于检测鼠标悬停以展开UI
+                widget.hoverArea.style.display = 'block';
+
+                // 动画结束后重置过渡状态
+                setTimeout(() => {
+                    widget.isTransitioning = false;
+                }, 300);
+            };
+
+            // 展开函数
+            const expandAssistant = () => {
+                if (!widget.isCollapsed || widget.isTransitioning) return;
+
+                widget.isTransitioning = true;
+
+                // 隐藏悬停区域，避免覆盖按钮
+                widget.hoverArea.style.display = 'none';
+
+                // 计算展开后的宽度
+                let targetWidth = widget.element.style.getPropertyValue('--expanded-width');
+
+                // 如果没有保存宽度或需要重新计算
+                if (!targetWidth || targetWidth === '') {
+                    // 先移除折叠类，但保持不可见状态进行测量
+                    containerDiv.classList.remove('collapsed');
+                    const originalDisplay = containerDiv.style.display;
+                    const originalOpacity = containerDiv.style.opacity;
+
+                    // 临时设置样式以便测量
+                    containerDiv.style.opacity = '0';
+                    containerDiv.style.display = 'flex';
+                    containerDiv.style.position = 'absolute';
+
+                    // 强制回流并测量
+                    void containerDiv.offsetWidth;
+
+                    // 获取自然宽度
+                    const naturalWidth = containerDiv.offsetWidth;
+                    targetWidth = naturalWidth + 'px';
+
+                    // 保存宽度供将来使用
+                    containerDiv.style.setProperty('--expanded-width', targetWidth);
+
+                    // 恢复原始样式
+                    containerDiv.style.opacity = originalOpacity;
+                    containerDiv.style.position = '';
+
+                    // 重新应用折叠类以准备动画
+                    containerDiv.classList.add('collapsed');
+                    void containerDiv.offsetWidth; // 强制回流
+                }
+
+                // 手动设置宽度转换
+                containerDiv.style.width = '28px'; // 起始宽度
+
+                // 强制回流
+                void containerDiv.offsetWidth;
+
+                // 移除折叠类
+                containerDiv.classList.remove('collapsed');
+
+                // 设置目标宽度以触发过渡
+                containerDiv.style.width = targetWidth;
+
+                // 动画结束后清理
+                setTimeout(() => {
+                    // 移除固定宽度，恢复自动宽度
+                    containerDiv.style.width = '';
+                    widget.isCollapsed = false;
+                    widget.isTransitioning = false;
+                }, 300);
+            };
+
+            // 创建折叠定时器变量
+            let collapseTimer = null;
+            let autoCollapseTimer = null;
+
+            // 鼠标离开容器时折叠
+            const handleMouseLeave = () => {
+                // 如果有活跃按钮，不折叠
+                if (this._checkAssistantActiveState(widget)) return;
+
+                // 设置延时，避免鼠标短暂离开就触发折叠
+                collapseTimer = setTimeout(() => {
+                    collapseAssistant();
+                }, 500);
+            };
+
+            // 鼠标进入容器（展开时）以保持展开状态
+            const handleContainerMouseEnter = () => {
+                // 仅当小助手展开时，进入容器才会阻止其自动折叠
+                if (widget.isCollapsed) return;
+
+                if (collapseTimer) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = null;
+                }
+                if (autoCollapseTimer) {
+                    clearTimeout(autoCollapseTimer);
+                    autoCollapseTimer = null;
+                }
+            };
+
+            // 鼠标进入悬停区域（折叠时）以展开
+            const handleHoverAreaMouseEnter = () => {
+                if (collapseTimer) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = null;
+                }
+                if (autoCollapseTimer) {
+                    clearTimeout(autoCollapseTimer);
+                    autoCollapseTimer = null;
+                }
+                // 如果当前是折叠状态，则展开
+                if (widget.isCollapsed) {
+                    expandAssistant();
+                }
+            };
+
+            // 为容器添加鼠标事件
+            const removeContainerMouseLeave = EventManager.addDOMListener(containerDiv, 'mouseleave', handleMouseLeave);
+            const removeContainerMouseEnter = EventManager.addDOMListener(containerDiv, 'mouseenter', handleContainerMouseEnter);
+
+            // 为悬停区域添加鼠标事件
+            const removeHoverAreaMouseEnter = EventManager.addDOMListener(widget.hoverArea, 'mouseenter', handleHoverAreaMouseEnter);
+
+            // 添加清理函数
+            widget._eventCleanupFunctions.push(removeContainerMouseLeave);
+            widget._eventCleanupFunctions.push(removeContainerMouseEnter);
+            widget._eventCleanupFunctions.push(removeHoverAreaMouseEnter);
+
+            // 添加清理定时器的函数
+            widget._eventCleanupFunctions.push(() => {
+                if (collapseTimer) {
+                    clearTimeout(collapseTimer);
+                    collapseTimer = null;
+                }
+                if (autoCollapseTimer) {
+                    clearTimeout(autoCollapseTimer);
+                    autoCollapseTimer = null;
+                }
+            });
+
+            // 创建后自动折叠功能
+            const setupAutoCollapse = () => {
+                // 如果有活跃按钮，不自动折叠
+                if (this._checkAssistantActiveState(widget)) return;
+
+                // 设置自动折叠定时器，1秒后自动折叠
+                autoCollapseTimer = setTimeout(() => {
+                    // 再次检查是否有活跃按钮或鼠标悬停在容器上
+                    if (!this._checkAssistantActiveState(widget) && !widget.isMouseOver) {
+                        collapseAssistant();
+                    }
+                }, 1000);
+            };
+
+            // 添加鼠标悬停状态跟踪
+            widget.isMouseOver = false;
+            const trackMouseOver = () => {
+                widget.isMouseOver = true;
+            };
+            const trackMouseOut = () => {
+                widget.isMouseOver = false;
+            };
+
+            // 为容器和悬停区域添加鼠标悬停状态跟踪
+            const removeContainerMouseOverTracking = EventManager.addDOMListener(containerDiv, 'mouseover', trackMouseOver);
+            const removeContainerMouseOutTracking = EventManager.addDOMListener(containerDiv, 'mouseout', trackMouseOut);
+            const removeHoverAreaMouseOverTracking = EventManager.addDOMListener(widget.hoverArea, 'mouseover', trackMouseOver);
+            const removeHoverAreaMouseOutTracking = EventManager.addDOMListener(widget.hoverArea, 'mouseout', trackMouseOut);
+
+            // 添加清理函数
+            widget._eventCleanupFunctions.push(removeContainerMouseOverTracking);
+            widget._eventCleanupFunctions.push(removeContainerMouseOutTracking);
+            widget._eventCleanupFunctions.push(removeHoverAreaMouseOverTracking);
+            widget._eventCleanupFunctions.push(removeHoverAreaMouseOutTracking);
+
+            // 设置自动折叠（延迟执行，确保DOM已完全渲染）
+            setTimeout(setupAutoCollapse, 500);
+        };
+
+        // 设置折叠展开事件
+        setupCollapseExpandEvents();
 
         // 添加清理函数
         widget.cleanupListeners = () => {
@@ -829,146 +1226,6 @@ class PromptAssistant {
                 widget._eventCleanupFunctions = [];
             }
         };
-    }
-
-    /**
-     * 判断鼠标是否在元素上方
-     */
-    isMouseOverElement(element) {
-        if (!element) return false;
-
-        try {
-            // 直接使用计算而非委托给EventManager，减少一层调用
-            const mousePos = EventManager.getMousePosition();
-            const rect = element.getBoundingClientRect();
-
-            return (
-                mousePos.x >= rect.left &&
-                mousePos.x <= rect.right &&
-                mousePos.y >= rect.top &&
-                mousePos.y <= rect.bottom
-            );
-        } catch (error) {
-            logger.error(`鼠标位置检测失败 | 错误: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 强制更新鼠标悬停状态
-     */
-    forceUpdateMouseState(widget) {
-        if (!widget || !widget.node || !widget.text_element || !widget.element) return;
-
-        // 总开关关闭时不处理鼠标状态更新
-        if (!window.FEATURES || !window.FEATURES.enabled) {
-            return;
-        }
-
-        // 使用直接检测方法检查鼠标是否在元素上方
-        const isOverInput = this.isMouseOverElement(widget.text_element);
-        const isOverContainer = widget.element.style.display !== 'none' &&
-            this.isMouseOverElement(widget.element);
-
-        // 更新状态
-        const oldState = widget.isMouseOver;
-        widget.isMouseOver = isOverInput || isOverContainer;
-
-        // 如果状态变化，更新可见性
-        if (oldState !== widget.isMouseOver) {
-            logger.debug(`鼠标状态 | 手动更新 | 节点:${widget.nodeId} | 原状态:${oldState} | 新状态:${widget.isMouseOver}`);
-            this.updateAssistantVisibility(widget);
-        }
-
-        return widget.isMouseOver;
-    }
-
-    // ---鼠标监听功能---
-    /**
-     * 判断全局鼠标监听器是否已注册
-     */
-    isGlobalMouseListenerRegistered() {
-        try {
-            return EventManager.listeners.has('global_mouse_move') &&
-                EventManager.listeners.get('global_mouse_move').has('assistant_manager');
-        } catch (error) {
-            logger.error(`鼠标监听器状态检查失败 | 错误: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 注册全局鼠标移动事件监听
-     */
-    async registerGlobalMouseListener() {
-        try {
-            // 确保EventManager已初始化
-            EventManager.init();
-
-            // 检查是否已注册，避免重复
-            if (this.isGlobalMouseListenerRegistered()) {
-                return true;
-            }
-
-            // 创建去抖动的全局监听函数
-            const debouncedListener = EventManager.debounce((e) => {
-                // 检查总开关状态，如果总开关已关闭，则不处理
-                if (!window.FEATURES || !window.FEATURES.enabled) {
-                    return;
-                }
-
-                try {
-                    // 获取当前实例数量
-                    const instanceCount = PromptAssistant.instances.size;
-                    if (instanceCount === 0) return;
-
-                    // 遍历所有实例，更新鼠标状态
-                    PromptAssistant.instances.forEach(widget => {
-                        // 跳过正在过渡的实例
-                        if (widget.isTransitioning) return;
-
-                        // 检查鼠标是否在实例上
-                        const isOver = this.isMouseOverElement(widget.text_element) ||
-                            (widget.element?.style.display !== 'none' && this.isMouseOverElement(widget.element));
-
-                        // 如果状态变化，更新可见性
-                        if (widget.isMouseOver !== isOver) {
-                            widget.isMouseOver = isOver;
-                            this.updateAssistantVisibility(widget);
-                        }
-                    });
-                } catch (error) {
-                    logger.error(`鼠标处理异常 | 错误: ${error.message}`);
-                }
-            }, 50);
-
-            // 注册全局鼠标移动事件监听器
-            EventManager.on('global_mouse_move', 'assistant_manager', debouncedListener);
-
-            return true;
-        } catch (error) {
-            logger.error(`全局鼠标监听注册失败 | 错误: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-     * 移除全局鼠标移动事件监听
-     */
-    removeGlobalMouseListener() {
-        try {
-            // 检查是否已注册，未注册则不需要移除
-            if (!this.isGlobalMouseListenerRegistered()) {
-                return true;
-            }
-
-            // 移除事件监听器
-            EventManager.off('global_mouse_move', 'assistant_manager');
-            return true;
-        } catch (error) {
-            logger.error(`全局鼠标监听移除失败 | 错误: ${error.message}`);
-            return false;
-        }
     }
 
     // ---辅助功能---
@@ -998,8 +1255,6 @@ class PromptAssistant {
             logger.error(`输入框更新 | 结果:异常 | 错误:${error.message}`);
         }
     }
-
-
 
     // ---按钮管理功能---
     /**
@@ -1160,15 +1415,9 @@ class PromptAssistant {
                 onClick: async (e, widget) => {
                     logger.debug('按钮点击 | 动作: 扩写');
 
-                    // 如果按钮处于 processing 状态且被点击，显示"扩写中"提示并直接返回
+                    // 如果按钮处于 processing 状态且被点击，直接返回，
+                    // 让UIToolkit中的取消逻辑接管
                     if (e.currentTarget.classList.contains('button-processing')) {
-                        const btnRect = e.currentTarget.getBoundingClientRect();
-                        UIToolkit.showStatusTip(
-                            e.currentTarget,
-                            'loading',
-                            '扩写中',
-                            { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
-                        );
                         return;
                     }
 
@@ -1176,7 +1425,7 @@ class PromptAssistant {
                         widget,
                         'expand',
                         e.currentTarget,
-                        async () => {
+                        async (notifyCancelReady) => {
                             try {
                                 // 获取输入值
                                 const inputValue = widget.inputEl.value;
@@ -1186,6 +1435,9 @@ class PromptAssistant {
 
                                 // 生成唯一request_id
                                 const request_id = generateRequestId('glm4_expand');
+
+                                // 通知UI可以准备取消操作了
+                                notifyCancelReady(request_id);
 
                                 // 显示扩写中提示
                                 const btnRect = e.currentTarget.getBoundingClientRect();
@@ -1237,7 +1489,110 @@ class PromptAssistant {
                         }
                     );
                 },
-                visible: !isNoteNode && FEATURES.expand // Note节点不显示此按钮
+                visible: !isNoteNode && FEATURES.expand, // Note节点不显示此按钮
+                // 添加右键菜单配置
+                contextMenu: async (widget) => {
+                    // 获取当前激活的扩写提示词ID
+                    let activePromptId = null;
+                    let expandPrompts = [];
+
+                    try {
+                        // 从服务器获取系统提示词配置
+                        const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                        if (response.ok) {
+                            const data = await response.json();
+
+                            // 获取激活的提示词ID
+                            activePromptId = data.active_prompts?.expand || null;
+
+                            // 转换扩写规则数据
+                            if (data.expand_prompts) {
+                                // 保存原始顺序
+                                const originalOrder = Object.keys(data.expand_prompts);
+
+                                // 使用原始顺序遍历键
+                                originalOrder.forEach(key => {
+                                    const prompt = data.expand_prompts[key];
+                                    expandPrompts.push({
+                                        id: key,
+                                        name: prompt.name || key,
+                                        content: prompt.content,
+                                        isActive: key === activePromptId
+                                    });
+                                });
+
+                                // 按原始顺序排序
+                                expandPrompts.sort((a, b) =>
+                                    originalOrder.indexOf(a.id) - originalOrder.indexOf(b.id)
+                                );
+                            }
+                        }
+                    } catch (error) {
+                        logger.error(`获取扩写提示词失败: ${error.message}`);
+                    }
+
+                    // 如果没有获取到提示词，显示一个提示
+                    if (expandPrompts.length === 0) {
+                        return [
+                            {
+                                label: '未找到扩写提示词',
+                                disabled: true
+                            }
+                        ];
+                    }
+
+                    // 创建菜单项
+                    const menuItems = expandPrompts.map(prompt => ({
+                        label: prompt.name,
+                        icon: `<span class="pi ${prompt.isActive ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                        onClick: async (context) => {
+                            logger.log(`右键菜单 | 动作: 切换扩写提示词 | ID: ${prompt.id}`);
+
+                            try {
+                                // 更新激活的提示词
+                                const response = await fetch('/prompt_assistant/api/config/active_prompt', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        type: 'expand',
+                                        prompt_id: prompt.id
+                                    })
+                                });
+
+                                if (response.ok) {
+                                    // 显示成功提示
+                                    UIToolkit.showStatusTip(
+                                        context.widget.buttons.expand,
+                                        'success',
+                                        `已切换到: ${prompt.name}`,
+                                        null
+                                    );
+                                } else {
+                                    throw new Error(`服务器返回错误: ${response.status}`);
+                                }
+                            } catch (error) {
+                                logger.error(`切换扩写提示词失败: ${error.message}`);
+                                UIToolkit.showStatusTip(
+                                    context.widget.buttons.expand,
+                                    'error',
+                                    `切换失败: ${error.message}`,
+                                    null
+                                );
+                            }
+                        }
+                    }));
+
+                    menuItems.push({ type: 'separator' });
+                    menuItems.push({
+                        label: '规则管理',
+                        icon: '<span class="pi pi-pen-to-square"></span>',
+                        onClick: () => {
+                            rulesConfigManager.showRulesConfigModal();
+                        }
+                    });
+
+                    return menuItems;
+                }
             },
             {
                 id: 'translate',
@@ -1246,15 +1601,9 @@ class PromptAssistant {
                 onClick: async (e, widget) => {
                     logger.debug('按钮点击 | 动作: 翻译');
 
-                    // 如果按钮处于 processing 状态且被点击，显示"翻译中"提示并直接返回
+                    // 如果按钮处于 processing 状态且被点击，直接返回，
+                    // 让UIToolkit中的取消逻辑接管
                     if (e.currentTarget.classList.contains('button-processing')) {
-                        const btnRect = e.currentTarget.getBoundingClientRect();
-                        UIToolkit.showStatusTip(
-                            e.currentTarget,
-                            'loading',
-                            '翻译中',
-                            { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
-                        );
                         return;
                     }
 
@@ -1262,7 +1611,7 @@ class PromptAssistant {
                         widget,
                         'translate',
                         e.currentTarget,
-                        async () => {
+                        async (notifyCancelReady) => {
                             try {
                                 // 获取输入值
                                 const inputValue = widget.inputEl.value;
@@ -1279,10 +1628,11 @@ class PromptAssistant {
                                     { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
                                 );
 
-                                // 首先查询翻译缓存
-                                const cacheResult = TranslateCacheService.queryTranslateCache(inputValue);
-
-                                // 缓存命中情况处理
+                                // 1. 查询缓存
+                                let cacheResult = null;
+                                if (FEATURES.useTranslateCache) {
+                                    cacheResult = TranslateCacheService.queryTranslateCache(inputValue);
+                                }
                                 if (cacheResult) {
                                     let resultText = '';
                                     let tipMessage = '';
@@ -1329,10 +1679,13 @@ class PromptAssistant {
 
                                 // 缓存未命中，使用API翻译
                                 // 获取翻译类型
-                                const translateType = localStorage.getItem("PromptAssistant_Settings_translate_type") || "baidu";
+                                const translateType = app.settings?.["PromptAssistant.Settings.TranslateType"] || "baidu";
 
                                 // 生成唯一request_id，根据翻译类型生成对应的前缀
                                 const request_id = generateRequestId(null, translateType);
+
+                                // 通知UI可以准备取消操作了
+                                notifyCancelReady(request_id);
 
                                 // 检测语言
                                 const langResult = PromptFormatter.detectLanguage(inputValue);
@@ -1390,8 +1743,10 @@ class PromptAssistant {
                                     // 更新按钮状态
                                     UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
 
-                                    // 添加到翻译缓存
-                                    TranslateCacheService.addTranslateCache(inputValue, formattedText);
+                                    // 只有开启缓存时才写入缓存
+                                    if (FEATURES.useTranslateCache) {
+                                        TranslateCacheService.addTranslateCache(inputValue, formattedText);
+                                    }
 
                                     return {
                                         success: true,
@@ -1410,7 +1765,83 @@ class PromptAssistant {
                         }
                     );
                 },
-                visible: FEATURES.translate // Note节点只显示此按钮
+                visible: FEATURES.translate, // Note节点只显示此按钮
+                // 添加右键菜单配置
+                contextMenu: (widget) => {
+                    const currentProvider = app.ui.settings.getSettingValue("PromptAssistant.Settings.TranslateType", "baidu");
+                    const useTranslateCache = app.ui.settings.getSettingValue("PromptAssistant.Features.UseTranslateCache", true);
+                    const autoTranslate = app.ui.settings.getSettingValue("PromptAssistant.Features.AutoTranslate", false);
+
+                    return [
+                        {
+                            label: "使用百度翻译",
+                            icon: `<span class="pi ${currentProvider === 'baidu' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: (context) => {
+                                logger.log("右键菜单 | 动作: 切换到百度翻译");
+                                // 切换翻译提供商功能
+                                app.ui.settings.setSettingValue("PromptAssistant.Settings.TranslateType", "baidu");
+                                UIToolkit.showStatusTip(
+                                    context.buttonElement,
+                                    'success',
+                                    `已切换到: 百度翻译`,
+                                    null
+                                );
+                            }
+                        },
+                        {
+                            label: "使用大语言模型翻译",
+                            icon: `<span class="pi ${currentProvider === 'llm' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: (context) => {
+                                logger.log("右键菜单 | 动作: 切换到LLM翻译");
+                                // 切换翻译提供商功能
+                                app.ui.settings.setSettingValue("PromptAssistant.Settings.TranslateType", "llm");
+                                UIToolkit.showStatusTip(
+                                    context.buttonElement,
+                                    'success',
+                                    `已切换到: 大语言模型翻译`,
+                                    null
+                                );
+                            }
+                        },
+                        { type: 'separator' },
+                        {
+                            label: "翻译缓存",
+                            icon: `<span class="pi ${useTranslateCache ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: (context) => {
+                                const newStatus = !useTranslateCache;
+                                app.ui.settings.setSettingValue("PromptAssistant.Features.UseTranslateCache", newStatus);
+                                const statusText = newStatus ? '已开启' : '已关闭';
+                                logger.log(`右键菜单 | 动作: 切换翻译缓存 | 状态: ${statusText}`);
+                                UIToolkit.showStatusTip(
+                                    context.buttonElement,
+                                    'success',
+                                    `翻译缓存${statusText}`,
+                                    null
+                                );
+                            }
+                        // },
+                        // {
+                        //     label: "自动翻译",
+                        //     icon: `<span class="pi ${autoTranslate ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                        //     onClick: (context) => {
+                        //         const newStatus = !autoTranslate;
+
+                        //         // 先显示状态提示
+                        //         const statusText = newStatus ? '已开启' : '已关闭';
+                        //         UIToolkit.showStatusTip(
+                        //             context.buttonElement,
+                        //             'success',
+                        //             `自动翻译${statusText}`,
+                        //             null
+                        //         );
+
+                        //         // 然后更新设置和UI
+                        //         app.ui.settings.setSettingValue("PromptAssistant.Features.AutoTranslate", newStatus);
+                        //         logger.log(`右键菜单 | 动作: 切换自动翻译 | 状态: ${statusText}`);
+                        //     }
+                        }
+                    ];
+                }
             },
         ];
 
@@ -1451,8 +1882,6 @@ class PromptAssistant {
                     UIToolkit.setButtonState(widget, config.id, stateType, value);
                 });
             }
-
-
 
             // 根据按钮类型分组
             if (['history', 'undo', 'redo'].includes(config.id)) {
@@ -1496,7 +1925,7 @@ class PromptAssistant {
     addButtonWithIcon(widget, config) {
         if (!widget?.element || !widget?.innerContent) return null;
 
-        const { id, title, icon, onClick } = config;
+        const { id, title, icon, onClick, contextMenu } = config;
 
         // 创建按钮
         const button = document.createElement('button');
@@ -1525,6 +1954,11 @@ class PromptAssistant {
             });
         }
 
+        // 添加右键菜单（如果有）
+        if (contextMenu && typeof contextMenu === 'function') {
+            this._setupButtonContextMenu(button, contextMenu, widget);
+        }
+
         // 保存引用
         if (id) {
             widget.buttons[id] = button;
@@ -1533,13 +1967,30 @@ class PromptAssistant {
         return button;
     }
 
-
-
     /**
      * 设置UI位置
      * 使用绝对定位方式
      */
     _setupUIPosition(widget, inputEl, containerDiv, canvasContainerRect) {
+        const _applyStandardPositioning = (containerDiv, domWidgetContainer) => {
+            logger.log("定位方式 - 标准方案");
+
+            // 标准模式使用默认的绝对定位，添加位置参数
+            containerDiv.style.right = '4px';
+            containerDiv.style.bottom = '4px';
+
+            // 直接添加到dom-widget容器，但不修改dom-widget本身
+            domWidgetContainer.appendChild(containerDiv);
+
+            // 触发回流，确保样式更新
+            void containerDiv.offsetWidth;
+
+            // 强制应用容器高度
+            containerDiv.style.height = '20px';
+            containerDiv.style.minHeight = '20px';
+            void containerDiv.offsetWidth; // 触发回流，确保样式应用
+        };
+
         // 查找dom-widget父容器（ComfyUI 0.3.27及以上版本的标准容器）
         const findDomWidgetContainer = () => {
             let domWidgetContainer = null;
@@ -1557,13 +2008,13 @@ class PromptAssistant {
 
         // 初始查找dom-widget容器
         let domWidgetContainer = findDomWidgetContainer();
-        
+
         // 清理函数列表
         widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
-        
+
         // 检查是否需要使用兼容模式
         let needCompatibilityMode = !domWidgetContainer;
-        
+
         // 如果初次判断需要使用兼容模式，添加延迟重试机制
         // 这是为了处理新创建节点时DOM可能尚未完全渲染的情况
         if (needCompatibilityMode) {
@@ -1572,46 +2023,34 @@ class PromptAssistant {
             tempDiv.className = 'prompt-assistant-container prompt-assistant-temp';
             tempDiv.style.display = 'none';
             document.body.appendChild(tempDiv);
-            
+
             // 保存临时容器引用，以便后续移除
             widget._tempContainer = tempDiv;
-            
+
             // 设置重试次数和间隔
             const maxRetries = 2;
             const retryInterval = 100; // 毫秒
             let retryCount = 0;
-            
+
             // 创建重试函数
             const retrySetupPosition = () => {
                 // 重新查找dom-widget容器
                 domWidgetContainer = findDomWidgetContainer();
-                
+
                 if (domWidgetContainer) {
                     // 找到了dom-widget容器，使用标准定位方案
                     logger.log("定位方式 - 延迟检测后使用标准方案");
                     needCompatibilityMode = false;
-                    
+
                     // 移除临时容器
                     if (widget._tempContainer && document.body.contains(widget._tempContainer)) {
                         document.body.removeChild(widget._tempContainer);
                         delete widget._tempContainer;
                     }
-                    
+
                     // 使用标准定位方案
-                    containerDiv.style.right = '6px';
-                    containerDiv.style.bottom = '8px';
-                    
-                    // 直接添加到dom-widget容器
-                    domWidgetContainer.appendChild(containerDiv);
-                    
-                    // 触发回流，确保样式更新
-                    void containerDiv.offsetWidth;
-                    
-                    // 强制应用容器高度
-                    containerDiv.style.height = '20px';
-                    containerDiv.style.minHeight = '20px';
-                    void containerDiv.offsetWidth;
-                    
+                    _applyStandardPositioning(containerDiv, domWidgetContainer);
+
                     return true;
                 } else if (retryCount < maxRetries) {
                     // 继续重试
@@ -1622,19 +2061,19 @@ class PromptAssistant {
                 } else {
                     // 达到最大重试次数，使用兼容定位方案
                     logger.log("定位方式 - 重试失败，使用兼容方案");
-                    
+
                     // 移除临时容器
                     if (widget._tempContainer && document.body.contains(widget._tempContainer)) {
                         document.body.removeChild(widget._tempContainer);
                         delete widget._tempContainer;
                     }
-                    
+
                     // 使用兼容定位方案
                     setupCompatibilityMode();
                     return true;
                 }
             };
-            
+
             // 定义兼容模式设置函数
             const setupCompatibilityMode = () => {
                 // === 兼容方案定位 (ComfyUI 0.3.26及以下) ===
@@ -1678,8 +2117,8 @@ class PromptAssistant {
                         void containerDiv.offsetWidth;
 
                         // 现在设置位置 - 放置在输入框右下角
-                        const offsetRight = 12; // 右侧偏移
-                        const offsetBottom = 8;
+                        const offsetRight = 6; // 右侧偏移
+                        const offsetBottom = 4;
 
                         containerDiv.style.left = `${inputRect.right - containerDiv.offsetWidth - offsetRight}px`;
                         containerDiv.style.top = `${inputRect.bottom - containerDiv.offsetHeight - offsetBottom}px`;
@@ -1749,34 +2188,34 @@ class PromptAssistant {
                     if (node) {
                         // 使用LiteGraph提供的onNodeMoved事件
                         const originalOnNodeMoved = app.canvas.onNodeMoved;
-                        app.canvas.onNodeMoved = function(node_dragged) {
+                        app.canvas.onNodeMoved = function (node_dragged) {
                             if (originalOnNodeMoved) {
                                 originalOnNodeMoved.apply(this, arguments);
                             }
-                            
+
                             // 仅当移动的是当前节点时更新位置
                             if (node_dragged && node_dragged.id === nodeId) {
                                 // 直接调用updatePosition而不是防抖版本，确保拖动时UI跟随节点
                                 updatePosition();
                             }
                         };
-                        
+
                         // 添加节点移动清理函数
                         widget._eventCleanupFunctions.push(() => {
                             if (app.canvas) {
                                 app.canvas.onNodeMoved = originalOnNodeMoved;
                             }
                         });
-                        
+
                         // 为节点本身添加移动监听（兼容性处理）
                         const nodeOriginalOnNodeMoved = node.onNodeMoved;
-                        node.onNodeMoved = function() {
+                        node.onNodeMoved = function () {
                             const ret = nodeOriginalOnNodeMoved?.apply(this, arguments);
                             // 直接调用updatePosition而不是防抖版本
                             updatePosition();
                             return ret;
                         };
-                        
+
                         // 添加节点自身移动清理函数
                         widget._eventCleanupFunctions.push(() => {
                             if (node && nodeOriginalOnNodeMoved) {
@@ -1785,7 +2224,7 @@ class PromptAssistant {
                         });
                     }
                 }
-                
+
                 // 统一的画布事件处理函数
                 const handleCanvasEvent = () => {
                     if (widget.element && widget.element.style.display !== 'none') {
@@ -1809,7 +2248,7 @@ class PromptAssistant {
                 };
 
                 // 1. 监听画布变换（包括缩放、平移等）
-                app.canvas.setDirty = function(value, skipEvents) {
+                app.canvas.setDirty = function (value, skipEvents) {
                     const ret = originalMethods.setDirty?.apply(this, arguments);
                     if (!skipEvents) {
                         handleCanvasEvent();
@@ -1824,21 +2263,21 @@ class PromptAssistant {
                     return ret;
                 };
 
-                app.canvas.ds.onModified = function(...args) {
+                app.canvas.ds.onModified = function (...args) {
                     if (originalMethods.dsModified) {
                         originalMethods.dsModified.apply(this, args);
                     }
                     handleCanvasEvent();
                 };
 
-                app.canvas.ds.setTransform = function() {
+                app.canvas.ds.setTransform = function () {
                     const ret = originalMethods.setTransform?.apply(this, arguments);
                     handleCanvasEvent();
                     return ret;
                 };
 
                 // 3. 监听画布大小变化
-                app.canvas.resize = function() {
+                app.canvas.resize = function () {
                     const ret = originalMethods.resize?.apply(this, arguments);
                     handleCanvasEvent();
                     return ret;
@@ -1890,33 +2329,18 @@ class PromptAssistant {
                         document.body.removeChild(containerDiv);
                     }
                 });
-                
+
                 // 强制应用容器高度
                 containerDiv.style.height = '20px';
                 containerDiv.style.minHeight = '20px';
                 void containerDiv.offsetWidth; // 触发回流，确保样式应用
             };
-            
+
             // 开始重试流程
             setTimeout(retrySetupPosition, retryInterval);
         } else {
             // === 标准方案定位 (ComfyUI 0.3.27及以上) ===
-            logger.log("定位方式 - 标准方案");
-
-            // 标准模式使用默认的绝对定位，添加位置参数
-            containerDiv.style.right = '6px';
-            containerDiv.style.bottom = '8px';
-
-            // 直接添加到dom-widget容器，但不修改dom-widget本身
-            domWidgetContainer.appendChild(containerDiv);
-
-            // 触发回流，确保样式更新
-            void containerDiv.offsetWidth;
-            
-            // 强制应用容器高度
-            containerDiv.style.height = '20px';
-            containerDiv.style.minHeight = '20px';
-            void containerDiv.offsetWidth; // 触发回流，确保样式应用
+            _applyStandardPositioning(containerDiv, domWidgetContainer);
         }
     }
 
@@ -1982,6 +2406,11 @@ class PromptAssistant {
                         button.replaceWith(button.cloneNode(true));
                     });
 
+                    // 清理指示器元素
+                    if (instance.indicator && instance.indicator.parentNode) {
+                        instance.indicator.innerHTML = '';
+                    }
+
                     if (instance.element.parentNode) {
                         instance.element.parentNode.removeChild(instance.element);
                     }
@@ -2033,6 +2462,28 @@ class PromptAssistant {
             logger.debug(`实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
         } catch (error) {
             logger.error(`实例清理失败 | 实例:${instanceKey || 'unknown'} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 设置按钮右键菜单
+     * @param {HTMLElement} button 按钮元素
+     * @param {Function} getMenuItems 获取菜单项的函数
+     * @param {Object} widget 小助手实例
+     */
+    _setupButtonContextMenu(button, getMenuItems, widget) {
+        if (!button || typeof getMenuItems !== 'function') return;
+
+        // 设置右键菜单
+        const cleanup = buttonMenu.setupButtonMenu(button, () => {
+            // 调用getMenuItems函数获取菜单项，传入widget作为上下文
+            return getMenuItems(widget);
+        }, { widget, buttonElement: button });
+
+        // 保存清理函数到widget的事件清理函数列表中
+        if (cleanup) {
+            widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
+            widget._eventCleanupFunctions.push(cleanup);
         }
     }
 }

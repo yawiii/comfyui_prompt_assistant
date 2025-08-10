@@ -5,6 +5,9 @@
 
 import { logger } from '../utils/logger.js';
 
+// 用于存储进行中的请求的AbortController
+const runningRequests = new Map();
+
 class APIService {
     /**
      * 构建完整的API URL
@@ -18,27 +21,67 @@ class APIService {
         logger.debug(`构建API URL: ${url}`);
         return url;
     }
-    
+
+    /**
+     * 生成唯一请求ID
+     */
+    static generateRequestId() {
+        return `req_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+    }
+
+    /**
+     * 取消一个正在进行的请求
+     */
+    static async cancelRequest(requestId) {
+        if (!requestId) return { success: false, error: "缺少requestId" };
+
+        const controller = runningRequests.get(requestId);
+
+        if (controller) {
+            // 1. 中止前端的fetch请求
+            controller.abort();
+            runningRequests.delete(requestId);
+            logger.debug(`前端请求已中止 | ID: ${requestId}`);
+        }
+
+        // 2. 通知后端取消任务
+        try {
+            const apiUrl = this.getApiUrl('/prompt_assistant/api/request/cancel');
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ request_id: requestId })
+            });
+            const result = await response.json();
+            logger.debug(`后端任务取消请求已发送 | ID: ${requestId} | 结果: ${JSON.stringify(result)}`);
+            return result;
+        } catch (error) {
+            logger.error(`后端任务取消请求失败 | ID: ${requestId} | 错误: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
     /**
      * 百度翻译API
      */
-    static async baiduTranslate(text, from = 'auto', to = 'zh', request_id = null) {
+    static async baiduTranslate(text, from = 'auto', to = 'zh', request_id = null, is_auto = false) {
+        // 生成请求ID
+        if (!request_id) {
+            request_id = `baidu_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
         try {
             if (!text || text.trim() === '') {
                 throw new Error('待翻译文本不能为空');
             }
 
-            // 生成请求ID
-            if (!request_id) {
-                request_id = `baidu_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-            }
-
-            logger.debug(`发起百度API请求 | 请求ID:${request_id} | API:baidu_translate | 参数:${JSON.stringify({ text, from, to })}`);
-
             // 获取API URL
             const apiUrl = this.getApiUrl('/prompt_assistant/api/baidu/translate');
-            logger.debug('百度翻译API URL:', apiUrl);
-            
+
             // 调用后端API
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -49,20 +92,28 @@ class APIService {
                     text,
                     from,
                     to,
-                    request_id
-                })
+                    request_id,
+                    is_auto
+                }),
+                signal // 传递signal
             });
 
             const result = await response.json();
-            logger.debug(`百度API请求完成 | 请求ID:${request_id} | 结果:${JSON.stringify(result)}`);
-
             return result;
         } catch (error) {
-            logger.error(`百度API请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            if (error.name === 'AbortError') {
+                logger.debug(`百度翻译请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
             return {
                 success: false,
                 error: error.message
             };
+        } finally {
+            // 请求完成后从Map中移除
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
         }
     }
 
@@ -93,14 +144,18 @@ class APIService {
      * LLM扩写提示词
      */
     static async llmExpandPrompt(prompt, request_id = null) {
+        // 生成请求ID
+        if (!request_id) {
+            request_id = `glm4_expand_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
         try {
             if (!prompt || prompt.trim() === '') {
                 throw new Error('请输入要扩写的内容');
-            }
-
-            // 生成请求ID
-            if (!request_id) {
-                request_id = `glm4_expand_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
             }
 
             logger.debug(`发起LLM扩写请求 | 请求ID:${request_id} | 原文:${prompt}`);
@@ -108,7 +163,7 @@ class APIService {
             // 调用后端API
             const apiUrl = this.getApiUrl('/prompt_assistant/api/llm/expand');
             logger.debug('LLM扩写API URL:', apiUrl);
-            
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -117,7 +172,8 @@ class APIService {
                 body: JSON.stringify({
                     prompt,
                     request_id
-                })
+                }),
+                signal // 传递signal
             });
 
             const result = await response.json();
@@ -125,34 +181,44 @@ class APIService {
 
             return result;
         } catch (error) {
+            if (error.name === 'AbortError') {
+                logger.debug(`LLM扩写请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
             logger.error(`LLM扩写请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message
             };
+        } finally {
+            // 请求完成后从Map中移除
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
         }
     }
 
     /**
      * LLM翻译文本
      */
-    static async llmTranslate(text, from = 'auto', to = 'zh', request_id = null) {
+    static async llmTranslate(text, from = 'auto', to = 'zh', request_id = null, is_auto = false) {
+        // 生成请求ID
+        if (!request_id) {
+            request_id = `llm_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
         try {
             if (!text || text.trim() === '') {
                 throw new Error('请输入要翻译的内容');
             }
 
-            // 生成请求ID
-            if (!request_id) {
-                request_id = `llm_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-            }
-
-            logger.debug(`发起翻译请求 | 请求ID:${request_id} | 原文:${text} | 方向:${from}->${to}`);
-
             // 调用后端API
             const apiUrl = this.getApiUrl('/prompt_assistant/api/llm/translate');
-            logger.debug('LLM翻译API URL:', apiUrl);
-            
+
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
@@ -162,65 +228,92 @@ class APIService {
                     text,
                     from,
                     to,
-                    request_id
-                })
+                    request_id,
+                    is_auto
+                }),
+                signal // 传递signal
             });
 
             const result = await response.json();
-            logger.debug(`翻译请求成功 | 请求ID:${request_id} | 结果:${JSON.stringify(result)}`);
-
             return result;
         } catch (error) {
-            logger.error(`翻译请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            if (error.name === 'AbortError') {
+                logger.debug(`LLM翻译请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
             return {
                 success: false,
                 error: error.message
             };
+        } finally {
+            // 请求完成后从Map中移除
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
         }
     }
 
     /**
-     * LLM视觉分析图像
+     * 调用视觉模型分析图像
      */
-    static async llmAnalyzeImage(imageBase64, lang = 'zh', request_id = null) {
+    static async llmAnalyzeImage(imageData, lang = 'zh', request_id = null) {
+        // 生成请求ID
+        if (!request_id) {
+            request_id = this.generateRequestId();
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
         try {
-            if (!imageBase64) {
+            if (!imageData) {
                 throw new Error('未找到有效的图像');
             }
 
-            // 生成请求ID
-            if (!request_id) {
-                request_id = `${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-            }
+            logger.debug(`发起视觉分析请求 | 请求ID:${request_id} | 语言:${lang}`);
 
-            logger.debug(`发起图像分析请求 | 请求ID:${request_id} | 语言:${lang}`);
+            // 构建API URL
+            const apiUrl = this.getApiUrl('/prompt_assistant/api/vlm/analyze');
+            logger.debug('视觉分析API URL:', apiUrl);
 
-            // 调用后端API
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/llm/vision');
-            logger.debug('图像分析API URL:', apiUrl);
-            
+            // 构建请求数据
+            const requestData = {
+                image: imageData,
+                lang: lang,
+                request_id: request_id
+            };
+
+            // 发送请求
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    image: imageBase64,
-                    lang,
-                    request_id
-                })
+                body: JSON.stringify(requestData),
+                signal // 传递signal
             });
 
+            // 解析响应
             const result = await response.json();
-            logger.debug(`图像分析请求成功 | 请求ID:${request_id}`);
+            logger.debug(`视觉分析请求完成 | 请求ID:${request_id}`);
 
             return result;
         } catch (error) {
-            logger.error(`图像分析请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            if (error.name === 'AbortError') {
+                logger.debug(`视觉分析请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
+            logger.error(`视觉分析请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
             return {
                 success: false,
-                error: error.message
+                error: error.message || '请求失败'
             };
+        } finally {
+            // 请求完成后从Map中移除
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
         }
     }
 
@@ -234,13 +327,13 @@ class APIService {
                     reject('无效的图像');
                     return;
                 }
-                
+
                 // 如果已经是base64字符串，直接返回
                 if (typeof img === 'string' && img.startsWith('data:image')) {
                     resolve(img);
                     return;
                 }
-                
+
                 // 如果是Blob对象
                 if (img instanceof Blob) {
                     const reader = new FileReader();
@@ -249,7 +342,7 @@ class APIService {
                     reader.readAsDataURL(img);
                     return;
                 }
-                
+
                 // 如果是URL
                 if (typeof img === 'string' && (img.startsWith('http') || img.startsWith('/'))) {
                     const image = new Image();
@@ -266,7 +359,7 @@ class APIService {
                     image.src = img;
                     return;
                 }
-                
+
                 // 处理ComfyUI图像对象
                 if (img && typeof img === 'object' && img.src) {
                     // 如果图像对象有src属性，使用它
@@ -287,7 +380,7 @@ class APIService {
                     image.src = img.src;
                     return;
                 }
-                
+
                 // 处理HTMLImageElement或类似的对象
                 if (img && (img instanceof HTMLImageElement || (img.width && img.height && img.complete))) {
                     try {
@@ -303,13 +396,13 @@ class APIService {
                         // 继续尝试其他方法
                     }
                 }
-                
+
                 // 处理ComfyUI的特殊格式 (dataURL缓存在node中)
                 if (img && img.dataURL) {
                     resolve(img.dataURL);
                     return;
                 }
-                
+
                 // 处理ComfyUI特殊的图像数据格式
                 if (img && img.data && img.width && img.height) {
                     try {
@@ -318,8 +411,8 @@ class APIService {
                         canvas.height = img.height;
                         const ctx = canvas.getContext('2d');
                         const imageData = new ImageData(
-                            new Uint8ClampedArray(img.data.buffer || img.data), 
-                            img.width, 
+                            new Uint8ClampedArray(img.data.buffer || img.data),
+                            img.width,
                             img.height
                         );
                         ctx.putImageData(imageData, 0, 0);
@@ -329,7 +422,7 @@ class APIService {
                         console.error('处理图像数据失败:', e);
                     }
                 }
-                
+
                 console.error('不支持的图像格式', img);
                 reject('不支持的图像格式');
             } catch (error) {

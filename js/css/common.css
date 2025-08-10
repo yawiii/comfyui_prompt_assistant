@@ -24,29 +24,42 @@
     animation: inputHighlight 0.2s ease-out;
 }
 
-/* 图像小助手专用动画 */
-@keyframes image-assistant-fade-in {
-    from {
-        opacity: 0;
-        transform: translateY(10px) scale(var(--assistant-scale, 1));
-    }
 
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(var(--assistant-scale, 1));
-    }
+
+/* 小助手折叠和展开过渡效果 */
+.prompt-assistant-transition {
+    transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        border-color 0.2s ease-out,
+        backdrop-filter 0.2s ease-out,
+        box-shadow 0.2s ease-out,
+        background-color 0.5s ease-out;
 }
 
-@keyframes image-assistant-fade-out {
-    from {
-        opacity: 1;
-        transform: translateY(0) scale(var(--assistant-scale, 1));
-    }
+/* 确保内容不随容器宽度变化而移动的样式 */
+.prompt-assistant-content-fixed {
+    display: flex;
+    gap: 2px;
+    position: relative;
+    right: 0;
+    justify-content: flex-end;
+    width: auto;
+    flex-grow: 1;
+    transition: none;
+}
 
-    to {
-        opacity: 0;
-        transform: translateY(10px) scale(var(--assistant-scale, 1));
-    }
+/* 折叠状态下按钮的透明度过渡 */
+.prompt-assistant-container.collapsed .prompt-assistant-button {
+    transition: opacity 0.3s cubic-bezier(0.11, 0, 0.5, 0);
+    opacity: 0;
+}
+
+/* 折叠状态下容器的透明效果 */
+.prompt-assistant-container.collapsed {
+    background-color: transparent;
+    border-color: transparent;
+    backdrop-filter: blur(0px);
+    box-shadow: none;
 }
 
 /* 向上淡入动画 */

@@ -6,18 +6,24 @@
 import { app } from "../../../scripts/app.js";
 import { promptAssistant, PromptAssistant } from './modules/PromptAssistant.js';
 import { registerSettings } from './modules/settings.js';
-import { FEATURES as ASSISTANT_FEATURES, handleFeatureChange, setFeatureModuleDeps } from './config/features.js';
+import { FEATURES as ASSISTANT_FEATURES, handleFeatureChange, setFeatureModuleDeps } from './services/features.js';
 import { EventManager } from './utils/eventManager.js';
 import { ResourceManager } from './utils/resourceManager.js';
 import { UIToolkit } from "./utils/UIToolkit.js";
 import { logger } from './utils/logger.js';
-import { HistoryCacheService } from './services/cache.js';
+import { HistoryCacheService, TagCacheService } from './services/cache.js';
 import { imageCaption, ImageCaption } from './modules/imageCaption.js';
+import './nodes/toastListener.js'; // 导入Toast监听器
+// import { ensureAutoTranslateInterceptorInstalled } from './services/interceptor.js'; // 导入自动翻译拦截器
 
 // ====================== 全局配置与状态 ======================
 
 // 设置全局对象供其他模块访问
 window.FEATURES = ASSISTANT_FEATURES;
+
+// 将实例添加到全局对象
+window.promptAssistant = promptAssistant;
+window.imageCaption = imageCaption;
 
 // 将实例添加到全局app对象
 app.promptAssistant = promptAssistant;
@@ -39,11 +45,17 @@ app.registerExtension({
         try {
             // 注册设置选项
             registerSettings();
+            
+            // 初始化自动翻译拦截器（独立于提示词小助手）
+            // ensureAutoTranslateInterceptorInstalled();
 
             // 初始化提示词小助手（内部会处理版本号检查和总开关状态）
             await promptAssistant.initialize();
-            // 初始化图像小助手
-            await imageCaption.initialize();
+
+            // 初始化图像小助手（只初始化一次）
+            if (!imageCaption.initialized) {
+                await imageCaption.initialize();
+            }
 
             // 清理旧引用
             if (app.canvas) {
@@ -62,6 +74,7 @@ app.registerExtension({
                 PromptAssistant,
                 UIToolkit,
                 HistoryCacheService,
+                TagCacheService,
                 imageCaption,
                 ImageCaption
             });
@@ -69,12 +82,52 @@ app.registerExtension({
             // 然后再自动注册服务功能
             if (window.FEATURES.enabled) {
                 await promptAssistant.toggleGlobalFeature(true, true);
-                await imageCaption.toggleGlobalFeature(true, true);
+                // 避免重复初始化，只在必要时启用图像小助手功能
+                if (window.FEATURES.imageCaption) {
+                    await imageCaption.toggleGlobalFeature(true, false);
+                }
             }
 
             logger.log("扩展初始化完成");
         } catch (error) {
             logger.error(`扩展初始化失败: ${error.message}`);
+        }
+
+        // 仅保留工作流ID识别功能，不处理工作流切换事件
+        try {
+            const LGraph = app.graph.constructor;
+            const origConfigure = LGraph.prototype.configure;
+            LGraph.prototype.configure = function (data) {
+                // 在图表对象上存储工作流ID
+                this._workflow_id = data.id || LiteGraph.uuidv4();
+
+                // 执行原始方法
+                return origConfigure.apply(this, arguments);
+            };
+
+            // 添加工作流加载监听，只标记切换状态，不做特殊处理
+            const origLoadGraphData = app.loadGraphData;
+            app.loadGraphData = async function (data) {
+                // 设置工作流切换标记，避免删除缓存
+                window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING = true;
+
+                // 只在debug模式下打印工作流切换信息
+                const workflowId = data?.id || (data?.extra?.workflow_id) || "未知工作流";
+                logger.debug(`[工作流] 正在切换工作流: ${workflowId}`);
+
+                try {
+                    // 调用原始加载方法
+                    const result = await origLoadGraphData.apply(this, arguments);
+                    return result;
+                } finally {
+                    // 延迟重置工作流切换标记
+                    setTimeout(() => {
+                        window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING = false;
+                    }, 500);
+                }
+            };
+        } catch (e) {
+            logger.error("[PromptAssistant] 注入 LGraph 设置工作流ID失败", e);
         }
     },
 
@@ -122,6 +175,11 @@ app.registerExtension({
      * 在节点被删除时清理对应的小助手实例
      */
     async nodeRemoved(node) {
+        // 如果正在切换工作流，则不执行任何清理操作
+        if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
+            return;
+        }
+
         try {
             if (!node || node.id === undefined || node.id === -1) return;
 
@@ -187,9 +245,21 @@ app.registerExtension({
                 origOnSelected.apply(this, arguments);
             }
 
+            // 确保总开关开启
+            if (!window.FEATURES.enabled) {
+                return;
+            }
+
+            // 重置提示词小助手初始化标记，确保每次选择都重新检测节点状态
+            this._promptAssistantInitialized = false;
+            promptAssistant.checkAndSetupNode(this);
+
             // 确保选择事件能触发到图像小助手，同时检查图像反推功能开关
-            if (window.FEATURES.enabled && window.FEATURES.imageCaption &&
+            if (window.FEATURES.imageCaption &&
                 app.canvas && app.canvas._imageCaptionSelectionHandler) {
+                // 重置初始化标记，确保每次选择都重新检测节点状态
+                this._imageCaptionInitialized = false;
+
                 const selected_nodes = {};
                 selected_nodes[this.id] = this;
                 app.canvas._imageCaptionSelectionHandler(selected_nodes);
@@ -216,7 +286,6 @@ app.registerExtension({
                     if (this.id !== undefined) {
                         promptAssistant.cleanup(this.id);
                         this._promptAssistantCleaned = true;
-                        logger.debug(`[onRemoved方法] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
                     }
                 }
 
@@ -225,7 +294,6 @@ app.registerExtension({
                     if (this.id !== undefined) {
                         imageCaption.cleanup(this.id);
                         this._imageCaptionCleaned = true;
-                        logger.debug(`[onRemoved方法] 图像小助手清理完成 | 节点ID: ${nodeId}`);
                     }
                 }
 
@@ -236,6 +304,15 @@ app.registerExtension({
                 }
                 if (!this._imageCaptionCleaned && this.id !== undefined) {
                     imageCaption.cleanup(this.id, true);
+                }
+
+                // 只打印一次清理完成日志
+                if (this._promptAssistantCleaned && this._imageCaptionCleaned) {
+                    logger.debug(`[onRemoved方法] 节点助手清理完成 | 节点ID: ${nodeId}`);
+                } else if (this._promptAssistantCleaned) {
+                    logger.debug(`[onRemoved方法] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
+                } else if (this._imageCaptionCleaned) {
+                    logger.debug(`[onRemoved方法] 图像小助手清理完成 | 节点ID: ${nodeId}`);
                 }
 
                 if (origOnRemoved) {

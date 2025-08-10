@@ -9,7 +9,9 @@ class ResourceManager {
     // 资源缓存
     static #iconCache = new Map();
     static #styleCache = new Map();
+    static #scriptCache = new Map();
     static #tagCache = null;  // 修改为单一变量存储
+    static #userTagCache = null;  // 用户自定义标签缓存
 
     // 初始化状态
     static #initialized = false;
@@ -36,6 +38,7 @@ class ResourceManager {
             this.#loadIcons();
             this.#loadStyles();
             this.#loadTagData();
+            this.#loadUserTagData();
 
             this.#initialized = true;
             this.#initializing = false;
@@ -70,6 +73,13 @@ class ResourceManager {
         return this.getResourceUrl(`../assets/${assetFileName}`);
     }
 
+    /**
+     * 获取库文件的URL
+     */
+    static getLibUrl(libFileName) {
+        return this.getResourceUrl(`../lib/${libFileName}`);
+    }
+
     // ====================== 图标管理 ======================
 
     /**
@@ -79,15 +89,13 @@ class ResourceManager {
     static #loadIcons() {
         // 所有需要加载的图标列表
         const iconsToLoad = [
+            'icon-main.svg',
             'icon-history.svg',
             'icon-undo.svg',
             'icon-redo.svg',
             'icon-tag.svg',
             'icon-expand.svg',
             'icon-translate.svg',
-            'icon-movedown.svg',
-            'icon-close.svg',
-            'icon-refresh.svg',
             'icon-caption-zh.svg',
             'icon-caption-en.svg',
             'icon-remove.svg',
@@ -177,7 +185,8 @@ class ResourceManager {
         const stylesToLoad = [
             { id: 'prompt-assistant-common-styles', file: 'common.css' },
             { id: 'prompt-assistant-styles', file: 'assistant.css' },
-            { id: 'prompt-assistant-popup-styles', file: 'popup.css' }
+            { id: 'prompt-assistant-popup-styles', file: 'popup.css' },
+            { id: 'prompt-assistant-settings-styles', file: 'settings.css' }
         ];
 
         stylesToLoad.forEach(style => {
@@ -217,7 +226,16 @@ class ResourceManager {
      * 获取标签数据文件的URL
      */
     static getTagUrl() {
-        return this.getResourceUrl('../config/tags.json');
+        // 使用API路由获取标签数据
+        return '/prompt_assistant/api/config/tags';
+    }
+
+    /**
+     * 获取用户自定义标签数据文件的URL
+     */
+    static getUserTagUrl() {
+        // 使用API路由获取用户自定义标签数据
+        return '/prompt_assistant/api/config/tags_user';
     }
 
     /**
@@ -271,6 +289,11 @@ class ResourceManager {
                     return response.json();
                 })
                 .then(data => {
+                    // 检查是否有错误信息
+                    if (data.error) {
+                        throw new Error(`API返回错误: ${data.error}`);
+                    }
+
                     this.#tagCache = data;
                     const stats = this.#getTagStats(data);
                     logger.log(`标签数据刷新完成 | 分类数量: ${stats.categories} | 标签数量: ${stats.tags}`);
@@ -284,10 +307,50 @@ class ResourceManager {
     }
 
     /**
+     * 刷新用户自定义标签数据
+     */
+    static refreshUserTagData() {
+        return new Promise((resolve, reject) => {
+            const userTagUrl = this.getUserTagUrl();
+            logger.debug("开始重新加载用户自定义标签数据...");
+
+            fetch(userTagUrl + '?t=' + new Date().getTime())  // 添加时间戳防止缓存
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // 检查是否有错误信息
+                    if (data.error) {
+                        throw new Error(`API返回错误: ${data.error}`);
+                    }
+
+                    this.#userTagCache = data;
+                    const stats = this.#getTagStats(data);
+                    logger.log(`用户标签数据刷新完成 | 分类数量: ${stats.categories} | 标签数量: ${stats.tags}`);
+                    resolve(data);
+                })
+                .catch(error => {
+                    logger.error(`用户标签数据刷新失败 | ${error.message}`);
+                    reject(error);
+                });
+        });
+    }
+
+    /**
      * 加载标签数据
      */
     static #loadTagData() {
         return this.refreshTagData();
+    }
+
+    /**
+     * 加载用户自定义标签数据
+     */
+    static #loadUserTagData() {
+        return this.refreshUserTagData();
     }
 
     /**
@@ -303,6 +366,21 @@ class ResourceManager {
             }
         }
         return this.#tagCache || {};
+    }
+
+    /**
+     * 获取用户自定义标签数据
+     */
+    static async getUserTagData(refresh = false) {
+        if (refresh || !this.#userTagCache) {
+            try {
+                await this.refreshUserTagData();
+            } catch (error) {
+                logger.error(`获取用户标签数据失败 | ${error.message}`);
+                return {};
+            }
+        }
+        return this.#userTagCache || {};
     }
 
     /**
@@ -338,8 +416,12 @@ class ResourceManager {
         });
         this.#styleCache.clear();
 
+        // 清理脚本缓存
+        this.#scriptCache.clear();
+
         // 清理标签数据
         this.#tagCache = null;
+        this.#userTagCache = null;
 
         // 重置状态
         this.#initialized = false;
@@ -356,8 +438,8 @@ class ResourceManager {
      */
     static async loadScript(url) {
         try {
-            if (this.resources.has(url)) {
-                return this.resources.get(url);
+            if (this.#scriptCache.has(url)) {
+                return this.#scriptCache.get(url);
             }
 
             const promise = new Promise((resolve, reject) => {
@@ -369,7 +451,7 @@ class ResourceManager {
                 document.head.appendChild(script);
             });
 
-                this.resources.set(url, promise);
+            this.#scriptCache.set(url, promise);
             await promise;
             logger.debug(`脚本加载成功 | URL:${url}`);
             return promise;
@@ -380,26 +462,25 @@ class ResourceManager {
     }
 
     /**
-     * 获取 CryptoJS 实例
+     * 获取 SortableJS 实例
      */
-    static async getCryptoJS() {
+    static async getSortable() {
         try {
-            // 如果已经加载过，直接返回
-            if (window.CryptoJS) {
-                return window.CryptoJS;
+            if (window.Sortable) {
+                return window.Sortable;
             }
 
-            // 加载 CryptoJS
-            await this.loadScript('https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js');
+            const sortableUrl = this.getLibUrl('Sortable.min.js');
+            await this.loadScript(sortableUrl);
 
-            if (!window.CryptoJS) {
-                throw new Error('CryptoJS 加载失败');
+            if (!window.Sortable) {
+                throw new Error('Sortable.js 加载后，window.Sortable 未定义');
             }
 
-            logger.debug('CryptoJS 加载成功');
-                return window.CryptoJS;
+            logger.debug('Sortable.js 加载成功');
+            return window.Sortable;
         } catch (error) {
-            logger.error(`CryptoJS 获取失败 | 错误:${error.message}`);
+            logger.error(`Sortable.js 获取失败 | 错误:${error.message}`);
             throw error;
         }
     }
@@ -421,12 +502,12 @@ class ResourceManager {
             const finalUrl = forceRefresh ? `${url}?t=${Date.now()}` : url;
 
             logger.debug(`加载系统提示词配置 | URL: ${finalUrl}`);
-            
+
             const response = await fetch(finalUrl);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const data = await response.json();
             logger.debug(`系统提示词配置加载成功`);
 

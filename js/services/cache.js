@@ -12,22 +12,19 @@ const CACHE_CONFIG = {
     GLOBAL_PREFIX: "PromptAssistant_",
 
     // 历史缓存配置
-    HISTORY_KEY_PREFIX: "PromptAssistant_history_cache_",
+    HISTORY_CACHE_KEY: "PromptAssistant_history_cache_all",
     MAX_HISTORY_PER_NODE: 20,  // 每个节点最多保存的历史条数
     MAX_HISTORY_GLOBAL: 100,   // 全局最多保存的历史条数
     MAX_CONTENT_LENGTH: 5000,  // 单条历史最大长度限制
 
     // 标签缓存配置
-    TAG_KEY_PREFIX: "PromptAssistant_tag_cache_",
+    TAG_CACHE_KEY: "PromptAssistant_tag_cache_all",
+    MAX_TAGS_PER_INPUT: 100,    // 每个输入框最多保存的标签数量
+    MAX_TAGS_GLOBAL: 500,      // 全局最多保存的标签数量
 
     // 翻译缓存配置
     TRANSLATE_CACHE_KEY: "PromptAssistant_translate_cache",
     MAX_TRANSLATE_CACHE: 200,  // 最多保存的翻译缓存条数
-
-    // 旧的缓存键名（用于迁移）
-    OLD_HISTORY_KEY_PREFIX: "history_cache_",
-    OLD_TAG_KEY_PREFIX: "tag_cache_",
-    OLD_TRANSLATE_CACHE_KEY: "translate_cache",
 };
 
 /**
@@ -90,65 +87,6 @@ class CacheService {
             logger.error(`缓存服务 | 清除前缀缓存失败 | 前缀:${prefix} | 错误:${error.message}`);
         }
     }
-
-    /**
-     * 迁移旧的缓存键名到新的键名格式
-     */
-    static migrateCache() {
-        try {
-            const stats = {
-                history: 0,
-                tags: 0,
-                translate: 0
-            };
-
-            // 1. 迁移历史缓存
-            const oldHistoryKey = `${CACHE_CONFIG.OLD_HISTORY_KEY_PREFIX}all`;
-            const newHistoryKey = `${CACHE_CONFIG.HISTORY_KEY_PREFIX}all`;
-            const historyData = this.get(oldHistoryKey);
-            if (historyData) {
-                this.set(newHistoryKey, historyData);
-                this.remove(oldHistoryKey);
-                stats.history = 1;
-            }
-
-            // 2. 迁移标签缓存
-            const tagKeys = [];
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith(CACHE_CONFIG.OLD_TAG_KEY_PREFIX)) {
-                    tagKeys.push(key);
-                }
-            }
-
-            tagKeys.forEach(oldKey => {
-                const newKey = oldKey.replace(
-                    CACHE_CONFIG.OLD_TAG_KEY_PREFIX,
-                    CACHE_CONFIG.TAG_KEY_PREFIX
-                );
-                const data = this.get(oldKey);
-                if (data) {
-                    this.set(newKey, data);
-                    this.remove(oldKey);
-                    stats.tags++;
-                }
-            });
-
-            // 3. 迁移翻译缓存
-            const translateData = this.get(CACHE_CONFIG.OLD_TRANSLATE_CACHE_KEY);
-            if (translateData) {
-                this.set(CACHE_CONFIG.TRANSLATE_CACHE_KEY, translateData);
-                this.remove(CACHE_CONFIG.OLD_TRANSLATE_CACHE_KEY);
-                stats.translate = 1;
-            }
-
-            logger.log(`缓存迁移完成 | 历史缓存: ${stats.history}个 | 标签缓存: ${stats.tags}个 | 翻译缓存: ${stats.translate}个`);
-            return stats;
-        } catch (error) {
-            logger.error(`缓存迁移失败 | 错误: ${error.message}`);
-            return { history: 0, tags: 0, translate: 0 };
-        }
-    }
 }
 
 /**
@@ -163,7 +101,7 @@ class HistoryCacheService {
      * 获取所有历史记录
      */
     static getAllHistory() {
-        const key = `${CACHE_CONFIG.HISTORY_KEY_PREFIX}all`;
+        const key = CACHE_CONFIG.HISTORY_CACHE_KEY;
         return CacheService.get(key) || [];
     }
 
@@ -171,19 +109,24 @@ class HistoryCacheService {
      * 保存所有历史记录
      */
     static saveAllHistory(history) {
-        const key = `${CACHE_CONFIG.HISTORY_KEY_PREFIX}all`;
+        const key = CACHE_CONFIG.HISTORY_CACHE_KEY;
         CacheService.set(key, history);
     }
 
     /**
      * 获取历史记录列表
      */
-    static getHistoryList({ nodeId = null, limit = 50 } = {}) {
+    static getHistoryList({ nodeId = null, limit = 50, workflowId = null } = {}) {
         try {
             const allHistory = this.getAllHistory();
 
+            let filteredHistory = allHistory;
+            if (workflowId) {
+                filteredHistory = allHistory.filter(item => item.workflow_id === workflowId);
+            }
+
             // 确保每条历史记录都有必要的字段
-            const validHistory = allHistory.filter(item => {
+            const validHistory = filteredHistory.filter(item => {
                 const isValid = item && item.node_id && item.input_id &&
                     item.content && item.timestamp && item.operation_type;
                 if (!isValid) {
@@ -225,9 +168,12 @@ class HistoryCacheService {
     static getInputHistory(nodeId, inputId, oldToNew = false) {
         try {
             const allHistory = this.getAllHistory();
+            const workflowId = app.graph?._workflow_id;
+
             const filtered = allHistory.filter(item =>
                 item.node_id === nodeId &&
-                item.input_id === inputId
+                item.input_id === inputId &&
+                (!workflowId || item.workflow_id === workflowId) // 如果有workflowId，则匹配
             );
             // 根据参数决定排序方向
             return filtered.sort((a, b) =>
@@ -334,6 +280,7 @@ class HistoryCacheService {
 
             // 创建新的历史记录
             const newItem = {
+                workflow_id: app.graph?._workflow_id || 'unknown',
                 node_id: historyItem.node_id,
                 input_id: historyItem.input_id,
                 content: content,
@@ -538,9 +485,13 @@ class HistoryCacheService {
      */
     static clearNodeHistory(nodeId) {
         try {
-            // 清除节点的历史记录
+            // 获取所有历史记录
             const allHistory = this.getAllHistory();
+
+            // 过滤出不属于该节点的记录
             const filteredHistory = allHistory.filter(item => item.node_id !== nodeId);
+
+            // 保存过滤后的历史记录
             this.saveAllHistory(filteredHistory);
 
             // 清除该节点的撤销状态
@@ -553,6 +504,21 @@ class HistoryCacheService {
             logger.debug(`历史缓存 | 清除节点历史 | 节点:${nodeId}`);
         } catch (error) {
             logger.error(`历史缓存 | 清除节点历史失败 | 节点:${nodeId} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 清除指定工作流的所有历史记录
+     */
+    static clearWorkflowHistory(workflowId) {
+        if (!workflowId) return;
+        try {
+            const allHistory = this.getAllHistory();
+            const filteredHistory = allHistory.filter(item => item.workflow_id !== workflowId);
+            this.saveAllHistory(filteredHistory);
+            logger.debug(`历史缓存 | 清除工作流历史 | 工作流ID:${workflowId}`);
+        } catch (error) {
+            logger.error(`历史缓存 | 清除工作流历史失败 | 工作流ID:${workflowId} | 错误:${error.message}`);
         }
     }
 
@@ -722,16 +688,39 @@ class TagCacheService {
     }
 
     /**
+     * 获取所有标签缓存
+     */
+    static getAllTagCache() {
+        try {
+            const data = CacheService.get(CACHE_CONFIG.TAG_CACHE_KEY);
+            return data || {};
+        } catch (error) {
+            logger.error(`标签缓存 | 获取所有缓存失败 | 错误:${error.message}`);
+            return {};
+        }
+    }
+
+    /**
+     * 保存所有标签缓存
+     */
+    static saveAllTagCache(cache) {
+        try {
+            CacheService.set(CACHE_CONFIG.TAG_CACHE_KEY, cache);
+        } catch (error) {
+            logger.error(`标签缓存 | 保存所有缓存失败 | 错误:${error.message}`);
+        }
+    }
+
+    /**
      * 获取标签缓存
      */
     static getTagCache(nodeId, inputId) {
         try {
-            const key = `${CACHE_CONFIG.TAG_KEY_PREFIX}${nodeId}_${inputId}`;
-            const data = CacheService.get(key);
-            if (data) {
-                return new Map(Object.entries(data));
-            }
-            return new Map();
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
+            const data = allCache[key] || {};
+            return new Map(Object.entries(data));
         } catch (error) {
             logger.error(`标签缓存 | 获取缓存失败 | 节点:${nodeId} | 输入框:${inputId} | 错误:${error.message}`);
             return new Map();
@@ -743,6 +732,9 @@ class TagCacheService {
      */
     static addTag(nodeId, inputId, rawTag, formats) {
         try {
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
             const cache = this.getTagCache(nodeId, inputId);
 
             // 确保formats包含所有必要的格式
@@ -752,15 +744,89 @@ class TagCacheService {
             const format4 = formats.format4 || `, ${rawTag},`;
             const insertedFormat = formats.insertedFormat || null;
 
+            // 如果标签已存在，直接更新
+            if (cache.has(rawTag)) {
+                cache.set(rawTag, {
+                    format1,
+                    format2,
+                    format3,
+                    format4,
+                    insertedFormat
+                });
+                allCache[key] = Object.fromEntries(cache);
+                this.saveAllTagCache(allCache);
+                logger.debug(`标签缓存 | 更新标签 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag}`);
+                return true;
+            }
+
+            // 检查当前输入框的标签数量限制
+            if (cache.size >= CACHE_CONFIG.MAX_TAGS_PER_INPUT) {
+                // 获取所有标签及其最后使用时间
+                const tagEntries = Array.from(cache.entries()).map(([tag, formats]) => ({
+                    tag,
+                    formats,
+                    lastUsed: formats.lastUsed || 0
+                }));
+
+                // 按最后使用时间排序
+                tagEntries.sort((a, b) => a.lastUsed - b.lastUsed);
+
+                // 删除最旧的标签
+                const oldestTag = tagEntries[0].tag;
+                cache.delete(oldestTag);
+                logger.debug(`标签缓存 | 自动淘汰 | 节点:${nodeId} | 输入框:${inputId} | 淘汰标签:${oldestTag}`);
+            }
+
+            // 检查全局标签数量限制
+            let totalTags = 0;
+            const allTags = [];
+            for (const [cacheKey, inputTags] of Object.entries(allCache)) {
+                const [wfId, nId, iId] = cacheKey.split('_');
+                for (const [tag, tagFormats] of Object.entries(inputTags)) {
+                    allTags.push({
+                        workflowId: wfId,
+                        nodeId: nId,
+                        inputId: iId,
+                        tag,
+                        lastUsed: tagFormats.lastUsed || 0
+                    });
+                }
+                totalTags += Object.keys(inputTags).length;
+            }
+
+            if (totalTags >= CACHE_CONFIG.MAX_TAGS_GLOBAL) {
+                // 按最后使用时间排序
+                allTags.sort((a, b) => a.lastUsed - b.lastUsed);
+
+                // 删除最旧的标签
+                const oldest = allTags[0];
+                const oldKey = `${oldest.workflowId}_${oldest.nodeId}_${oldest.inputId}`;
+                const oldCache = new Map(Object.entries(allCache[oldKey] || {}));
+                oldCache.delete(oldest.tag);
+
+                if (oldCache.size > 0) {
+                    allCache[oldKey] = Object.fromEntries(oldCache);
+                } else {
+                    delete allCache[oldKey];
+                }
+
+                logger.debug(`标签缓存 | 自动淘汰 | 全局限制 | 淘汰标签:${oldest.tag} | 位置:${oldKey}`);
+            }
+
+            // 添加新标签
             cache.set(rawTag, {
                 format1,
                 format2,
                 format3,
                 format4,
-                insertedFormat
+                insertedFormat,
+                lastUsed: Date.now() // 添加最后使用时间
             });
 
-            this._saveTagCache(nodeId, inputId, cache);
+            // 更新全局缓存
+            allCache[key] = Object.fromEntries(cache);
+            this.saveAllTagCache(allCache);
+
             logger.debug(`标签缓存 | 添加标签 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag}`);
             return true;
         } catch (error) {
@@ -774,10 +840,20 @@ class TagCacheService {
      */
     static removeTag(nodeId, inputId, rawTag) {
         try {
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
             const cache = this.getTagCache(nodeId, inputId);
+
             const result = cache.delete(rawTag);
             if (result) {
-                this._saveTagCache(nodeId, inputId, cache);
+                // 更新全局缓存
+                if (cache.size > 0) {
+                    allCache[key] = Object.fromEntries(cache);
+                } else {
+                    delete allCache[key];
+                }
+                this.saveAllTagCache(allCache);
                 logger.debug(`标签缓存 | 移除标签 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag}`);
             }
             return result;
@@ -859,7 +935,16 @@ class TagCacheService {
      */
     static clearCache(nodeId, inputId) {
         try {
-            this._removeTagCache(nodeId, inputId);
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
+
+            // 删除指定节点的缓存
+            if (allCache[key]) {
+                delete allCache[key];
+                this.saveAllTagCache(allCache);
+            }
+
             logger.debug(`标签缓存 | 清除缓存 | 节点:${nodeId} | 输入框:${inputId}`);
         } catch (error) {
             logger.error(`标签缓存 | 清除缓存失败 | 节点:${nodeId} | 输入框:${inputId} | 错误:${error.message}`);
@@ -867,46 +952,24 @@ class TagCacheService {
     }
 
     /**
-     * 保存标签缓存
-     */
-    static _saveTagCache(nodeId, inputId, cache) {
-        const key = `${CACHE_CONFIG.TAG_KEY_PREFIX}${nodeId}_${inputId}`;
-        const data = Object.fromEntries(cache);
-        CacheService.set(key, data);
-    }
-
-    /**
-     * 移除标签缓存
-     */
-    static _removeTagCache(nodeId, inputId) {
-        const key = `${CACHE_CONFIG.TAG_KEY_PREFIX}${nodeId}_${inputId}`;
-        CacheService.remove(key);
-    }
-
-    /**
      * 获取标签统计信息
      */
     static getTagStats() {
         try {
+            const allCache = this.getAllTagCache();
             let total = 0;
             const byNode = {};
 
-            // 遍历localStorage查找所有标签缓存
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith(CACHE_CONFIG.TAG_KEY_PREFIX)) {
-                    // 从key中提取节点ID和输入框ID
-                    const [nodeId, inputId] = key.replace(CACHE_CONFIG.TAG_KEY_PREFIX, '').split('_');
-                    const cache = this.getTagCache(nodeId, inputId);
-                    const count = cache.size;
+            // 遍历所有缓存计算统计信息
+            for (const [key, tags] of Object.entries(allCache)) {
+                const [workflowId, nodeId, inputId] = key.split('_');
+                const count = Object.keys(tags).length;
 
-                    // 更新统计
-                    total += count;
-                    if (!byNode[nodeId]) {
-                        byNode[nodeId] = {};
-                    }
-                    byNode[nodeId][inputId] = count;
+                total += count;
+                if (!byNode[nodeId]) {
+                    byNode[nodeId] = {};
                 }
+                byNode[nodeId][inputId] = count;
             }
 
             const stats = { total, byNode };
@@ -923,8 +986,12 @@ class TagCacheService {
      */
     static updateInsertedFormat(nodeId, inputId, rawTag, insertedFormat) {
         try {
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
             const cache = this.getTagCache(nodeId, inputId);
             const formats = cache.get(rawTag);
+
             if (!formats) {
                 logger.debug(`标签缓存 | 更新插入格式失败 | 原因:标签不存在 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag}`);
                 return false;
@@ -934,13 +1001,71 @@ class TagCacheService {
             formats.insertedFormat = insertedFormat;
             cache.set(rawTag, formats);
 
-            // 保存到缓存
-            this._saveTagCache(nodeId, inputId, cache);
+            // 更新全局缓存
+            allCache[key] = Object.fromEntries(cache);
+            this.saveAllTagCache(allCache);
+
             logger.debug(`标签缓存 | 更新插入格式 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag} | 新格式:${insertedFormat}`);
             return true;
         } catch (error) {
             logger.error(`标签缓存 | 更新插入格式失败 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag} | 错误:${error.message}`);
             return false;
+        }
+    }
+
+    /**
+     * 更新标签的最后使用时间
+     */
+    static updateTagLastUsed(nodeId, inputId, rawTag) {
+        try {
+            const allCache = this.getAllTagCache();
+            const workflowId = app.graph?._workflow_id || 'unknown';
+            const key = `${workflowId}_${nodeId}_${inputId}`;
+            const cache = this.getTagCache(nodeId, inputId);
+
+            if (cache.has(rawTag)) {
+                const tagData = cache.get(rawTag);
+                tagData.lastUsed = Date.now();
+                cache.set(rawTag, tagData);
+                allCache[key] = Object.fromEntries(cache);
+                this.saveAllTagCache(allCache);
+                logger.debug(`标签缓存 | 更新使用时间 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag}`);
+            }
+        } catch (error) {
+            logger.error(`标签缓存 | 更新使用时间失败 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 清除指定工作流的所有标签
+     */
+    static clearWorkflowTags(workflowId) {
+        if (!workflowId) return;
+        try {
+            const allCache = this.getAllTagCache();
+            const newCache = {};
+            for (const key in allCache) {
+                // key format is `${workflowId}_${nodeId}_${inputId}`
+                if (!key.startsWith(workflowId + '_')) {
+                    newCache[key] = allCache[key];
+                }
+            }
+            this.saveAllTagCache(newCache);
+            logger.debug(`标签缓存 | 清除工作流标签 | 工作流ID:${workflowId}`);
+        } catch (error) {
+            logger.error(`标签缓存 | 清除工作流标签失败 | 工作流ID:${workflowId} | 错误:${error.message}`);
+        }
+    }
+
+    /**
+     * 清除所有标签缓存
+     */
+    static clearAllTagCache() {
+        try {
+            CacheService.remove(CACHE_CONFIG.TAG_CACHE_KEY);
+            logger.debug("标签缓存 | 清除所有缓存");
+        } catch (error) {
+            logger.error(`标签缓存 | 清除缓存失败 | 错误:${error.message}`);
         }
     }
 }

@@ -42,7 +42,8 @@ class HistoryManager {
             // 获取历史数据
             const historyList = HistoryCacheService.getHistoryList({
                 nodeId: nodeId,
-                limit: 100  // 增加限制以确保有足够的历史数据
+                limit: 100,  // 增加限制以确保有足够的历史数据
+                workflowId: app.graph?._workflow_id
             });
 
             // 创建新弹窗
@@ -262,7 +263,7 @@ class HistoryManager {
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'popup_btn';
-        UIToolkit.addIconToButton(closeBtn, 'icon-close', '关闭');
+        UIToolkit.addIconToButton(closeBtn, 'pi-times', '关闭');
 
         // 使用EventManager添加点击事件
         const closeCleanup = EventManager.addDOMListener(closeBtn, 'click', (e) => {
