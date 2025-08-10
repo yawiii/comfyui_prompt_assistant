@@ -2,13 +2,29 @@
 
 
 # ComfyUI Prompt Assistant✨提示词小助手
-<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;
+
+🎉🎉感谢大家对提示词小助手的喜爱！🎉🎉
+
+
+欢迎大家提出宝贵意见，我会收集大家的反馈持续优化。让大家的小助手会变得更好用~😄
+
+插件详细使用教程，可以查看我B站主页的视频教程，很详细！如果使用过程遇到问题也可以到我的b站主页或者Github上留言反馈。🫰🏻
+
+> 👉👉👉<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;👈👈👈
+
+## ✨插件介绍
   
 这是一个无需添加节点，即可实现提示词翻译、扩写、预设标签插入、图片反推提示词、历史记录功能等功能的comfyUI插件。   
 > 📍手动安装请从右侧[Releases](https://github.com/yawiii/comfyui_prompt_assistant/releases)下载最新版本。
 
 
 ## 📣更新
+<details>
+ <summary>[2025-6-24]V1.0.6： </summary>
+  
+- 修复了一些界面bug
+  
+</details>
 <details>
  <summary>[2025-6-24]V1.0.5： </summary>
   
@@ -96,8 +112,9 @@
 
 ![百度](https://github.com/user-attachments/assets/f3fe2d2d-9507-4bff-887e-003f2e13a19c)
 
-智谱API申请入口：[智谱API申请](https://open.bigmodel.cn/dev/activities/free/glm-4-flash)  
+智谱API申请入口：[智谱API申请](https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D)
 
+硅基流动 api申请入口：[硅基流动API申请](https://cloud.siliconflow.cn/i/FCDL2zBQ)  
 
 ![智谱](https://github.com/user-attachments/assets/d6eb29c0-8624-4bf2-96c4-33e99d096202)
 
