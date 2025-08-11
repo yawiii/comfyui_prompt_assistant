@@ -21,6 +21,12 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 ## 📣更新
 <details>
+ <summary>[2025-8-10]V1.1.1： </summary>
+  
+-修复图像反推节点报错
+  
+</details>
+<details>
  <summary>[2025-8-10]V1.1.0： </summary>
   
 - 修改了UI交互
@@ -134,6 +140,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
