@@ -1,6 +1,6 @@
 [project]
 name = "prompt-assistant"
-version = "1.0.6"
+version = "1.1.0"
 description = "提示词小助手（Prompt Assistant），是一个无需添加任何节点，即可实现提示词翻译、扩写、图片反推提示词、预设标签插入、历史记录功能等功能的自定义扩展。"
 readme = "README.md"
 license = {text = "GNU General Public License v3"}
