@@ -90,7 +90,7 @@ class ImageCaptionNode:
     OUTPUT_NODE = True
     
     @classmethod
-    def IS_CHANGED(cls, 图像, 请选择规则类型, 反推规则模板, 临时规则内容, 视觉服务, unique_id=None, extra_pnginfo=None, client_id=None):
+    def IS_CHANGED(cls, 图像, 规则类型, 规则模板, 临时规则内容, 视觉服务, unique_id=None, extra_pnginfo=None, client_id=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -115,22 +115,22 @@ class ImageCaptionNode:
         # 组合所有输入的哈希值
         input_hash = hash((
             img_hash,
-            请选择规则类型,
-            反推规则模板,
+            规则类型,
+            规则模板,
             临时规则内容,
             视觉服务
         ))
         
         return input_hash
     
-    def analyze_image(self, 图像, 请选择规则类型, 反推规则模板, 临时规则内容, 视觉服务, unique_id=None, extra_pnginfo=None, client_id=None):
+    def analyze_image(self, 图像, 规则类型, 规则模板, 临时规则内容, 视觉服务, unique_id=None, extra_pnginfo=None, client_id=None):
         """
         分析图像并生成提示词
         
         Args:
             图像: 输入的图像数据
-            请选择规则类型: 选择使用模板还是手动输入
-            反推规则模板: 选择的提示词模板
+            规则类型: 选择使用模板还是手动输入
+            规则模板: 选择的提示词模板
             临时规则内容: 临时规则的内容
             视觉服务: 选择的视觉服务
             unique_id: 节点的唯一ID
@@ -150,7 +150,7 @@ class ImageCaptionNode:
             # 获取提示词模板内容
             prompt_template = None
             
-            if 请选择规则类型 == "手动输入" and 临时规则内容:
+            if 规则类型 == "手动输入" and 临时规则内容:
                 prompt_template = 临时规则内容
                 print(f"{self.LOG_PREFIX} 图像反推: 使用手动输入规则")
             else:
@@ -166,26 +166,26 @@ class ImageCaptionNode:
                 # 查找选定的提示词模板
                 template_found = False
                 for key, value in vision_prompts.items():
-                    if value.get('name') == 反推规则模板:
+                    if value.get('name') == 规则模板:
                         prompt_template = value.get('content')
                         template_found = True
-                        print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{反推规则模板}'")
+                        print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{规则模板}'")
                         break
                 
                 if not template_found:
-                    print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{反推规则模板}'，尝试直接匹配键名")
+                    print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{规则模板}'，尝试直接匹配键名")
                     # 尝试直接匹配键名
                     for key, value in vision_prompts.items():
-                        if key == 反推规则模板:
+                        if key == 规则模板:
                             prompt_template = value.get('content')
                             template_found = True
-                            print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{反推规则模板}'")
+                            print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{规则模板}'")
                             break
             
             # 如果没有找到提示词模板，使用默认值
             if not prompt_template:
                 prompt_template = "请详细描述这张图片的内容，包括主体、场景、风格、色彩等要素。"
-                print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{反推规则模板}'，使用默认提示词")
+                print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{规则模板}'，使用默认提示词")
             
             result_container = {}
             
@@ -248,7 +248,7 @@ class ImageCaptionNode:
                                     None,
                                 )
                                 if node:
-                                    node["widgets_values"] = [请选择规则类型, 反推规则模板, 临时规则内容, 视觉服务]
+                                    node["widgets_values"] = [规则类型, 规则模板, 临时规则内容, 视觉服务]
                 except Exception as e:
                     print(f"{self.LOG_PREFIX} 更新节点widgets_values时出错: {str(e)}")
                 
