@@ -13,7 +13,7 @@ import { UIToolkit } from "./utils/UIToolkit.js";
 import { logger } from './utils/logger.js';
 import { HistoryCacheService, TagCacheService } from './services/cache.js';
 import { imageCaption, ImageCaption } from './modules/imageCaption.js';
-import './nodes/toastListener.js'; // 导入Toast监听器
+
 // import { ensureAutoTranslateInterceptorInstalled } from './services/interceptor.js'; // 导入自动翻译拦截器
 
 // ====================== 全局配置与状态 ======================
@@ -45,7 +45,7 @@ app.registerExtension({
         try {
             // 注册设置选项
             registerSettings();
-            
+
             // 初始化自动翻译拦截器（独立于提示词小助手）
             // ensureAutoTranslateInterceptorInstalled();
 

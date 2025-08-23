@@ -256,7 +256,7 @@ class APIService {
     /**
      * 调用视觉模型分析图像
      */
-    static async llmAnalyzeImage(imageData, lang = 'zh', request_id = null) {
+    static async llmAnalyzeImage(imageData, prompt, request_id = null) {
         // 生成请求ID
         if (!request_id) {
             request_id = this.generateRequestId();
@@ -271,7 +271,7 @@ class APIService {
                 throw new Error('未找到有效的图像');
             }
 
-            logger.debug(`发起视觉分析请求 | 请求ID:${request_id} | 语言:${lang}`);
+            logger.debug(`发起视觉分析请求 | 请求ID:${request_id}`);
 
             // 构建API URL
             const apiUrl = this.getApiUrl('/prompt_assistant/api/vlm/analyze');
@@ -280,7 +280,7 @@ class APIService {
             // 构建请求数据
             const requestData = {
                 image: imageData,
-                lang: lang,
+                prompt: prompt, // 添加prompt
                 request_id: request_id
             };
 

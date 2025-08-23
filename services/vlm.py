@@ -73,7 +73,10 @@ class VisionService:
                 'provider': current_provider,
                 'model': provider_config.get('model', ''),
                 'base_url': provider_config.get('base_url', ''),
-                'api_key': provider_config.get('api_key', '')
+                'api_key': provider_config.get('api_key', ''),
+                'temperature': provider_config.get('temperature', 0.7),
+                'top_p': provider_config.get('top_p', 0.9),
+                'max_tokens': provider_config.get('max_tokens', 2000)
             }
         else:
             # 兼容旧版配置格式
@@ -152,9 +155,9 @@ class VisionService:
             return image_data
 
     @staticmethod
-    async def analyze_image(image_data: str, request_id: Optional[str] = None, lang: str = 'zh', 
+    async def analyze_image(image_data: str, request_id: Optional[str] = None,
                           stream_callback: Optional[Callable[[str], None]] = None,
-                          custom_prompt: Optional[str] = None,
+                          prompt_content: Optional[str] = None,
                           custom_provider: Optional[str] = None,
                           custom_provider_config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -181,12 +184,18 @@ class VisionService:
                 api_key = custom_provider_config.get('api_key', '')
                 model = custom_provider_config.get('model', '')
                 base_url = custom_provider_config.get('base_url', '')
+                temperature = custom_provider_config.get('temperature', 0.7)
+                top_p = custom_provider_config.get('top_p', 0.9)
+                max_tokens = custom_provider_config.get('max_tokens', 2000)
             else:
                 # 使用默认配置
                 config = VisionService._get_config()
                 api_key = config.get('api_key')
                 model = config.get('model')
                 provider = config.get('provider', 'unknown')
+                temperature = config.get('temperature', 0.7)
+                top_p = config.get('top_p', 0.9)
+                max_tokens = config.get('max_tokens', 2000)
             
             if not api_key:
                 return {"success": False, "error": "请先配置视觉模型API密钥"}
@@ -213,50 +222,10 @@ class VisionService:
                 'custom': '自定义'
             }.get(provider, provider)
             
-            # 获取系统提示词
-            system_prompt = None
-            
-            # 如果提供了自定义提示词，直接使用
-            if custom_prompt:
-                system_prompt = custom_prompt
-                print(f"{PREFIX} 使用自定义反推提示词")
-            else:
-                # 否则从配置中获取
-                from ..config_manager import config_manager
-                system_prompts = config_manager.get_system_prompts()
-                
-                if not system_prompts or 'vision_prompts' not in system_prompts:
-                    return {"success": False, "error": "视觉系统提示词加载失败"}
-                
-                # 根据语言选择相应的激活提示词ID
-                active_prompt_key = 'vision_zh' if lang == 'zh' else 'vision_en'
-                active_prompt_id = system_prompts.get('active_prompts', {}).get(active_prompt_key)
-                
-                # 如果没有找到激活的提示词ID，使用默认值
-                if not active_prompt_id:
-                    active_prompt_id = f"{active_prompt_key}_default"
-                
-                # 获取对应的提示词
-                if active_prompt_id in system_prompts['vision_prompts']:
-                    prompt_data = system_prompts['vision_prompts'][active_prompt_id]
-                    system_prompt = prompt_data['content']
-                    prompt_name = prompt_data.get('name', active_prompt_id)
-                    print(f"{PREFIX} 使用{lang}反推提示词: {prompt_name} | ID:{active_prompt_id}")
-                else:
-                    # 如果找不到激活的提示词，尝试使用任何可用的提示词
-                    available_prompts = {k: v for k, v in system_prompts['vision_prompts'].items() 
-                                        if k.startswith(f"vision_{lang}")}
-                    
-                    if available_prompts:
-                        first_key = list(available_prompts.keys())[0]
-                        prompt_data = available_prompts[first_key]
-                        system_prompt = prompt_data['content']
-                        prompt_name = prompt_data.get('name', first_key)
-                        print(f"{PREFIX} 使用备选{lang}反推提示词: {prompt_name} | ID:{first_key}")
-                    else:
-                        # 实在没有合适的提示词，使用默认提示词
-                        system_prompt = "请详细描述这张图片的内容" if lang == 'zh' else "Please describe this image in detail."
-                        print(f"{PREFIX} 未找到合适的{lang}反推提示词，使用默认提示词")
+            # 直接使用传入的提示词内容
+            system_prompt = prompt_content
+            if not system_prompt:
+                return {"success": False, "error": "未提供有效的提示词内容"}
             
             # 发送请求
             print(f"{PREFIX} 调用视觉模型 | 服务:{provider_display_name} | 请求ID:{request_id} | 模型:{model}")
@@ -267,7 +236,7 @@ class VisionService:
                 # 添加调试信息
                 print(f"{PREFIX} 调用视觉模型API | 服务:{provider_display_name} | 模型:{model}")
                 
-                # 设置优化参数
+                # 使用配置中的参数
                 response = await client.chat.completions.create(
                     model=model,
                     messages=[{
@@ -277,8 +246,9 @@ class VisionService:
                             {"type": "image_url", "image_url": {"url": image_data}}
                         ]
                     }],
-                    max_tokens=1000,
-                    temperature=0.2,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
                     stream=True,
                     # 添加响应格式参数，减少不必要的token
                     response_format={"type": "text"}

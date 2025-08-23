@@ -548,20 +548,26 @@
     justify-content: center;
     width: 24px;
     height: 24px;
-    min-width: 24px; /* 添加最小宽度 */
-    min-height: 24px; /* 添加最小高度 */
+    min-width: 24px;
+    /* 添加最小宽度 */
+    min-height: 24px;
+    /* 添加最小高度 */
     transition: all 0.2s;
     opacity: 0.5;
-    box-sizing: border-box; /* 确保padding不会影响整体大小 */
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
 }
 
 .tag_delete_button.small {
     width: 20px;
     height: 20px;
-    min-width: 20px; /* 添加最小宽度 */
-    min-height: 20px; /* 添加最小高度 */
+    min-width: 20px;
+    /* 添加最小宽度 */
+    min-height: 20px;
+    /* 添加最小高度 */
     padding: 2px;
-    box-sizing: border-box; /* 确保padding不会影响整体大小 */
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
 }
 
 .tag_delete_button:hover {
@@ -573,17 +579,23 @@
 .tag_delete_icon {
     width: 14px;
     height: 14px;
-    min-width: 14px; /* 添加最小宽度 */
-    min-height: 14px; /* 添加最小高度 */
-    flex-shrink: 0; /* 防止图标被压缩 */
-    display: block; /* 确保图标显示为块级元素 */
+    min-width: 14px;
+    /* 添加最小宽度 */
+    min-height: 14px;
+    /* 添加最小高度 */
+    flex-shrink: 0;
+    /* 防止图标被压缩 */
+    display: block;
+    /* 确保图标显示为块级元素 */
 }
 
 .tag_delete_icon.small {
     width: 12px;
     height: 12px;
-    min-width: 12px; /* 添加最小宽度 */
-    min-height: 12px; /* 添加最小高度 */
+    min-width: 12px;
+    /* 添加最小宽度 */
+    min-height: 12px;
+    /* 添加最小高度 */
 }
 
 /* 编辑按钮样式 */
@@ -600,20 +612,26 @@
     justify-content: center;
     width: 24px;
     height: 24px;
-    min-width: 24px; /* 添加最小宽度 */
-    min-height: 24px; /* 添加最小高度 */
+    min-width: 24px;
+    /* 添加最小宽度 */
+    min-height: 24px;
+    /* 添加最小高度 */
     transition: all 0.2s;
     opacity: 0.5;
-    box-sizing: border-box; /* 确保padding不会影响整体大小 */
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
 }
 
 .tag_edit_button.small {
     width: 20px;
     height: 20px;
-    min-width: 20px; /* 添加最小宽度 */
-    min-height: 20px; /* 添加最小高度 */
+    min-width: 20px;
+    /* 添加最小宽度 */
+    min-height: 20px;
+    /* 添加最小高度 */
     padding: 2px;
-    box-sizing: border-box; /* 确保padding不会影响整体大小 */
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
 }
 
 .tag_edit_button:hover {
@@ -640,32 +658,45 @@
 
 .tag_action_icon {
     font-size: 14px;
-    width: 14px; /* 添加固定宽度 */
-    height: 14px; /* 添加固定高度 */
-    min-width: 14px; /* 添加最小宽度 */
-    min-height: 14px; /* 添加最小高度 */
-    flex-shrink: 0; /* 防止图标被压缩 */
-    display: flex; /* 使用flex布局确保内容居中 */
+    width: 14px;
+    /* 添加固定宽度 */
+    height: 14px;
+    /* 添加固定高度 */
+    min-width: 14px;
+    /* 添加最小宽度 */
+    min-height: 14px;
+    /* 添加最小高度 */
+    flex-shrink: 0;
+    /* 防止图标被压缩 */
+    display: flex;
+    /* 使用flex布局确保内容居中 */
     align-items: center;
     justify-content: center;
 }
 
 .tag_action_icon.small {
     font-size: 12px;
-    width: 12px; /* 添加固定宽度 */
-    height: 12px; /* 添加固定高度 */
-    min-width: 12px; /* 添加最小宽度 */
-    min-height: 12px; /* 添加最小高度 */
+    width: 12px;
+    /* 添加固定宽度 */
+    height: 12px;
+    /* 添加固定高度 */
+    min-width: 12px;
+    /* 添加最小宽度 */
+    min-height: 12px;
+    /* 添加最小高度 */
 }
 
 /* 确保图标在按钮中居中显示 */
 .tag_accordion_icon {
     display: flex;
     align-items: center;
-    justify-content: flex-end; /* 添加右对齐 */
+    justify-content: flex-end;
+    /* 添加右对齐 */
     gap: 4px;
-    height: 24px; /* 保持固定高度 */
-    min-width: 80px; /* 确保容器有足够的宽度容纳所有图标 */
+    height: 24px;
+    /* 保持固定高度 */
+    min-width: 80px;
+    /* 确保容器有足够的宽度容纳所有图标 */
 }
 
 .tag_accordion_icon .accordion_arrow_icon {
@@ -705,7 +736,8 @@
     align-items: center;
     transition: all 0.2s ease;
     border-radius: 6px;
-    min-height: 32px; /* 确保标题栏有足够的高度 */
+    min-height: 32px;
+    /* 确保标题栏有足够的高度 */
 }
 
 .tag_accordion_title {
@@ -713,10 +745,14 @@
     font-size: 12px;
     color: var(--p-text-muted-color);
     font-weight: 500;
-    margin-right: 8px; /* 添加右边距，与图标保持距离 */
-    overflow: hidden; /* 防止文本溢出 */
-    text-overflow: ellipsis; /* 文本溢出时显示省略号 */
-    white-space: nowrap; /* 保持单行 */
+    margin-right: 8px;
+    /* 添加右边距，与图标保持距离 */
+    overflow: hidden;
+    /* 防止文本溢出 */
+    text-overflow: ellipsis;
+    /* 文本溢出时显示省略号 */
+    white-space: nowrap;
+    /* 保持单行 */
 }
 
 .tags_container {
@@ -1363,4 +1399,3 @@ body.column-resizing * {
 .dialog-btn.secondary:hover {
     background: var(--p-button-secondary-hover-background);
 }
-

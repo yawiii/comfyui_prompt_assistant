@@ -71,7 +71,10 @@ class LLMService:
                 'provider': current_provider,
                 'model': provider_config.get('model', ''),
                 'base_url': provider_config.get('base_url', ''),
-                'api_key': provider_config.get('api_key', '')
+                'api_key': provider_config.get('api_key', ''),
+                'temperature': provider_config.get('temperature', 0.7),
+                'top_p': provider_config.get('top_p', 0.9),
+                'max_tokens': provider_config.get('max_tokens', 2000)
             }
         else:
             # 兼容旧版配置格式
@@ -97,6 +100,9 @@ class LLMService:
             api_key = config.get('api_key')
             model = config.get('model')
             provider = config.get('provider', 'unknown')
+            temperature = config.get('temperature', 0.7)
+            top_p = config.get('top_p', 0.9)
+            max_tokens = config.get('max_tokens', 2000)
             
             if not api_key:
                 return {"success": False, "error": "请先配置大语言模型 API密钥"}
@@ -161,13 +167,13 @@ class LLMService:
                 # 添加调试信息
                 print(f"{PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}")
                 
-                # 设置优化参数
+                # 使用配置中的参数
                 stream = await client.chat.completions.create(
                     model=model,
                     messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                    temperature=0.3,
-                    top_p=0.5,
-                    max_tokens=1500,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
                     stream=True,
                     # 添加响应格式参数，减少不必要的token
                     response_format={"type": "text"}
@@ -230,6 +236,9 @@ class LLMService:
             api_key = config.get('api_key')
             model = config.get('model')
             provider = config.get('provider', 'unknown')
+            temperature = config.get('temperature', 0.7)
+            top_p = config.get('top_p', 0.9)
+            max_tokens = config.get('max_tokens', 2000)
             
             if not api_key:
                 return {"success": False, "error": "请先配置大语言模型 API密钥"}
@@ -286,13 +295,13 @@ class LLMService:
                 # 添加调试信息
                 print(f"{PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}")
                 
-                # 设置优化参数
+                # 使用配置中的参数
                 stream = await client.chat.completions.create(
                     model=model,
                     messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                    temperature=0.5,
-                    top_p=0.5,
-                    max_tokens=1500,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
                     stream=True,
                     # 添加响应格式参数，减少不必要的token
                     response_format={"type": "text"}

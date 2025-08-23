@@ -27,19 +27,28 @@ class ConfigManager:
                 "current_provider": "zhipu",
                 "providers": {
                     "zhipu": {
-                        "model": "glm-4.5-flash",
+                        "model": "glm-4-flash-250414",
                         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                        "top_p": 0.9
                     },
                     "siliconflow": {
                         "model": "Qwen/Qwen2.5-7B-Instruct",
                         "base_url": "https://api.siliconflow.cn/v1",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                        "top_p": 0.9
                     },
                     "custom": {
                         "model": "",
                         "base_url": "",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                        "top_p": 0.9
                     }
                 }
             },
@@ -49,17 +58,26 @@ class ConfigManager:
                     "zhipu": {
                         "model": "glm-4v-flash",
                         "base_url": "https://open.bigmodel.cn/api/paas/v4",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                        "top_p": 0.9
                     },
                     "siliconflow": {
                         "model": "THUDM/GLM-4.1V-9B-Thinking",
                         "base_url": "https://api.siliconflow.cn/v1",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                        "top_p": 0.9
                     },
                     "custom": {
                         "model": "",
                         "base_url": "",
-                        "api_key": ""
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                        "top_p": 0.9
                     }
                 }
             }
@@ -133,6 +151,9 @@ class ConfigManager:
         
         # 验证并修复激活提示词
         self.validate_and_fix_active_prompts()
+
+        # 验证并修复模型参数配置
+        self.validate_and_fix_model_params()
     
     def ensure_config_exists(self):
         """确保配置文件存在，不存在则创建默认配置"""
@@ -317,6 +338,9 @@ class ConfigManager:
             "model": provider_config.get("model", ""),
             "base_url": provider_config.get("base_url", ""),
             "api_key": provider_config.get("api_key", ""),
+            "temperature": provider_config.get("temperature", 0.7),
+            "max_tokens": provider_config.get("max_tokens", 1000),
+            "top_p": provider_config.get("top_p", 0.9),
             "providers": llm_config.get("providers", {})
         }
     
@@ -334,6 +358,9 @@ class ConfigManager:
             "model": provider_config.get("model", ""),
             "base_url": provider_config.get("base_url", ""),
             "api_key": provider_config.get("api_key", ""),
+            "temperature": provider_config.get("temperature", 0.7),
+            "max_tokens": provider_config.get("max_tokens", 500),
+            "top_p": provider_config.get("top_p", 0.9),
             "providers": vision_config.get("providers", {})
         }
     
@@ -351,7 +378,7 @@ class ConfigManager:
             
         return self.save_config(config)
     
-    def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, update_current=True):
+    def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
         """更新LLM配置"""
         config = self.load_config()
         if "llm" not in config:
@@ -370,7 +397,10 @@ class ConfigManager:
                 config["llm"]["providers"][provider] = {
                     "model": self.default_config["llm"]["providers"].get(provider, {}).get("model", ""),
                     "base_url": self.default_config["llm"]["providers"].get(provider, {}).get("base_url", ""),
-                    "api_key": ""
+                    "api_key": "",
+                    "temperature": self.default_config["llm"]["providers"].get(provider, {}).get("temperature", 0.7),
+                    "max_tokens": self.default_config["llm"]["providers"].get(provider, {}).get("max_tokens", 1000),
+                    "top_p": self.default_config["llm"]["providers"].get(provider, {}).get("top_p", 0.9)
                 }
                 
         # 只有在同时提供provider和其他参数时才更新这些参数
@@ -380,10 +410,16 @@ class ConfigManager:
             config["llm"]["providers"][provider]["base_url"] = base_url
         if provider is not None and api_key is not None:
             config["llm"]["providers"][provider]["api_key"] = api_key
+        if provider is not None and temperature is not None:
+            config["llm"]["providers"][provider]["temperature"] = temperature
+        if provider is not None and max_tokens is not None:
+            config["llm"]["providers"][provider]["max_tokens"] = max_tokens
+        if provider is not None and top_p is not None:
+            config["llm"]["providers"][provider]["top_p"] = top_p
             
         return self.save_config(config)
     
-    def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, update_current=True):
+    def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
         """更新视觉模型配置"""
         config = self.load_config()
         if "vlm" not in config:
@@ -402,7 +438,10 @@ class ConfigManager:
                 config["vlm"]["providers"][provider] = {
                     "model": self.default_config["vlm"]["providers"].get(provider, {}).get("model", ""),
                     "base_url": self.default_config["vlm"]["providers"].get(provider, {}).get("base_url", ""),
-                    "api_key": ""
+                    "api_key": "",
+                    "temperature": self.default_config["vlm"]["providers"].get(provider, {}).get("temperature", 0.7),
+                    "max_tokens": self.default_config["vlm"]["providers"].get(provider, {}).get("max_tokens", 500),
+                    "top_p": self.default_config["vlm"]["providers"].get(provider, {}).get("top_p", 0.9)
                 }
                 
         # 只有在同时提供provider和其他参数时才更新这些参数
@@ -412,6 +451,12 @@ class ConfigManager:
             config["vlm"]["providers"][provider]["base_url"] = base_url
         if provider is not None and api_key is not None:
             config["vlm"]["providers"][provider]["api_key"] = api_key
+        if provider is not None and temperature is not None:
+            config["vlm"]["providers"][provider]["temperature"] = temperature
+        if provider is not None and max_tokens is not None:
+            config["vlm"]["providers"][provider]["max_tokens"] = max_tokens
+        if provider is not None and top_p is not None:
+            config["vlm"]["providers"][provider]["top_p"] = top_p
             
         return self.save_config(config)
 
@@ -578,5 +623,62 @@ class ConfigManager:
         except Exception as e:
             print(f"[PromptAssistant] 验证和修复激活提示词时出错: {str(e)}")
 
+    def validate_and_fix_model_params(self):
+        """验证并修复模型参数配置，确保所有提供商都包含必要的参数"""
+        try:
+            # 加载当前配置
+            config = self.load_config()
+            need_update = False
+
+            # 检查LLM配置
+            if "llm" in config and "providers" in config["llm"]:
+                for provider_name, provider_config in config["llm"]["providers"].items():
+                    # 检查并添加缺失的temperature参数
+                    if "temperature" not in provider_config:
+                        provider_config["temperature"] = 0.7
+                        need_update = True
+                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认temperature参数: 0.7")
+
+                    # 检查并添加缺失的max_tokens参数
+                    if "max_tokens" not in provider_config:
+                        provider_config["max_tokens"] = 1000
+                        need_update = True
+                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认max_tokens参数: 1000")
+
+                    # 检查并添加缺失的top_p参数
+                    if "top_p" not in provider_config:
+                        provider_config["top_p"] = 0.9
+                        need_update = True
+                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认top_p参数: 0.9")
+
+            # 检查视觉模型配置
+            if "vlm" in config and "providers" in config["vlm"]:
+                for provider_name, provider_config in config["vlm"]["providers"].items():
+                    # 检查并添加缺失的temperature参数
+                    if "temperature" not in provider_config:
+                        provider_config["temperature"] = 0.7
+                        need_update = True
+                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认temperature参数: 0.7")
+
+                    # 检查并添加缺失的max_tokens参数
+                    if "max_tokens" not in provider_config:
+                        provider_config["max_tokens"] = 500
+                        need_update = True
+                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认max_tokens参数: 500")
+
+                    # 检查并添加缺失的top_p参数
+                    if "top_p" not in provider_config:
+                        provider_config["top_p"] = 0.9
+                        need_update = True
+                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认top_p参数: 0.9")
+
+            # 如果有更新，保存配置
+            if need_update:
+                self.save_config(config)
+                print("[PromptAssistant] 已完成模型参数配置的验证和修复")
+
+        except Exception as e:
+            print(f"[PromptAssistant] 验证和修复模型参数时出错: {str(e)}")
+
 # 创建全局配置管理器实例
-config_manager = ConfigManager() 
+config_manager = ConfigManager()

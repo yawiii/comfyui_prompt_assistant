@@ -1799,74 +1799,15 @@ class TagManager {
         searchResultList = document.createElement('div');
         searchResultList.className = SEARCH_RESULT_CLASS;
 
-        // 收集所有匹配标签及其分类
-        let matchCount = 0;
-        tagItems.forEach(item => {
-            const name = item.getAttribute('data-name') || '';
-            const value = item.getAttribute('data-value') || '';
-            const matches = name.toLowerCase().includes(searchText) || value.toLowerCase().includes(searchText);
-            if (!matches) return;
-
-            // 获取完整的分类路径
-            const categoryPath = [];
-
-            // 获取一级分类（标签页）
-            const tabContent = item.closest('.popup_tab_content');
-            if (tabContent) {
-                const category = tabContent.getAttribute('data-category');
-                if (category) categoryPath.push(category);
-            }
-
-            // 获取所有父级手风琴的标题
-            let parent = item.closest('.tag_accordion');
-            while (parent) {
-                const title = parent.querySelector('.tag_accordion_title');
-                if (title) {
-                    categoryPath.unshift(title.textContent);
-                }
-                parent = parent.parentElement.closest('.tag_accordion');
-            }
-
-            // 克隆标签节点，保留交互
-            const tagClone = item.cloneNode(true);
-            tagClone.style.display = '';
-            tagClone.style.cursor = 'pointer';
-            tagClone.classList.add('search_result_tag_item');
-
-            // 添加鼠标事件监听
-            const mouseEnterCleanup = EventManager.addDOMListener(tagClone, 'mouseenter', () => {
-                // 显示包含值和完整分类路径的tooltip
-                const tooltipContent = `${value}\n<span class="tooltip_path">类别: ${categoryPath.join(' > ')}</span>`;
-                this._showTooltip(tagClone, tooltipContent);
-            });
-
-            const mouseLeaveCleanup = EventManager.addDOMListener(tagClone, 'mouseleave', () => {
-                this._hideTooltip();
-            });
-
-            // 重新绑定点击事件
-            tagClone.onclick = (e) => {
-                this.handleTagClick(tagClone, name, value, e);
-            };
-
-            // 检查标签是否已使用
-            if (this.isTagUsed(value, this.currentNodeId, this.currentInputId)) {
-                tagClone.classList.add('used');
-            }
-
-            searchResultList.appendChild(tagClone);
-            matchCount++;
-
-            this.eventCleanups.push(mouseEnterCleanup, mouseLeaveCleanup);
+        // 从原始数据中搜索标签，而不是从DOM中搜索
+        this._searchFromData(searchText, searchResultList).then(() => {
+            // 搜索完成后刷新标签状态
+            setTimeout(() => {
+                this.refreshSearchResultsState();
+            }, 10);
+        }).catch(error => {
+            logger.error(`搜索处理失败: ${error.message}`);
         });
-
-        // 无结果提示
-        if (matchCount === 0) {
-            const empty = document.createElement('div');
-            empty.textContent = '无匹配标签';
-            empty.className = 'search_empty_message';
-            searchResultList.appendChild(empty);
-        }
 
         // 插入到内容区（搜索框下方）
         // 先尝试找到弹窗的主内容容器（标题栏的下一个兄弟元素）
@@ -1883,14 +1824,167 @@ class TagManager {
 
         if (contentContainer) {
             contentContainer.appendChild(searchResultList);
-
-            // 搜索结果创建完成后，刷新标签状态
-            setTimeout(() => {
-                this.refreshSearchResultsState();
-            }, 10);
         } else {
             logger.error('无法找到合适的容器来插入搜索结果');
         }
+    }
+
+    /**
+     * 从原始数据中搜索标签
+     * @param {string} searchText 搜索文本
+     * @param {HTMLElement} searchResultList 搜索结果容器
+     */
+    static async _searchFromData(searchText, searchResultList) {
+        try {
+            // 获取原始标签数据
+            const [tagData, userTagData] = await Promise.all([
+                ResourceManager.getTagData(),
+                ResourceManager.getUserTagData()
+            ]);
+
+            let matchCount = 0;
+
+            // 搜索系统标签
+            matchCount += this._searchInDataObject(tagData, searchText, searchResultList, []);
+
+            // 搜索用户自定义标签（⭐️标签页）
+            matchCount += this._searchInDataObject(userTagData, searchText, searchResultList, ['⭐️']);
+
+            // 搜索已插入标签
+            matchCount += this._searchInsertedTags(searchText, searchResultList);
+
+            // 无结果提示
+            if (matchCount === 0) {
+                const empty = document.createElement('div');
+                empty.textContent = '无匹配标签';
+                empty.className = 'search_empty_message';
+                searchResultList.appendChild(empty);
+            }
+
+        } catch (error) {
+            logger.error(`搜索标签数据失败: ${error.message}`);
+            const errorMessage = document.createElement('div');
+            errorMessage.textContent = '搜索失败，请重试';
+            errorMessage.className = 'search_empty_message';
+            searchResultList.appendChild(errorMessage);
+        }
+    }
+
+    /**
+     * 在数据对象中递归搜索标签
+     * @param {Object} dataObj 数据对象
+     * @param {string} searchText 搜索文本
+     * @param {HTMLElement} container 结果容器
+     * @param {Array} categoryPath 分类路径
+     * @returns {number} 匹配的标签数量
+     */
+    static _searchInDataObject(dataObj, searchText, container, categoryPath = [], onMatch) {
+        let localMatchCount = 0;
+
+        for (const [key, value] of Object.entries(dataObj)) {
+            if (typeof value === 'string') {
+                // 这是一个标签
+                const tagName = key;
+                const tagValue = value;
+                const matches = tagName.toLowerCase().includes(searchText) ||
+                    tagValue.toLowerCase().includes(searchText);
+
+                if (matches) {
+                    // 创建标签元素
+                    const tagElement = this._createSearchResultTag(tagName, tagValue, [...categoryPath]);
+                    container.appendChild(tagElement);
+                    localMatchCount++;
+                }
+            } else if (typeof value === 'object' && value !== null) {
+                // 这是一个分类，递归搜索
+                const childMatchCount = this._searchInDataObject(value, searchText, container, [...categoryPath, key]);
+                localMatchCount += childMatchCount;
+            }
+        }
+
+        if (onMatch) {
+            onMatch(localMatchCount);
+        }
+
+        return localMatchCount;
+    }
+
+    /**
+     * 搜索已插入标签
+     * @param {string} searchText 搜索文本
+     * @param {HTMLElement} container 结果容器
+     * @returns {number} 匹配的标签数量
+     */
+    static _searchInsertedTags(searchText, container) {
+        let matchCount = 0;
+        const cache = TagCacheService.getTagCache(this.currentNodeId, this.currentInputId);
+
+        if (cache && cache.size > 0) {
+            cache.forEach((formatInfo, tagValue) => {
+                // 尝试从已加载的DOM中找到对应的标签名
+                let tagName = tagValue; // 默认使用值作为名称
+
+                // 查找已加载的标签元素来获取显示名称
+                const existingTag = document.querySelector(`.tag_item[data-value="${tagValue}"]`);
+                if (existingTag) {
+                    tagName = existingTag.getAttribute('data-name') || tagValue;
+                }
+
+                const matches = tagName.toLowerCase().includes(searchText) ||
+                    tagValue.toLowerCase().includes(searchText);
+
+                if (matches) {
+                    const tagElement = this._createSearchResultTag(tagName, tagValue, ['已插入']);
+                    container.appendChild(tagElement);
+                    matchCount++;
+                }
+            });
+        }
+
+        return matchCount;
+    }
+
+    /**
+     * 创建搜索结果标签元素
+     * @param {string} tagName 标签名称
+     * @param {string} tagValue 标签值
+     * @param {Array} categoryPath 分类路径
+     * @returns {HTMLElement} 标签元素
+     */
+    static _createSearchResultTag(tagName, tagValue, categoryPath) {
+        const tagItem = document.createElement('div');
+        tagItem.className = 'tag_item search_result_tag_item';
+        tagItem.setAttribute('data-name', tagName);
+        tagItem.setAttribute('data-value', tagValue);
+
+        const tagText = document.createElement('span');
+        tagText.className = 'tag_item_text';
+        tagText.textContent = tagName;
+        tagItem.appendChild(tagText);
+
+        // 检查标签是否已使用
+        if (this.isTagUsed(tagValue, this.currentNodeId, this.currentInputId)) {
+            tagItem.classList.add('used');
+        }
+
+        // 添加鼠标事件监听
+        const mouseEnterCleanup = EventManager.addDOMListener(tagItem, 'mouseenter', () => {
+            const tooltipContent = `${tagValue}\n<span class="tooltip_path">类别: ${categoryPath.join(' > ')}</span>`;
+            this._showTooltip(tagItem, tooltipContent);
+        });
+
+        const mouseLeaveCleanup = EventManager.addDOMListener(tagItem, 'mouseleave', () => {
+            this._hideTooltip();
+        });
+
+        // 添加点击事件
+        const tagClickCleanup = EventManager.addDOMListener(tagItem, 'click', (e) => {
+            this.handleTagClick(tagItem, tagName, tagValue, e);
+        });
+
+        this.eventCleanups.push(mouseEnterCleanup, mouseLeaveCleanup, tagClickCleanup);
+
+        return tagItem;
     }
 
     /**

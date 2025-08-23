@@ -87,7 +87,10 @@ class APIConfigManager {
                                         (provider === "siliconflow" ? "Qwen/Qwen2.5-7B-Instruct" : ""),
                                     base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
                                         (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : ""),
-                                    api_key: ""
+                                    api_key: "",
+                                    temperature: 0.7,
+                                    max_tokens: 2000,
+                                    top_p: 0.9
                                 };
                             }
 
@@ -98,7 +101,10 @@ class APIConfigManager {
                                         (provider === "siliconflow" ? "THUDM/GLM-4.1V-9B-Thinking" : ""),
                                     base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
                                         (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : ""),
-                                    api_key: ""
+                                    api_key: "",
+                                    temperature: 0.7,
+                                    max_tokens: 2000,
+                                    top_p: 0.9
                                 };
                             }
                         });
@@ -274,9 +280,43 @@ class APIConfigManager {
         const llmApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
         this.llmApiKey = llmApiKeyInput.input; // 保存引用以供外部函数使用
 
+        // ---模型参数配置---
+        // 创建温度和最大token输入框
+        const llmTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
+        llmTemperatureInput.input.type = 'number';
+        llmTemperatureInput.input.min = '0.1';
+        llmTemperatureInput.input.max = '2.0';
+        llmTemperatureInput.input.step = '0.1';
+        llmTemperatureInput.input.value = '0.7'; // 默认值
+        this.llmTemperature = llmTemperatureInput.input;
+
+        const llmMaxTokensInput = createInputGroup('', '1-32000，控制最大输出长度');
+        llmMaxTokensInput.input.type = 'number';
+        llmMaxTokensInput.input.min = '1';
+        llmMaxTokensInput.input.max = '32000';
+        llmMaxTokensInput.input.step = '1';
+        llmMaxTokensInput.input.value = '2000'; // 默认值
+        this.llmMaxTokens = llmMaxTokensInput.input;
+
+        const llmTopPInput = createInputGroup('', '0.1-1.0，控制核采样范围');
+        llmTopPInput.input.type = 'number';
+        llmTopPInput.input.min = '0.1';
+        llmTopPInput.input.max = '1.0';
+        llmTopPInput.input.step = '0.1';
+        llmTopPInput.input.value = '0.9'; // 默认值
+        this.llmTopP = llmTopPInput.input;
+
+        // 创建模型参数水平布局组（三个参数在同一行）
+        const llmParamsGroup = createHorizontalFormGroup([
+            { label: '温度 (Temperature)', element: this.llmTemperature },
+            { label: '核采样 (Top-P)', element: this.llmTopP },
+            { label: '最大Token数', element: this.llmMaxTokens }
+        ]);
+
         llmSection.appendChild(llmProviderGroup);
         llmSection.appendChild(llmBaseUrlInput.group); // 添加base_url输入框
         llmSection.appendChild(llmApiKeyInput.group);
+        llmSection.appendChild(llmParamsGroup); // 添加模型参数配置（三个参数在同一行）
 
         // 监听LLM提供商选择变化
         llmProvider.select.addEventListener('change', () => {
@@ -304,6 +344,11 @@ class APIConfigManager {
                     this.llmApiKey.dataset.hasKey = 'false';
                 }
 
+                // 加载模型参数
+                this.llmTemperature.value = providerConfig.temperature || '0.7';
+                this.llmMaxTokens.value = providerConfig.max_tokens || '2000';
+                this.llmTopP.value = providerConfig.top_p || '0.9';
+
                 if (provider === 'custom') {
                     this.llmBaseUrl.value = providerConfig.base_url || '';
                 }
@@ -319,6 +364,10 @@ class APIConfigManager {
                 // 清空API Key和base_url
                 this.llmApiKey.value = '';
                 this.llmApiKey.dataset.hasKey = 'false';
+                // 设置默认模型参数
+                this.llmTemperature.value = '0.7';
+                this.llmMaxTokens.value = '2000';
+                this.llmTopP.value = '0.9';
                 if (provider === 'custom') {
                     this.llmBaseUrl.value = '';
                 }
@@ -376,9 +425,43 @@ class APIConfigManager {
         const visionApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
         this.visionApiKey = visionApiKeyInput.input; // 保存引用以供外部函数使用
 
+        // ---视觉模型参数配置---
+        // 创建温度和最大token输入框
+        const visionTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
+        visionTemperatureInput.input.type = 'number';
+        visionTemperatureInput.input.min = '0.1';
+        visionTemperatureInput.input.max = '2.0';
+        visionTemperatureInput.input.step = '0.1';
+        visionTemperatureInput.input.value = '0.7'; // 默认值
+        this.visionTemperature = visionTemperatureInput.input;
+
+        const visionMaxTokensInput = createInputGroup('', '1-32000，控制最大输出长度');
+        visionMaxTokensInput.input.type = 'number';
+        visionMaxTokensInput.input.min = '1';
+        visionMaxTokensInput.input.max = '32000';
+        visionMaxTokensInput.input.step = '1';
+        visionMaxTokensInput.input.value = '2000'; // 默认值
+        this.visionMaxTokens = visionMaxTokensInput.input;
+
+        const visionTopPInput = createInputGroup('', '0.1-1.0，控制核采样范围');
+        visionTopPInput.input.type = 'number';
+        visionTopPInput.input.min = '0.1';
+        visionTopPInput.input.max = '1.0';
+        visionTopPInput.input.step = '0.1';
+        visionTopPInput.input.value = '0.9'; // 默认值
+        this.visionTopP = visionTopPInput.input;
+
+        // 创建视觉模型参数水平布局组（三个参数在同一行）
+        const visionParamsGroup = createHorizontalFormGroup([
+            { label: '温度 (Temperature)', element: this.visionTemperature },
+            { label: '核采样 (Top-P)', element: this.visionTopP },
+            { label: '最大Token数', element: this.visionMaxTokens }
+        ]);
+
         visionSection.appendChild(visionProviderGroup);
         visionSection.appendChild(visionBaseUrlInput.group); // 添加base_url输入框
         visionSection.appendChild(visionApiKeyInput.group);
+        visionSection.appendChild(visionParamsGroup); // 添加视觉模型参数配置（三个参数在同一行）
 
         // 监听视觉模型提供商选择变化
         visionProvider.select.addEventListener('change', () => {
@@ -406,6 +489,11 @@ class APIConfigManager {
                     this.visionApiKey.dataset.hasKey = 'false';
                 }
 
+                // 加载模型参数
+                this.visionTemperature.value = providerConfig.temperature || '0.7';
+                this.visionMaxTokens.value = providerConfig.max_tokens || '2000';
+                this.visionTopP.value = providerConfig.top_p || '0.9';
+
                 if (provider === 'custom') {
                     this.visionBaseUrl.value = providerConfig.base_url || '';
                 }
@@ -421,6 +509,10 @@ class APIConfigManager {
                 // 清空API Key和base_url
                 this.visionApiKey.value = '';
                 this.visionApiKey.dataset.hasKey = 'false';
+                // 设置默认模型参数
+                this.visionTemperature.value = '0.7';
+                this.visionMaxTokens.value = '2000';
+                this.visionTopP.value = '0.9';
                 if (provider === 'custom') {
                     this.visionBaseUrl.value = '';
                 }
@@ -528,6 +620,16 @@ class APIConfigManager {
                 // 使用掩码显示密钥
                 this._setMaskedValue(this.llmApiKey, llmConfig.api_key);
             }
+            // 加载模型参数
+            if (llmConfig.temperature !== undefined) {
+                this.llmTemperature.value = llmConfig.temperature;
+            }
+            if (llmConfig.max_tokens !== undefined) {
+                this.llmMaxTokens.value = llmConfig.max_tokens;
+            }
+            if (llmConfig.top_p !== undefined) {
+                this.llmTopP.value = llmConfig.top_p;
+            }
             if (llmConfig.base_url && llmConfig.provider === 'custom') {
                 this.llmBaseUrl.value = llmConfig.base_url;
             }
@@ -544,6 +646,16 @@ class APIConfigManager {
                 // 使用掩码显示密钥
                 this._setMaskedValue(this.visionApiKey, visionConfig.api_key);
             }
+            // 加载视觉模型参数
+            if (visionConfig.temperature !== undefined) {
+                this.visionTemperature.value = visionConfig.temperature;
+            }
+            if (visionConfig.max_tokens !== undefined) {
+                this.visionMaxTokens.value = visionConfig.max_tokens;
+            }
+            if (visionConfig.top_p !== undefined) {
+                this.visionTopP.value = visionConfig.top_p;
+            }
             if (visionConfig.base_url && visionConfig.provider === 'custom') {
                 this.visionBaseUrl.value = visionConfig.base_url;
             }
@@ -551,8 +663,18 @@ class APIConfigManager {
             // 将表单控件暴露给保存回调
             container.formControls = {
                 baidu: { appId: this.baiduAppId, secret: this.baiduSecret },
-                llm: { provider: this.llmProvider },
-                vision: { provider: this.visionProvider }
+                llm: {
+                    provider: this.llmProvider,
+                    temperature: this.llmTemperature,
+                    top_p: this.llmTopP,
+                    max_tokens: this.llmMaxTokens
+                },
+                vision: {
+                    provider: this.visionProvider,
+                    temperature: this.visionTemperature,
+                    top_p: this.visionTopP,
+                    max_tokens: this.visionMaxTokens
+                }
             };
         } catch (error) {
             logger.error("加载API配置失败:", error);
@@ -596,7 +718,10 @@ class APIConfigManager {
         // 创建提供商配置对象
         const providerConfig = {
             model: this.llmModel.value.trim(),
-            base_url: baseUrl
+            base_url: baseUrl,
+            temperature: parseFloat(this.llmTemperature.value) || 0.7,
+            max_tokens: parseInt(this.llmMaxTokens.value) || 2000,
+            top_p: parseFloat(this.llmTopP.value) || 0.9
         };
 
         // 保留现有配置中的has_key标记
@@ -653,7 +778,10 @@ class APIConfigManager {
         // 创建提供商配置对象
         const providerConfig = {
             model: this.visionModel.value.trim(),
-            base_url: baseUrl
+            base_url: baseUrl,
+            temperature: parseFloat(this.visionTemperature.value) || 0.7,
+            max_tokens: parseInt(this.visionMaxTokens.value) || 2000,
+            top_p: parseFloat(this.visionTopP.value) || 0.9
         };
 
         // 保留现有配置中的has_key标记

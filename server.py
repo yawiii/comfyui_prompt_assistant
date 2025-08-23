@@ -26,53 +26,7 @@ API_PREFIX = '/prompt_assistant/api'
 # print(f"{PREFIX} 正在验证激活提示词配置...")
 config_manager.validate_and_fix_active_prompts()
 
-def send_toast_notification(client_id, severity, summary, detail=None, life=3000):
-    """
-    向前端发送toast通知
-    
-    Args:
-        client_id: 客户端ID
-        severity: 通知级别 (success, info, warn, error)
-        summary: 通知标题
-        detail: 通知详细内容
-        life: 通知显示时间(毫秒)
-    """
-    if client_id is None:
-        client_id = PromptServer.instance.client_id
-        
-    if client_id is None:
-        return
-        
-    PromptServer.instance.send_sync("prompt_assistant/toast", {
-        "severity": severity,
-        "summary": summary,
-        "detail": detail,
-        "life": life
-    }, client_id)
 
-async def send_toast_notification_async(client_id, severity, summary, detail=None, life=3000):
-    """
-    异步向前端发送toast通知
-    
-    Args:
-        client_id: 客户端ID
-        severity: 通知级别 (success, info, warn, error)
-        summary: 通知标题
-        detail: 通知详细内容
-        life: 通知显示时间(毫秒)
-    """
-    if client_id is None:
-        client_id = PromptServer.instance.client_id
-        
-    if client_id is None:
-        return
-        
-    await PromptServer.instance.send("prompt_assistant/toast", {
-        "severity": severity,
-        "summary": summary,
-        "detail": detail,
-        "life": life
-    }, client_id)
 
 # 用于跟踪正在进行的异步任务
 ACTIVE_TASKS = {}
@@ -339,13 +293,19 @@ async def update_llm_config(request):
                 model = provider_config.get('model')
                 api_key = provider_config.get('api_key')
                 base_url = provider_config.get('base_url')
-                
+                temperature = provider_config.get('temperature')
+                max_tokens = provider_config.get('max_tokens')
+                top_p = provider_config.get('top_p')
+
                 # 更新配置，但不更新current_provider
                 success = success and config_manager.update_llm_config(
                     provider=provider,
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    top_p=top_p,
                     update_current=False
                 )
                 
@@ -392,13 +352,19 @@ async def update_vision_config(request):
                 model = provider_config.get('model')
                 api_key = provider_config.get('api_key')
                 base_url = provider_config.get('base_url')
-                
+                temperature = provider_config.get('temperature')
+                max_tokens = provider_config.get('max_tokens')
+                top_p = provider_config.get('top_p')
+
                 # 更新配置，但不更新current_provider
                 success = success and config_manager.update_vision_config(
                     provider=provider,
                     model=model,
                     base_url=base_url,
                     api_key=api_key,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    top_p=top_p,
                     update_current=False
                 )
                 
@@ -573,13 +539,18 @@ async def vlm_analyze(request):
         data = await request.json()
         image_data = data.get("image")
         request_id = data.get("request_id")
-        lang = data.get("lang", "zh")
+        # 从请求中获取提示词内容，这是关键的修复
+        prompt_content = data.get("prompt")
 
         if not request_id:
             return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
 
-        # 创建并注册任务
-        task = asyncio.create_task(VisionService.analyze_image(image_data, request_id, lang))
+        # 创建并注册任务，使用新的接口签名
+        task = asyncio.create_task(VisionService.analyze_image(
+            image_data=image_data,
+            request_id=request_id,
+            prompt_content=prompt_content
+        ))
         ACTIVE_TASKS[request_id] = task
 
         result = await task

@@ -760,8 +760,27 @@ class ImageCaption {
                 imageBase64 = `data:image/jpeg;base64,${imageBase64}`;
             }
 
-            // 调用图像分析服务，传入语言参数
-            const result = await APIService.llmAnalyzeImage(imageBase64, lang, currentRequestId);
+            // 获取当前激活的提示词内容
+            let promptContent = '';
+            try {
+                const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                if (response.ok) {
+                    const data = await response.json();
+                    const activePromptKey = `vision_${lang}`;
+                    const activePromptId = data.active_prompts?.[activePromptKey];
+                    if (activePromptId && data.vision_prompts?.[activePromptId]) {
+                        promptContent = data.vision_prompts[activePromptId].content;
+                    }
+                }
+                if (!promptContent) {
+                    throw new Error(`未找到有效的 ${lang === 'zh' ? '中文' : '英文'} 反推提示词`);
+                }
+            } catch (error) {
+                throw new Error(`获取反推规则失败: ${error.message}`);
+            }
+
+            // 调用图像分析服务，传入提示词内容
+            const result = await APIService.llmAnalyzeImage(imageBase64, promptContent, currentRequestId);
 
             // 清除当前请求ID
             assistant.currentRequestId = null;
