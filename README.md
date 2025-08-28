@@ -21,6 +21,22 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 ## 📣更新
 <details>
+ <summary>[2025-8-28]V1.1.3： </summary>
+  
+- 优化小助手UI，实现自动避开滚动条，避免重叠误触
+- 修复标签弹窗无滚动条，内容显示不全的问题
+  
+</details>
+<details>
+ <summary>[2025-8-23]V1.1.2： </summary>
+  
+- 重构节点，解决执行时产生多队列和重复执行的问题
+- API配置界面添加模型参数，某些报错可以尝试调整最大token数解决
+- 简化图像反推流程，提升反推速度
+- 修复了标签按需加载时，无法搜索到未加载的标签
+  
+</details>
+<details>
  <summary>[2025-8-10]V1.1.1： </summary>
   
 -修复图像反推节点报错
@@ -140,6 +156,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
