@@ -15,7 +15,8 @@
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
     min-width: 600px;
     max-width: 600px;
-    max-height: 400px;
+    min-height: 200px;
+    max-height: 80vh; /* 使用视窗高度的80%作为最大高度 */
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -236,12 +237,12 @@
 
 /* 弹窗内容区域 */
 .popup_content {
-    max-height: 300px;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%) transparent;
-    flex: 1;
-
+    min-height: 0; /* 允许flex收缩 */
 }
 
 .popup_content::-webkit-scrollbar {
@@ -419,13 +420,12 @@
 }
 
 .tag_accordion_header:hover {
-    background-color: color-mix(in srgb, var(--p-primary-500), transparent 84%);
+    background-color: color-mix(in srgb, var(--p-surface-400), transparent 80%);
 
 }
 
 .tag_accordion_header.active {
-    background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 50%);
-    ;
+    background-color: color-mix(in srgb, var(--p-primary-400), transparent 85%);
     border-bottom-left-radius: 0;
     border-bottom-right-radius: 0;
 }
@@ -452,6 +452,7 @@
 /* 添加手风琴图标尺寸控制 */
 .tag_accordion_icon .pi {
     font-size: 12px;
+    transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .tag_accordion_icon img,
@@ -459,7 +460,7 @@
 .accordion_arrow_icon {
     width: 10px;
     height: 10px;
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 .tag_accordion_icon img,
@@ -475,25 +476,42 @@
     overflow: hidden;
     cursor: default;
     /* 确保内容区域使用默认指针 */
-    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    /* 移除CSS过渡，改为JavaScript控制动画 */
 }
 
 .tag_accordion_content.active {
     display: block;
-    max-height: 200px;
+    max-height: none; /* 移除高度限制，让内容自适应 */
     padding: 2px 0;
-    overflow-y: auto;
+    overflow: visible; /* 移除滚动条，让父容器处理滚动 */
     cursor: default;
     /* 确保激活状态下内容区域也使用默认指针 */
 }
 
+/* 优化手风琴动画性能 */
+.tag_accordion_content {
+    will-change: max-height, padding; /* 提示浏览器优化这些属性的动画 */
+    transform: translateZ(0); /* 启用硬件加速 */
+    backface-visibility: hidden; /* 避免背面可见性问题 */
+}
+
+/* 旋转图标优化 */
+.rotate-180 {
+    transform: rotate(180deg);
+}
+
+.pi.rotate-180,
+.accordion_arrow_icon.rotate-180 {
+    transform: rotate(180deg);
+}
+
 /* 标签容器样式 */
 .tag_category_container {
-    max-height: 300px;
-    overflow-y: auto;
+    flex: 1;
+    overflow: visible; /* 移除滚动条，让父容器处理滚动 */
     padding: 4px;
     position: relative;
-    flex: 1;
+    min-height: 0; /* 允许flex收缩 */
 }
 
 /* 标签项样式 */
@@ -724,11 +742,13 @@
 /* Tab内容容器 */
 .popup_container .popup_tab_content {
     display: none;
-    max-height: 290px;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--p-button-text-secondary-color), transparent 50%) transparent;
     padding-bottom: 8px;
+    min-height: 0; /* 允许flex收缩 */
 }
 
 .popup_container .popup_tab_content::-webkit-scrollbar {
@@ -745,7 +765,8 @@
 }
 
 .popup_container .popup_tab_content.active {
-    display: block;
+    display: flex;
+    flex-direction: column;
 }
 
 /* 滚动指示器 - PrimeVue 风格 */
@@ -893,17 +914,25 @@
 
 /* 标签弹窗的内容区域适应动态高度 */
 .popup_container.tag_popup .popup_tab_content {
-    max-height: none;
-    /* 移除固定高度限制 */
-    height: calc(100% - 50px);
-    /* 动态计算高度，减去标题栏和标签栏的高度 */
+    flex: 1;
+    min-height: 0; /* 允许flex收缩 */
+    overflow-y: auto; /* 只有标签页内容容器有滚动条 */
+    overflow-x: hidden;
 }
 
 .popup_container.tag_popup .tag_category_container {
-    max-height: none;
-    /* 移除固定高度限制 */
-    height: 100%;
-    /* 占满可用高度 */
+    flex: 1;
+    min-height: 0; /* 允许flex收缩 */
+    overflow: visible; /* 移除滚动条，让父容器处理 */
+}
+
+/* 确保手风琴内容不产生滚动条 */
+.popup_container.tag_popup .tag_accordion_content {
+    overflow: visible !important;
+}
+
+.popup_container.tag_popup .tag_accordion_content.active {
+    overflow: visible !important;
 }
 
 .popup_container.tag_popup .tag_search_result_list {

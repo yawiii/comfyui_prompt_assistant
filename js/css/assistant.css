@@ -22,7 +22,7 @@
     backdrop-filter: blur(4px);
     transform-origin: bottom right;
     user-select: none;
-    will-change: width, opacity, background-color, border-color, backdrop-filter, box-shadow;
+    will-change: width, opacity, background-color, border-color, backdrop-filter, box-shadow, right, left;
     width: auto;
     height: 26px !important;
     max-width: fit-content;
@@ -97,10 +97,10 @@
 /* 悬停区域 - 用于检测鼠标悬停 */
 .prompt-assistant-hover-area {
     position: absolute;
-    top: 0;
-    right: 6px;
-    width: 16px;
-    height: 100%;
+    top: 2px;
+    right: 2px;
+    width: 80%;
+    height: 90%;
     z-index: 1;
     /* 降低z-index，确保在按钮下方 */
     cursor: pointer;
@@ -276,6 +276,18 @@
     flex-shrink: 0;
     transform: translateZ(0);
     border-radius: 0.5px;
+}
+
+/* 过渡效果类 */
+.prompt-assistant-transition {
+    transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+        border-color 0.5s ease-out,
+        backdrop-filter 0.5s ease-out,
+        box-shadow 0.2s ease-out,
+        background-color 0.5s ease-out,
+        right 0.2s ease-out,
+        left 0.2s ease-out;
 }
 
 /* 显示动画类 */

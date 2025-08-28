@@ -635,11 +635,38 @@ class PromptAssistant {
             widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
             widget._eventCleanupFunctions.push(removeBlurListener);
 
-            // 添加输入事件监听，实时更新撤销/重做按钮状态
+            // 添加输入事件监听，实时更新撤销/重做按钮状态和位置调整
             const removeInputListener = EventManager.addDOMListener(inputWidget.inputEl, 'input', () => {
                 UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
+                // 检测滚动条状态并调整位置
+                this._adjustPositionForScrollbar(widget, inputWidget.inputEl);
             });
             widget._eventCleanupFunctions.push(removeInputListener);
+
+            // 添加ResizeObserver监听输入框尺寸变化
+            if (window.ResizeObserver) {
+                const resizeObserver = new ResizeObserver(() => {
+                    // 延迟执行，确保浏览器完成布局更新
+                    setTimeout(() => {
+                        this._adjustPositionForScrollbar(widget, inputWidget.inputEl);
+                    }, 10);
+                });
+
+                resizeObserver.observe(inputWidget.inputEl);
+
+                // 添加清理函数
+                widget._eventCleanupFunctions.push(() => {
+                    resizeObserver.disconnect();
+                });
+            } else {
+                // 降级方案：监听window resize事件
+                const removeResizeListener = EventManager.addDOMListener(window, 'resize',
+                    EventManager.debounce(() => {
+                        this._adjustPositionForScrollbar(widget, inputWidget.inputEl);
+                    }, 100)
+                );
+                widget._eventCleanupFunctions.push(removeResizeListener);
+            }
         }
 
         return widget;
@@ -704,6 +731,11 @@ class PromptAssistant {
             this.addFunctionButtons(widget);
             this._setupUIEventHandling(widget, inputEl, containerDiv);
             this._setupUIPosition(widget, inputEl, containerDiv, canvasContainerRect);
+
+            // 初始滚动条检测和位置调整
+            setTimeout(() => {
+                this._adjustPositionForScrollbar(widget, inputEl);
+            }, 100); // 延迟执行，确保DOM完全渲染
 
             // 默认隐藏状态
             containerDiv.style.display = 'none';
@@ -1968,6 +2000,65 @@ class PromptAssistant {
     }
 
     /**
+     * 检测输入框是否有滚动条
+     * @param {HTMLElement} inputEl - 输入框元素
+     * @returns {boolean} 是否有垂直滚动条
+     */
+    _detectScrollbar(inputEl) {
+        if (!inputEl || inputEl.tagName !== 'TEXTAREA') {
+            return false;
+        }
+
+        try {
+            // 检查垂直滚动条：scrollHeight > clientHeight
+            const hasVerticalScrollbar = inputEl.scrollHeight > inputEl.clientHeight;
+            logger.debug(`[滚动条检测] 输入框滚动状态 | scrollHeight: ${inputEl.scrollHeight} | clientHeight: ${inputEl.clientHeight} | 有滚动条: ${hasVerticalScrollbar}`);
+            return hasVerticalScrollbar;
+        } catch (error) {
+            logger.error(`[滚动条检测] 检测失败 | 错误: ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 根据滚动条状态调整小助手位置
+     * @param {Object} widget - 小助手实例
+     * @param {HTMLElement} inputEl - 输入框元素
+     */
+    _adjustPositionForScrollbar(widget, inputEl) {
+        if (!widget?.element || !inputEl) return;
+
+        const hasScrollbar = this._detectScrollbar(inputEl);
+        const containerDiv = widget.element;
+
+        // 检查当前定位模式
+        const isStandardMode = containerDiv.style.position !== 'fixed';
+
+        if (isStandardMode) {
+            // ---标准定位模式调整---
+            const rightOffset = hasScrollbar ? '16px' : '4px'; // 有滚动条时向左偏移10px
+            containerDiv.style.right = rightOffset;
+            logger.debug(`[位置调整] 标准方案 | 有滚动条: ${hasScrollbar} | 右偏移: ${rightOffset}`);
+        } else {
+            // ---兼容定位模式调整---
+            // 需要重新计算位置，因为固定定位使用的是left属性
+            const inputRect = inputEl.getBoundingClientRect();
+            const offsetRight = hasScrollbar ? 18 : 6; // 有滚动条时增加10px偏移
+
+            // 临时隐藏以获取正确尺寸
+            containerDiv.style.visibility = 'hidden';
+            void containerDiv.offsetWidth;
+
+            // 计算新位置
+            const newLeft = inputRect.right - containerDiv.offsetWidth - offsetRight;
+            containerDiv.style.left = `${newLeft}px`;
+            containerDiv.style.visibility = 'visible';
+
+            logger.debug(`[位置调整] 兼容方案 | 有滚动条: ${hasScrollbar} | 左偏移: ${newLeft}px`);
+        }
+    }
+
+    /**
      * 设置UI位置
      * 使用绝对定位方式
      */
@@ -2116,8 +2207,9 @@ class PromptAssistant {
                         // 强制回流以获取正确尺寸
                         void containerDiv.offsetWidth;
 
-                        // 现在设置位置 - 放置在输入框右下角
-                        const offsetRight = 6; // 右侧偏移
+                        // 现在设置位置 - 放置在输入框右下角，考虑滚动条状态
+                        const hasScrollbar = inputEl.tagName === 'TEXTAREA' && inputEl.scrollHeight > inputEl.clientHeight;
+                        const offsetRight = hasScrollbar ? 16 : 6; // 有滚动条时增加10px偏移
                         const offsetBottom = 4;
 
                         containerDiv.style.left = `${inputRect.right - containerDiv.offsetWidth - offsetRight}px`;

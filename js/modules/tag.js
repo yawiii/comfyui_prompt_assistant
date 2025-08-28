@@ -337,6 +337,147 @@ class TagManager {
     }
 
     /**
+     * 优化的手风琴切换方法 - 使用动态高度计算，解决跳帧问题
+     */
+    static _toggleAccordion(header, content, headerIcon) {
+        const isExpanding = !header.classList.contains('active');
+
+        // 防止重复触发动画
+        if (content.dataset.animating === 'true') {
+            return;
+        }
+
+        // 标记动画状态
+        content.dataset.animating = 'true';
+
+        if (isExpanding) {
+            // 展开手风琴
+            header.classList.add('active');
+            content.classList.add('active');
+
+            // 临时移除过渡效果来测量高度
+            content.style.transition = 'none';
+            content.style.maxHeight = 'none';
+            content.style.overflow = 'visible';
+            content.style.padding = '2px 0'; // 确保padding正确
+
+            // 强制回流并获取准确高度
+            void content.offsetHeight;
+            const contentHeight = content.scrollHeight;
+
+            // 设置动画起始状态
+            content.style.maxHeight = '0px';
+            content.style.padding = '0';
+            content.style.overflow = 'hidden';
+
+            // 再次强制回流
+            void content.offsetHeight;
+
+            // 启用过渡效果并开始动画
+            content.style.transition = 'max-height 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), padding 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+
+            // 使用requestAnimationFrame确保动画平滑
+            requestAnimationFrame(() => {
+                content.style.maxHeight = contentHeight + 'px';
+                content.style.padding = '2px 0';
+            });
+
+            // 监听动画结束事件
+            const handleTransitionEnd = (e) => {
+                if (e.target === content && e.propertyName === 'max-height') {
+                    content.removeEventListener('transitionend', handleTransitionEnd);
+
+                    // 动画完成后的清理工作
+                    if (content.classList.contains('active')) {
+                        content.style.maxHeight = 'none';
+                        content.style.overflow = 'visible';
+                        content.style.transition = '';
+                    }
+
+                    // 清除动画状态标记
+                    content.dataset.animating = 'false';
+                }
+            };
+
+            content.addEventListener('transitionend', handleTransitionEnd);
+
+            // 备用清理机制（防止事件未触发）
+            setTimeout(() => {
+                if (content.dataset.animating === 'true') {
+                    content.dataset.animating = 'false';
+                    if (content.classList.contains('active')) {
+                        content.style.maxHeight = 'none';
+                        content.style.overflow = 'visible';
+                        content.style.transition = '';
+                    }
+                }
+            }, 250); // 调整为0.2s + 50ms缓冲
+
+        } else {
+            // 收起手风琴
+            // 立即移除header的active类以更新视觉状态
+            header.classList.remove('active');
+
+            // 获取当前高度作为动画起点
+            const currentHeight = content.scrollHeight;
+
+            // 设置起始状态
+            content.style.transition = 'none';
+            content.style.maxHeight = currentHeight + 'px';
+            content.style.overflow = 'hidden';
+
+            // 强制回流
+            void content.offsetHeight;
+
+            // 启用过渡效果
+            content.style.transition = 'max-height 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94), padding 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+
+            // 使用requestAnimationFrame确保动画平滑
+            requestAnimationFrame(() => {
+                content.style.maxHeight = '0px';
+                content.style.padding = '0';
+            });
+
+            // 监听动画结束事件
+            const handleTransitionEnd = (e) => {
+                if (e.target === content && e.propertyName === 'max-height') {
+                    content.removeEventListener('transitionend', handleTransitionEnd);
+
+                    // 动画完成后移除active类和清理样式
+                    content.classList.remove('active');
+                    content.style.transition = '';
+                    content.style.maxHeight = '';
+                    content.style.padding = '';
+                    content.style.overflow = '';
+
+                    // 清除动画状态标记
+                    content.dataset.animating = 'false';
+                }
+            };
+
+            content.addEventListener('transitionend', handleTransitionEnd);
+
+            // 备用清理机制（防止事件未触发）
+            setTimeout(() => {
+                if (content.dataset.animating === 'true') {
+                    content.dataset.animating = 'false';
+                    content.classList.remove('active');
+                    content.style.transition = '';
+                    content.style.maxHeight = '';
+                    content.style.padding = '';
+                    content.style.overflow = '';
+                }
+            }, 250); // 调整为0.2s + 50ms缓冲
+        }
+
+        // 切换图标旋转
+        const arrowIcon = headerIcon.querySelector('.pi.pi-chevron-down, .accordion_arrow_icon');
+        if (arrowIcon) {
+            arrowIcon.classList.toggle('rotate-180');
+        }
+    }
+
+    /**
      * 递归创建标签结构
      */
     static _createAccordionContent(data, level = '0') {
@@ -367,6 +508,10 @@ class TagManager {
             tabContents.style.overflow = 'hidden';
             tabContents.style.display = 'flex';
             tabContents.style.flexDirection = 'column';
+            tabContents.style.flex = '1'; // 确保内容区域占满剩余空间
+            tabContents.style.minHeight = '0'; // 允许flex收缩
+            tabContents.style.flex = '1'; // 确保内容区域占满剩余空间
+            tabContents.style.minHeight = '0'; // 允许flex收缩
 
             // 获取所有一级分类
             const categories = Object.keys(data);
@@ -503,7 +648,8 @@ class TagManager {
                     const content = tabContents.querySelector(`.popup_tab_content[data-category="${contentId}"]`);
                     if (content) {
                         content.classList.add('active');
-                        content.style.display = 'block';
+                        content.style.display = 'flex';
+                        content.style.flexDirection = 'column';
                     }
 
                     // 改进滚动逻辑：确保选中的标签完全可见
@@ -536,11 +682,14 @@ class TagManager {
                 content.setAttribute('data-category', category);
                 content.style.flex = '1';
                 content.style.display = 'none';
+                content.style.minHeight = '0'; // 允许flex收缩
+                content.style.overflow = 'auto'; // 确保内容溢出时显示滚动条
 
                 // 第一个内容默认显示
                 if (index === 0) {
                     content.classList.add('active');
-                    content.style.display = 'block';
+                    content.style.display = 'flex';
+                    content.style.flexDirection = 'column';
                 }
 
                 // 递归创建子内容（二级分类开始使用手风琴）
@@ -567,6 +716,7 @@ class TagManager {
             // 非顶级分类使用普通容器
             const container = document.createElement('div');
             container.className = 'tag_category_container';
+            container.style.overflow = 'visible'; // 移除滚动条，让父容器处理
 
             // 跟踪当前层级的第一个手风琴
             let isFirstAccordionInLevel = true;
@@ -670,14 +820,11 @@ class TagManager {
                                         const parentAccordion = otherHeader.closest('.tag_accordion');
                                         // 确保是同级的手风琴
                                         if (parentAccordion && parentAccordion.getAttribute('data-level') === currentLevel) {
-                                            otherHeader.classList.remove('active');
                                             const otherContent = otherHeader.nextElementSibling;
-                                            if (otherContent && otherContent.classList.contains('active')) {
-                                                otherContent.classList.remove('active');
-                                            }
-                                            const otherIcon = otherHeader.querySelector('.pi.pi-chevron-down');
-                                            if (otherIcon) {
-                                                otherIcon.classList.remove('rotate-180');
+                                            const otherHeaderIcon = otherHeader.querySelector('.tag_accordion_icon');
+                                            // 使用优化的切换方法关闭其他手风琴
+                                            if (otherHeader.classList.contains('active')) {
+                                                this._toggleAccordion(otherHeader, otherContent, otherHeaderIcon);
                                             }
                                         }
                                     }
@@ -685,14 +832,8 @@ class TagManager {
                             }
                         }
 
-                        // 切换当前手风琴状态
-                        header.classList.toggle('active');
-                        content.classList.toggle('active');
-                        // 图标旋转
-                        const toggleArrowIcon = headerIcon.querySelector('.pi.pi-chevron-down');
-                        if (toggleArrowIcon) {
-                            toggleArrowIcon.classList.toggle('rotate-180');
-                        }
+                        // 使用优化的切换方法切换当前手风琴
+                        this._toggleAccordion(header, content, headerIcon);
                     });
 
                     this.eventCleanups.push(accordionCleanup);
@@ -798,8 +939,8 @@ class TagManager {
         const container = document.createElement('div');
         container.className = 'tag_category_container';
         container.style.flex = '1';
-        container.style.overflow = 'auto';
-        container.style.maxHeight = 'none';
+        container.style.overflow = 'visible'; // 移除滚动条，让父容器处理
+        container.style.minHeight = '0'; // 允许flex收缩
 
         // 跟踪是否为第一个手风琴
         let isFirstAccordion = true;
@@ -833,7 +974,8 @@ class TagManager {
 
                 // 递归创建子内容
                 const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString());
-                childContent.style.maxHeight = '160px'; // 限制嵌套内容高度
+                childContent.style.flex = '1'; // 让子内容占满可用空间
+                childContent.style.minHeight = '0'; // 允许flex收缩
                 content.appendChild(childContent);
 
                 // 如果是第一个手风琴，默认展开
@@ -857,27 +999,18 @@ class TagManager {
                             const otherAccordions = parentTab.querySelectorAll('.tag_accordion_header.active');
                             otherAccordions.forEach(otherHeader => {
                                 if (otherHeader !== header) {
-                                    otherHeader.classList.remove('active');
                                     const otherContent = otherHeader.nextElementSibling;
-                                    if (otherContent && otherContent.classList.contains('active')) {
-                                        otherContent.classList.remove('active');
-                                    }
-                                    const otherIcon = otherHeader.querySelector('.accordion_arrow_icon');
-                                    if (otherIcon) {
-                                        otherIcon.classList.remove('rotate-180');
+                                    const otherHeaderIcon = otherHeader.querySelector('.tag_accordion_icon');
+                                    // 使用优化的切换方法关闭其他手风琴
+                                    if (otherHeader.classList.contains('active')) {
+                                        this._toggleAccordion(otherHeader, otherContent, otherHeaderIcon);
                                     }
                                 }
                             });
                         }
                     }
-                    // 切换当前手风琴状态
-                    header.classList.toggle('active');
-                    content.classList.toggle('active');
-                    // 图标旋转
-                    const toggleIcon = headerIcon.querySelector('.accordion_arrow_icon');
-                    if (toggleIcon) {
-                        toggleIcon.classList.toggle('rotate-180');
-                    }
+                    // 使用优化的切换方法切换当前手风琴
+                    this._toggleAccordion(header, content, headerIcon);
                 });
 
                 this.eventCleanups.push(accordionCleanup);
@@ -1131,7 +1264,8 @@ class TagManager {
                 const content = tabContents.querySelector(`.popup_tab_content[data-category="${contentId}"]`);
                 if (content) {
                     content.classList.add('active');
-                    content.style.display = 'block';
+                    content.style.display = 'flex';
+                    content.style.flexDirection = 'column';
 
                     // 如果内容还没有加载，加载它
                     if (content.getAttribute('data-loaded') !== 'true') {
@@ -1166,11 +1300,14 @@ class TagManager {
             content.setAttribute('data-loaded', 'false'); // 标记为未加载
             content.style.flex = '1';
             content.style.display = 'none';
+            content.style.minHeight = '0'; // 允许flex收缩
+            content.style.overflow = 'auto'; // 确保内容溢出时显示滚动条
 
             // 第一个内容默认显示
             if (index === 0) {
                 content.classList.add('active');
-                content.style.display = 'block';
+                content.style.display = 'flex';
+                content.style.flexDirection = 'column';
             }
 
             tabContents.appendChild(content);
@@ -1275,11 +1412,12 @@ class TagManager {
         try {
             // 创建弹窗容器
             const popup = document.createElement('div');
-            popup.className = 'popup_container';
+            popup.className = 'popup_container tag_popup'; // 添加tag_popup类用于特定样式
             popup.style.display = 'flex';
             popup.style.flexDirection = 'column';
             popup.style.minHeight = '400px'; // 设置最小高度，确保 PopupManager 可以正确计算位置
             popup.style.maxHeight = '80vh';  // 设置最大高度，防止弹窗过大
+            popup.style.height = 'auto';     // 允许高度自适应内容
 
             // 创建标题栏
             const titleBar = document.createElement('div');

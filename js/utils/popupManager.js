@@ -454,8 +454,12 @@ class PopupManager {
 
             // 设置初始显示以获取尺寸
             popup.style.visibility = 'hidden';
-            popup.style.display = 'block';
+            popup.style.display = 'flex'; // 使用flex布局
+            popup.style.flexDirection = 'column';
             document.body.appendChild(popup);
+
+            // 强制回流以确保获取准确的尺寸
+            void popup.offsetWidth;
             const popupRect = popup.getBoundingClientRect();
             document.body.removeChild(popup);
             popup.style.visibility = 'visible';
