@@ -1,7 +1,8 @@
 [project]
 name = "prompt-assistant"
-version = "1.1.2"
-description = "提示词小助手（Prompt Assistant），是一个无需添加任何节点，即可实现提示词翻译、扩写、图片反推提示词、预设标签插入、历史记录功能等功能的自定义扩展。"
+version = "1.1.3"
+description = "提示词小助手（Prompt Assistant）可以一键调用大语言模型，实现提示词翻译、润色扩写、图片反推提示词，支持自定义规则。还提供了提示词预设实现一键插入、历史提示词查找功能等功能。支持调用智谱、硅基流动、gemini、本地ollama、百度等服务，是一个全能型提示词插件。The Prompt Assistant enables one-click access to LLMs or VLMs, supporting prompt translation, polish & expansion, image-to-prompt captioning, and custom rules. It also offers one-click insertion of preset prompts and historical prompt search.
+Compatible with Gemini,ChatGPT,GLM,DeepSeek,claude,Ollama,It’s a true all-in-one prompt extension tailored for ComfyUI."
 readme = "README.md"
 license = {text = "GNU General Public License v3"}
 classifiers = [
