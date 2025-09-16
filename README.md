@@ -21,6 +21,21 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 ## 📣更新
 <details>
+ <summary>[2025-9-16]V1.2.0： </summary>
+  
+- 新增302ai、ollama服务
+- 标签面板新增记忆功能
+- 右键菜单支持快速切换服务
+- 针对某些主流模型支持关闭思维链
+- 优化反推和翻译节点
+- 新增交流反馈入口徽标
+- 修复下拉菜单bug
+- 修复标签面板搜索标签无法插入bug
+- 修复base_url裁剪错误，解决偶发性请求报错
+</details>
+<details>
+ <summary>V1.1.x </summary>
+<details>
  <summary>[2025-8-28]V1.1.3： </summary>
   
 - 优化小助手UI，实现自动避开滚动条，避免重叠误触
@@ -52,6 +67,9 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 - 新增图像反推、Kontext预设、翻译节点节点
   
 </details>
+</details>
+<details>
+ <summary>V1.0.x </summary>
 <details>
  <summary>[2025-6-24]V1.0.6： </summary>
   
@@ -105,6 +123,8 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
   
 - 历史、撤销、重做
 </details>
+</details>
+
 
 ## ✨ 功能介绍
 
@@ -156,6 +176,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
