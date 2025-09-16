@@ -280,10 +280,9 @@ class PromptAssistant {
     cleanup(nodeId = null, silent = false) {
         // 如果正在切换工作流，则只清理UI实例，不删除缓存
         if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
-            // 单个节点清理时打印详细日志，全局清理时打印简化日志
-            if (nodeId !== null) {
-                logger.debug(`[清理跳过] 正在切换工作流，仅清理提示词小助手UI，节点ID: ${nodeId}`);
-            }
+            // 简化日志：工作流切换期间不逐条打印节点清理日志，避免高频刷屏
+            // 如需排查问题，可将下行改回 debug 单条输出
+            // if (nodeId !== null) { logger.debug(`[清理跳过] 正在切换工作流，仅清理提示词小助手UI，节点ID: ${nodeId}`); }
 
             const keysToDelete = Array.from(PromptAssistant.instances.keys())
                 .filter(key => nodeId === null || key.startsWith(`${String(nodeId)}_`));
@@ -1623,6 +1622,45 @@ class PromptAssistant {
                         }
                     });
 
+                    // 在规则管理下方添加 服务选择 子菜单（LLM提供商）
+                    try {
+                        const resp = await fetch('/prompt_assistant/api/config/llm');
+                        if (resp.ok) {
+                            const cfg = await resp.json();
+                            const providers = cfg.providers || {};
+                            const current = cfg.provider || null;
+                            const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
+                            const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
+                            const children = order
+                                .filter(key => Object.prototype.hasOwnProperty.call(providers, key))
+                                .map(key => ({
+                                    label: providerNameMap[key] || key,
+                                    icon: `<span class=\"pi ${current === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}\"></span>`,
+                                    onClick: async (context) => {
+                                        try {
+                                            const res = await fetch('/prompt_assistant/api/config/llm', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ current_provider: key })
+                                            });
+                                            if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                            UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
+                                        } catch (err) {
+                                            logger.error(`切换LLM提供商失败: ${err.message}`);
+                                            UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                        }
+                                    }
+                                }));
+                            menuItems.push({
+                                label: '服务选择',
+                                icon: '<span class="pi pi-sparkles"></span>',
+                                children
+                            });
+                        }
+                    } catch (e) {
+                        logger.error(`加载LLM提供商失败: ${e.message}`);
+                    }
+
                     return menuItems;
                 }
             },
@@ -1799,41 +1837,69 @@ class PromptAssistant {
                 },
                 visible: FEATURES.translate, // Note节点只显示此按钮
                 // 添加右键菜单配置
-                contextMenu: (widget) => {
-                    const currentProvider = app.ui.settings.getSettingValue("PromptAssistant.Settings.TranslateType", "baidu");
+                contextMenu: async (widget) => {
+                    const currentTranslateType = app.ui.settings.getSettingValue("PromptAssistant.Settings.TranslateType", "baidu");
                     const useTranslateCache = app.ui.settings.getSettingValue("PromptAssistant.Features.UseTranslateCache", true);
-                    const autoTranslate = app.ui.settings.getSettingValue("PromptAssistant.Features.AutoTranslate", false);
+
+                    // 获取LLM提供商列表
+                    let llmProviders = {};
+                    let currentLLMProvider = null;
+                    try {
+                        const resp = await fetch('/prompt_assistant/api/config/llm');
+                        if (resp.ok) {
+                            const cfg = await resp.json();
+                            llmProviders = cfg.providers || {};
+                            currentLLMProvider = cfg.provider || null;
+                        }
+                    } catch (e) {
+                        logger.error(`获取LLM提供商失败: ${e.message}`);
+                    }
+
+                    const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
+
+                    const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
+                    const providerChildren = order
+                        .filter(key => Object.prototype.hasOwnProperty.call(llmProviders, key))
+                        .map(key => ({
+                            label: providerNameMap[key] || key,
+                            icon: `<span class="pi ${currentLLMProvider === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: async (context) => {
+                                try {
+                                    const res = await fetch('/prompt_assistant/api/config/llm', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ current_provider: key })
+                                    });
+                                    if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                    // 确保切换到LLM翻译
+                                    app.ui.settings.setSettingValue("PromptAssistant.Settings.TranslateType", "llm");
+                                    UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
+                                } catch (err) {
+                                    logger.error(`切换LLM提供商失败: ${err.message}`);
+                                    UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                }
+                            }
+                        }));
 
                     return [
                         {
                             label: "使用百度翻译",
-                            icon: `<span class="pi ${currentProvider === 'baidu' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            icon: `<span class="pi ${currentTranslateType === 'baidu' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
                             onClick: (context) => {
                                 logger.log("右键菜单 | 动作: 切换到百度翻译");
-                                // 切换翻译提供商功能
                                 app.ui.settings.setSettingValue("PromptAssistant.Settings.TranslateType", "baidu");
-                                UIToolkit.showStatusTip(
-                                    context.buttonElement,
-                                    'success',
-                                    `已切换到: 百度翻译`,
-                                    null
-                                );
+                                UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: 百度翻译`);
                             }
                         },
                         {
                             label: "使用大语言模型翻译",
-                            icon: `<span class="pi ${currentProvider === 'llm' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            icon: `<span class="pi ${currentTranslateType === 'llm' ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
                             onClick: (context) => {
                                 logger.log("右键菜单 | 动作: 切换到LLM翻译");
-                                // 切换翻译提供商功能
                                 app.ui.settings.setSettingValue("PromptAssistant.Settings.TranslateType", "llm");
-                                UIToolkit.showStatusTip(
-                                    context.buttonElement,
-                                    'success',
-                                    `已切换到: 大语言模型翻译`,
-                                    null
-                                );
-                            }
+                                UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: 大语言模型翻译`);
+                            },
+                            children: providerChildren
                         },
                         { type: 'separator' },
                         {
@@ -1844,33 +1910,8 @@ class PromptAssistant {
                                 app.ui.settings.setSettingValue("PromptAssistant.Features.UseTranslateCache", newStatus);
                                 const statusText = newStatus ? '已开启' : '已关闭';
                                 logger.log(`右键菜单 | 动作: 切换翻译缓存 | 状态: ${statusText}`);
-                                UIToolkit.showStatusTip(
-                                    context.buttonElement,
-                                    'success',
-                                    `翻译缓存${statusText}`,
-                                    null
-                                );
+                                UIToolkit.showStatusTip(context.buttonElement, 'success', `翻译缓存${statusText}`);
                             }
-                        // },
-                        // {
-                        //     label: "自动翻译",
-                        //     icon: `<span class="pi ${autoTranslate ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
-                        //     onClick: (context) => {
-                        //         const newStatus = !autoTranslate;
-
-                        //         // 先显示状态提示
-                        //         const statusText = newStatus ? '已开启' : '已关闭';
-                        //         UIToolkit.showStatusTip(
-                        //             context.buttonElement,
-                        //             'success',
-                        //             `自动翻译${statusText}`,
-                        //             null
-                        //         );
-
-                        //         // 然后更新设置和UI
-                        //         app.ui.settings.setSettingValue("PromptAssistant.Features.AutoTranslate", newStatus);
-                        //         logger.log(`右键菜单 | 动作: 切换自动翻译 | 状态: ${statusText}`);
-                        //     }
                         }
                     ];
                 }
@@ -2012,7 +2053,7 @@ class PromptAssistant {
         try {
             // 检查垂直滚动条：scrollHeight > clientHeight
             const hasVerticalScrollbar = inputEl.scrollHeight > inputEl.clientHeight;
-            logger.debug(`[滚动条检测] 输入框滚动状态 | scrollHeight: ${inputEl.scrollHeight} | clientHeight: ${inputEl.clientHeight} | 有滚动条: ${hasVerticalScrollbar}`);
+            // 日志简化：详细滚动条检测日志移至 _adjustPositionForScrollbar，并仅在状态变更时输出
             return hasVerticalScrollbar;
         } catch (error) {
             logger.error(`[滚动条检测] 检测失败 | 错误: ${error.message}`);
@@ -2031,6 +2072,13 @@ class PromptAssistant {
         const hasScrollbar = this._detectScrollbar(inputEl);
         const containerDiv = widget.element;
 
+        // 仅在滚动条状态发生变化时更新位置与输出日志
+        const prevState = containerDiv.dataset.hasScrollbar === 'true';
+        if (prevState === hasScrollbar) {
+            return; // 状态未变，不做任何操作
+        }
+        containerDiv.dataset.hasScrollbar = String(hasScrollbar);
+
         // 检查当前定位模式
         const isStandardMode = containerDiv.style.position !== 'fixed';
 
@@ -2038,7 +2086,7 @@ class PromptAssistant {
             // ---标准定位模式调整---
             const rightOffset = hasScrollbar ? '16px' : '4px'; // 有滚动条时向左偏移10px
             containerDiv.style.right = rightOffset;
-            logger.debug(`[位置调整] 标准方案 | 有滚动条: ${hasScrollbar} | 右偏移: ${rightOffset}`);
+            logger.debug(`[位置调整] 标准方案 | 滚动条: ${hasScrollbar} → 偏移: ${rightOffset}`);
         } else {
             // ---兼容定位模式调整---
             // 需要重新计算位置，因为固定定位使用的是left属性
@@ -2054,7 +2102,7 @@ class PromptAssistant {
             containerDiv.style.left = `${newLeft}px`;
             containerDiv.style.visibility = 'visible';
 
-            logger.debug(`[位置调整] 兼容方案 | 有滚动条: ${hasScrollbar} | 左偏移: ${newLeft}px`);
+            logger.debug(`[位置调整] 兼容方案 | 滚动条: ${hasScrollbar} → 左:${newLeft}px`);
         }
     }
 
@@ -2120,7 +2168,7 @@ class PromptAssistant {
 
             // 设置重试次数和间隔
             const maxRetries = 2;
-            const retryInterval = 100; // 毫秒
+            const retryInterval = 500; // 毫秒
             let retryCount = 0;
 
             // 创建重试函数

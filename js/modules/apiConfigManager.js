@@ -78,15 +78,15 @@ class APIConfigManager {
                         };
 
                         // 确保每个提供商都有配置
-                        const providerList = ["zhipu", "siliconflow", "custom"];
+                        const providerList = ["zhipu", "siliconflow", "302ai", "ollama", "custom"];
                         providerList.forEach(provider => {
                             // 确保LLM提供商配置存在
                             if (!config.llm.providers[provider]) {
                                 config.llm.providers[provider] = {
                                     model: provider === "zhipu" ? "glm-4-flash-250414" :
                                         (provider === "siliconflow" ? "Qwen/Qwen2.5-7B-Instruct" : ""),
-                                    base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
-                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : ""),
+                                    base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" :
+                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1" : ""),
                                     api_key: "",
                                     temperature: 0.7,
                                     max_tokens: 2000,
@@ -241,15 +241,18 @@ class APIConfigManager {
      */
     _createLLMSection() {
         // LLM 配置
-        const llmSection = createFormGroup('大模型配置', [
-            { text: '智谱API申请', url: 'https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D' },
-            { text: '硅基流动API申请', url: 'https://cloud.siliconflow.cn/i/FCDL2zBQ' }
-        ]);
+        const llmSection = createFormGroup('大语言模型配置', [
+            { text: '智谱', url: 'https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D' },
+            { text: '硅基流动', url: 'https://cloud.siliconflow.cn/i/FCDL2zBQ' },
+            { text: '302.AI', url: 'https://share.302.ai/JrO51c' }
+        ], { prefixText: '大模型API申请：' });
 
         // 创建选择器和输入框
         const llmProvider = createSelectGroup('', [
             { value: 'zhipu', text: '智谱' },
             { value: 'siliconflow', text: '硅基流动' },
+            { value: '302ai', text: '302.AI' },
+            { value: 'ollama', text: 'Ollama' },
             { value: 'custom', text: '自定义' }
         ]);
         const llmModelInput = createInputGroup('', '请输入模型名称');
@@ -328,8 +331,20 @@ class APIConfigManager {
                 this._saveLLMProviderConfig(oldProvider);
             }
 
-            // 根据是否选择自定义类型显示/隐藏base_url输入框
-            llmBaseUrlInput.group.style.display = provider === 'custom' ? 'block' : 'none';
+            // 根据提供商类型显示/隐藏 base_url 与 API Key
+            if (provider === 'custom') {
+                llmBaseUrlInput.group.style.display = 'block';
+                llmApiKeyInput.group.style.display = 'block';
+            } else if (provider === '302ai') {
+                llmBaseUrlInput.group.style.display = 'none';
+                llmApiKeyInput.group.style.display = 'block';
+            } else if (provider === 'ollama') {
+                llmBaseUrlInput.group.style.display = 'none';
+                llmApiKeyInput.group.style.display = 'none';
+            } else {
+                llmBaseUrlInput.group.style.display = 'none';
+                llmApiKeyInput.group.style.display = 'block';
+            }
 
             // 加载选定提供商的配置
             if (this.llmAllProviders && this.llmAllProviders[provider]) {
@@ -351,6 +366,13 @@ class APIConfigManager {
 
                 if (provider === 'custom') {
                     this.llmBaseUrl.value = providerConfig.base_url || '';
+                } else if (provider === '302ai') {
+                    // 302.AI 为内置 base_url，不需要填写
+                    this.llmBaseUrl.value = '';
+                } else if (provider === 'ollama') {
+                    // Ollama base_url 与 api_key 内置
+                    this.llmBaseUrl.value = '';
+                    this._setMaskedValue(this.llmApiKey, 'ollama');
                 }
             } else {
                 // 设置默认模型名称
@@ -358,6 +380,10 @@ class APIConfigManager {
                     this.llmModel.value = 'glm-4-flash-250414';
                 } else if (provider === 'siliconflow') {
                     this.llmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
+                } else if (provider === '302ai') {
+                    this.llmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
+                } else if (provider === 'ollama') {
+                    this.llmModel.value = 'llama3.1';
                 } else {
                     this.llmModel.value = '';
                 }
@@ -395,6 +421,8 @@ class APIConfigManager {
         const visionProvider = createSelectGroup('', [
             { value: 'zhipu', text: '智谱' },
             { value: 'siliconflow', text: '硅基流动' },
+            { value: '302ai', text: '302.AI' },
+            { value: 'ollama', text: 'Ollama' },
             { value: 'custom', text: '自定义' }
         ]);
         const visionModelInput = createInputGroup('', '请输入模型名称');
@@ -473,8 +501,20 @@ class APIConfigManager {
                 this._saveVisionProviderConfig(oldProvider);
             }
 
-            // 根据是否选择自定义类型显示/隐藏base_url输入框
-            visionBaseUrlInput.group.style.display = provider === 'custom' ? 'block' : 'none';
+            // 根据提供商类型显示/隐藏 base_url 与 API Key
+            if (provider === 'custom') {
+                visionBaseUrlInput.group.style.display = 'block';
+                visionApiKeyInput.group.style.display = 'block';
+            } else if (provider === '302ai') {
+                visionBaseUrlInput.group.style.display = 'none';
+                visionApiKeyInput.group.style.display = 'block';
+            } else if (provider === 'ollama') {
+                visionBaseUrlInput.group.style.display = 'none';
+                visionApiKeyInput.group.style.display = 'none';
+            } else {
+                visionBaseUrlInput.group.style.display = 'none';
+                visionApiKeyInput.group.style.display = 'block';
+            }
 
             // 加载选定提供商的配置
             if (this.visionAllProviders && this.visionAllProviders[provider]) {
@@ -496,6 +536,11 @@ class APIConfigManager {
 
                 if (provider === 'custom') {
                     this.visionBaseUrl.value = providerConfig.base_url || '';
+                } else if (provider === '302ai') {
+                    this.visionBaseUrl.value = '';
+                } else if (provider === 'ollama') {
+                    this.visionBaseUrl.value = '';
+                    this._setMaskedValue(this.visionApiKey, 'ollama');
                 }
             } else {
                 // 设置默认模型名称
@@ -503,6 +548,10 @@ class APIConfigManager {
                     this.visionModel.value = 'glm-4v-flash';
                 } else if (provider === 'siliconflow') {
                     this.visionModel.value = 'THUDM/GLM-4.1V-9B-Thinking';
+                } else if (provider === '302ai') {
+                    this.visionModel.value = 'THUDM/GLM-4.1V-9B-Thinking';
+                } else if (provider === 'ollama') {
+                    this.visionModel.value = 'llava:latest';
                 } else {
                     this.visionModel.value = '';
                 }
@@ -590,13 +639,19 @@ class APIConfigManager {
             this.visionAllProviders = visionConfig.providers || {};
 
             // 为所有提供商预处理API密钥状态
-            const providerList = ["zhipu", "siliconflow", "custom"];
+            const providerList = ["zhipu", "siliconflow", "302ai", "ollama", "custom"];
 
             // 处理LLM提供商的API密钥
             providerList.forEach(provider => {
-                if (this.llmAllProviders[provider] && this.llmAllProviders[provider].api_key) {
-                    // 保留API密钥值，但不在此处设置掩码（在切换提供商时会设置）
-                    this.llmAllProviders[provider].has_key = true;
+                if (this.llmAllProviders[provider]) {
+                    if (provider === 'ollama') {
+                        // 内置API Key，不需要展示输入
+                        this.llmAllProviders[provider].api_key = 'ollama';
+                        this.llmAllProviders[provider].has_key = true;
+                    } else if (this.llmAllProviders[provider].api_key) {
+                        // 保留API密钥值，但不在此处设置掩码（在切换提供商时会设置）
+                        this.llmAllProviders[provider].has_key = true;
+                    }
                 }
             });
 
@@ -708,7 +763,9 @@ class APIConfigManager {
             }
         } else {
             baseUrl = provider === 'zhipu' ? 'https://open.bigmodel.cn/api/paas/v4' :
-                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' : '');
+                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' :
+                (provider === '302ai' ? 'https://api.302.ai/v1' :
+                (provider === 'ollama' ? 'http://localhost:11434/v1' : '')));
         }
 
         // 检查API密钥是否为掩码
@@ -768,7 +825,9 @@ class APIConfigManager {
             }
         } else {
             baseUrl = provider === 'zhipu' ? 'https://open.bigmodel.cn/api/paas/v4' :
-                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' : '');
+                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' :
+                (provider === '302ai' ? 'https://api.302.ai/v1' :
+                (provider === 'ollama' ? 'http://localhost:11434/v1' : '')));
         }
 
         // 检查API密钥是否为掩码

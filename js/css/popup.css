@@ -1048,7 +1048,7 @@
 .button-menu-list {
     list-style: none;
     margin: 0;
-    padding: 4px 0;
+    padding: 4px;
 }
 
 /* 菜单项 */
@@ -1064,6 +1064,7 @@
 /* 菜单项悬停状态 */
 .button-menu-item:hover {
     background-color: color-mix(in srgb, var(--p-primary-500), transparent 84%);
+    border-radius: 4px;
 }
 
 /* 菜单分隔线 */
@@ -1151,4 +1152,49 @@
 /* 未激活状态图标样式 */
 .inactive-status {
     color: var(--p-text-muted-color, #aaa) !important;
+}
+
+/* ===== 子菜单扩展样式（按钮右键菜单） ===== */
+/* 允许容器显示子菜单 */
+.button-context-menu {
+    overflow: visible;
+    min-width: 140px;
+}
+
+/* 右侧箭头图标 */
+.button-menu-right-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 8px;
+    color: var(--p-text-muted-color, #aaa);
+    font-size: 12px;
+}
+
+/* 子菜单容器（下对齐到父项） */
+.button-submenu {
+    position: absolute;
+    top: auto;
+    bottom: 0;
+    left: 100%;
+    margin-left: 2px;
+    background-color: var(--p-content-background);
+    border: 1px solid var(--p-content-border-color);
+    border-radius: 8px;
+    min-width: 140px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: translateX(-6px);
+    pointer-events: none;
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    overflow: hidden;
+    z-index: 10001; /* 高于父菜单 */
+}
+
+/* 悬停显示子菜单 */
+.button-menu-item.submenu-open > .button-submenu,
+.button-menu-item-has-children:hover > .button-submenu {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
 }

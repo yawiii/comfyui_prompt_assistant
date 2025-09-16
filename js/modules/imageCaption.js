@@ -51,34 +51,34 @@ class ImageCaption {
      */
     _isAllowedNodeType(node, debug = false) {
         if (!node || !node.type) return false;
-        
+
         // 允许的节点类型列表（可根据实际情况调整）
         const allowedTypes = [
             // 加载图像节点
             'LoadImage',
             'LoadImageFromUrl',
-            
+
             // 预览图像节点
             'PreviewImage',
             'ImagePreview',
-            
+
             // 保存图像节点
             'SaveImage',
             'SaveImages'
         ];
-        
+
         // 检查节点类型是否在允许列表中
         // 使用部分匹配方式，以便兼容不同插件中的类似节点
-        const isAllowed = allowedTypes.some(type => 
-            node.type.includes(type) || 
+        const isAllowed = allowedTypes.some(type =>
+            node.type.includes(type) ||
             (node.title && node.title.includes(type))
         );
-        
+
         // 开发阶段可打开调试日志
         if (debug && !isAllowed) {
             logger.debug(`[图像小助手] 节点类型不允许: ${node.type || '未知'} | 标题: ${node.title || '未知'}`);
         }
-        
+
         return isAllowed;
     }
 
@@ -169,7 +169,7 @@ class ImageCaption {
         if (!this._isAllowedNodeType(node)) {
             return null;
         }
-        
+
         const state = this._checkNodeAndCanvasState(node);
 
         if (!state.isValid) {
@@ -558,6 +558,46 @@ class ImageCaption {
                         rulesConfigManager.showRulesConfigModal();
                     }
                 });
+
+                // 在规则管理下方添加 服务选择 子菜单（视觉模型提供商）
+                try {
+                    const resp = await fetch('/prompt_assistant/api/config/vision');
+                    if (resp.ok) {
+                        const cfg = await resp.json();
+                        const providers = cfg.providers || {};
+                        const current = cfg.provider || null;
+                        const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
+                        const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
+                        const children = order
+                            .filter(key => Object.prototype.hasOwnProperty.call(providers, key))
+                            .map(key => ({
+                                label: providerNameMap[key] || key,
+                                icon: `<span class=\"pi ${current === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}\"></span>`,
+                                onClick: async (context) => {
+                                    try {
+                                        const res = await fetch('/prompt_assistant/api/config/vision', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ current_provider: key })
+                                        });
+                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
+                                    } catch (err) {
+                                        logger.error(`切换视觉模型提供商失败: ${err.message}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                    }
+                                }
+                            }));
+                        menuItems.push({
+                            label: '服务选择',
+                            icon: '<span class="pi pi-sparkles"></span>',
+                            children
+                        });
+                    }
+                } catch (e) {
+                    logger.error(`加载视觉模型提供商失败: ${e.message}`);
+                }
+
                 return menuItems;
 
             }
@@ -640,6 +680,46 @@ class ImageCaption {
                         rulesConfigManager.showRulesConfigModal();
                     }
                 });
+
+                // 在规则管理下方添加 服务选择 子菜单（视觉模型提供商）
+                try {
+                    const resp = await fetch('/prompt_assistant/api/config/vision');
+                    if (resp.ok) {
+                        const cfg = await resp.json();
+                        const providers = cfg.providers || {};
+                        const current = cfg.provider || null;
+                        const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
+                        const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
+                        const children = order
+                            .filter(key => Object.prototype.hasOwnProperty.call(providers, key))
+                            .map(key => ({
+                                label: providerNameMap[key] || key,
+                                icon: `<span class=\"pi ${current === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}\"></span>`,
+                                onClick: async (context) => {
+                                    try {
+                                        const res = await fetch('/prompt_assistant/api/config/vision', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ current_provider: key })
+                                        });
+                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
+                                    } catch (err) {
+                                        logger.error(`切换视觉模型提供商失败: ${err.message}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                    }
+                                }
+                            }));
+                        menuItems.push({
+                            label: '服务选择',
+                            icon: '<span class="pi pi-sparkles"></span>',
+                            children
+                        });
+                    }
+                } catch (e) {
+                    logger.error(`加载视觉模型提供商失败: ${e.message}`);
+                }
+
                 return menuItems;
 
             }
@@ -1976,10 +2056,7 @@ class ImageCaption {
     cleanup(nodeId = null, silent = false) {
         // 如果正在切换工作流，完全清理图像小助手实例
         if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
-            // 单个节点清理时打印详细日志，全局清理时不打印
-            if (nodeId !== null) {
-                logger.debug(`[清理跳过] 正在切换工作流，清理图像小助手UI，节点ID: ${nodeId}`);
-            }
+            // 简化日志：工作流切换期间不逐条打印节点清理日志
 
             if (nodeId === null) {
                 // 清理所有实例，并从集合中移除

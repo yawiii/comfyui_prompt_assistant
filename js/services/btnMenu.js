@@ -102,57 +102,76 @@ export class ButtonMenu {
                 menuList.appendChild(separator);
                 return;
             }
-            
+
             // 正常菜单项
             const menuItem = document.createElement('li');
             menuItem.className = 'button-menu-item';
-            
+
+            // 如果存在子菜单，标记样式
+            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+            if (hasChildren) {
+                menuItem.classList.add('button-menu-item-has-children');
+            }
+
             // 如果菜单项被禁用
             if (item.disabled) {
                 menuItem.classList.add('button-menu-item-disabled');
             } else {
-                // 添加点击事件
+                // 添加点击事件（带子菜单也可点击执行自身onClick）
                 menuItem.addEventListener('click', async (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    
+
+                    // 若点击的是右侧子菜单箭头或子菜单本身，则不触发本项点击
+                    const isOnRightIcon = e.target && (e.target.classList?.contains('button-menu-right-icon') || e.target.classList?.contains('pi-chevron-right'));
+                    const isInsideSubmenu = e.target && menuItem.querySelector('.button-submenu')?.contains(e.target);
+                    if (isOnRightIcon || isInsideSubmenu) return;
+
                     // 隐藏菜单
                     await this.hideMenu();
-                    
+
                     // 执行回调
                     if (typeof item.onClick === 'function') {
                         item.onClick(context);
                     }
                 });
+
+                // 悬停时展示子菜单（进入时立即显示，隐藏逻辑在子菜单构建后处理，避免“穿越空隙”导致关闭）
+                if (hasChildren) {
+                    menuItem.addEventListener('mouseenter', () => {
+                        menuItem.classList.add('submenu-open');
+                    });
+                    // mouseleave 的隐藏放到子菜单构建后添加带延迟的逻辑
+                }
             }
-            
+
             // 处理选中状态
             if (item.selected) {
                 menuItem.classList.add('selected');
             }
-            
+
             // 添加图标（如果有）
             if (item.icon) {
                 const iconSpan = document.createElement('span');
                 iconSpan.className = 'button-menu-icon';
-                
+
                 // 支持SVG图标
-                if (item.icon.startsWith('<svg')) {
+                if (typeof item.icon === 'string' && item.icon.startsWith('<svg')) {
                     iconSpan.innerHTML = item.icon;
                 } else {
                     // 支持字符图标或自定义HTML
                     iconSpan.innerHTML = item.icon;
                 }
-                
+
                 menuItem.appendChild(iconSpan);
             }
-            
+
             // 添加标签
             const labelSpan = document.createElement('span');
             labelSpan.className = 'button-menu-label';
             labelSpan.textContent = item.label || '';
             menuItem.appendChild(labelSpan);
-            
+
             // 如果有快捷键提示
             if (item.shortcut) {
                 const shortcutSpan = document.createElement('span');
@@ -160,14 +179,102 @@ export class ButtonMenu {
                 shortcutSpan.textContent = item.shortcut;
                 menuItem.appendChild(shortcutSpan);
             }
-            
+
+            // 如果有子菜单，添加右侧图标
+            if (hasChildren) {
+                const rightIcon = document.createElement('span');
+                rightIcon.className = 'button-menu-right-icon pi pi-chevron-right';
+                menuItem.appendChild(rightIcon);
+
+                // 构建子菜单
+                const submenu = document.createElement('div');
+                submenu.className = 'button-submenu';
+                const submenuList = document.createElement('ul');
+                submenuList.className = 'button-menu-list';
+
+                // —— 子菜单显示/隐藏的防抖处理，避免鼠标穿越导致关闭 ——
+                let hideTimer = null;
+                const openSubmenu = () => {
+                    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+                    menuItem.classList.add('submenu-open');
+                };
+                const scheduleCloseSubmenu = () => {
+                    if (hideTimer) clearTimeout(hideTimer);
+                    hideTimer = setTimeout(() => {
+                        menuItem.classList.remove('submenu-open');
+                        hideTimer = null;
+                    }, 200);
+                };
+
+                // 父项与子菜单的鼠标事件配合，允许对角线移动
+                menuItem.addEventListener('mouseleave', scheduleCloseSubmenu);
+                menuItem.addEventListener('mouseenter', openSubmenu);
+                submenu.addEventListener('mouseenter', openSubmenu);
+                submenu.addEventListener('mouseleave', scheduleCloseSubmenu);
+
+                item.children.forEach(subItem => {
+                    if (subItem.type === 'separator') {
+                        const sep = document.createElement('li');
+                        sep.className = 'button-menu-separator';
+                        submenuList.appendChild(sep);
+                        return;
+                    }
+
+                    const subMenuItem = document.createElement('li');
+                    subMenuItem.className = 'button-menu-item';
+                    if (subItem.disabled) {
+                        subMenuItem.classList.add('button-menu-item-disabled');
+                    } else {
+                        subMenuItem.addEventListener('click', async (e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+
+                            // 隐藏菜单
+                            await this.hideMenu();
+
+                            if (typeof subItem.onClick === 'function') {
+                                subItem.onClick(context);
+                            }
+                        });
+                    }
+
+                    if (subItem.icon) {
+                        const subIcon = document.createElement('span');
+                        subIcon.className = 'button-menu-icon';
+                        if (typeof subItem.icon === 'string' && subItem.icon.startsWith('<svg')) {
+                            subIcon.innerHTML = subItem.icon;
+                        } else {
+                            subIcon.innerHTML = subItem.icon;
+                        }
+                        subMenuItem.appendChild(subIcon);
+                    }
+
+                    const subLabel = document.createElement('span');
+                    subLabel.className = 'button-menu-label';
+                    subLabel.textContent = subItem.label || '';
+                    subMenuItem.appendChild(subLabel);
+
+                    if (subItem.shortcut) {
+                        const subShortcut = document.createElement('span');
+                        subShortcut.className = 'button-menu-shortcut';
+                        subShortcut.textContent = subItem.shortcut;
+                        subMenuItem.appendChild(subShortcut);
+                    }
+
+                    submenuList.appendChild(subMenuItem);
+                });
+
+                submenu.appendChild(submenuList);
+                menuItem.appendChild(submenu);
+            }
+
             // 添加到菜单列表
             menuList.appendChild(menuItem);
         });
-        
+
         // 将菜单列表添加到容器
         menuContainer.appendChild(menuList);
-        
+
         return menuContainer;
     }
 

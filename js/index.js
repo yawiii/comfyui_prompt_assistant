@@ -111,9 +111,11 @@ app.registerExtension({
                 // 设置工作流切换标记，避免删除缓存
                 window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING = true;
 
-                // 只在debug模式下打印工作流切换信息
+                // 简化日志：仅在工作流ID变化时打印一次
                 const workflowId = data?.id || (data?.extra?.workflow_id) || "未知工作流";
-                logger.debug(`[工作流] 正在切换工作流: ${workflowId}`);
+                if (app.graph?._workflow_id !== workflowId) {
+                    logger.log(`[工作流] 切换: ${workflowId}`);
+                }
 
                 try {
                     // 调用原始加载方法
@@ -306,13 +308,9 @@ app.registerExtension({
                     imageCaption.cleanup(this.id, true);
                 }
 
-                // 只打印一次清理完成日志
+                // 简化：仅在两者都清理完成时输出一次
                 if (this._promptAssistantCleaned && this._imageCaptionCleaned) {
-                    logger.debug(`[onRemoved方法] 节点助手清理完成 | 节点ID: ${nodeId}`);
-                } else if (this._promptAssistantCleaned) {
-                    logger.debug(`[onRemoved方法] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
-                } else if (this._imageCaptionCleaned) {
-                    logger.debug(`[onRemoved方法] 图像小助手清理完成 | 节点ID: ${nodeId}`);
+                    logger.log(`[节点清理] 完成 | 节点ID: ${nodeId}`);
                 }
 
                 if (origOnRemoved) {

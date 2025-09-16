@@ -34,6 +34,19 @@ class Logger {
 
     debug(message) {
         if (this.level >= LOG_LEVELS.DEBUG) {
+            // 统一的调试输出入口。为防止刷屏，可考虑在此处加入节流/采样。
+            console.debug(`[PromptAssistant-调试] ${message}`);
+        }
+    }
+
+    /**
+     * 轻量调试（采样）
+     * 仅当随机命中概率时才输出，用于高频路径
+     * @param {string} message
+     * @param {number} rate 0~1，默认0.1表示10%采样
+     */
+    debugSample(message, rate = 0.1) {
+        if (this.level >= LOG_LEVELS.DEBUG && Math.random() < rate) {
             console.debug(`[PromptAssistant-调试] ${message}`);
         }
     }

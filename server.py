@@ -13,11 +13,23 @@ import asyncio
 GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
+BLUE = "\033[34m"
 RESET = "\033[0m"
-PREFIX = f"{GREEN}[PromptAssistant]{RESET}"
-ERROR_PREFIX = f"{RED}[PromptAssistant-错误]{RESET}"
-WARN_PREFIX = f"{YELLOW}[PromptAssistant-警告]{RESET}"
-AUTO_TRANSLATE_PREFIX = f"{GREEN}[PromptAssistant-自动翻译]{RESET}"
+
+# 统一日志前缀（按阶段上色）
+# 绿色：结果阶段
+PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"
+AUTO_TRANSLATE_PREFIX = f"{GREEN}[✨PromptAssistant-自动翻译]{RESET}"
+# 红色：错误
+ERROR_PREFIX = f"{RED}[✨PromptAssistant-错误]{RESET}"
+# 黄色：过程阶段（创建客户端/调用API等）
+PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"
+# 蓝色：发起请求阶段
+REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"
+# 黄色：告警保持不变
+WARN_PREFIX = f"{YELLOW}[✨PromptAssistant-警告]{RESET}"
+# 蓝色：自动翻译的“请求阶段”前缀（仅用于请求日志着色）
+AUTO_TRANSLATE_REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant-自动翻译]{RESET}"
 
 # 定义路由前缀，确保与前端请求匹配
 API_PREFIX = '/prompt_assistant/api'
@@ -25,6 +37,8 @@ API_PREFIX = '/prompt_assistant/api'
 # 在服务器初始化时验证激活提示词
 # print(f"{PREFIX} 正在验证激活提示词配置...")
 config_manager.validate_and_fix_active_prompts()
+# 新增：在启动时补全模型提供商及参数
+config_manager.validate_and_fix_model_params()
 
 
 
@@ -287,7 +301,7 @@ async def update_llm_config(request):
         if providers:
             # 逐个更新各提供商的配置
             for provider, provider_config in providers.items():
-                if provider not in ['zhipu', 'siliconflow', 'custom']:
+                if provider not in ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom']:
                     continue
                     
                 model = provider_config.get('model')
@@ -346,7 +360,7 @@ async def update_vision_config(request):
         if providers:
             # 逐个更新各提供商的配置
             for provider, provider_config in providers.items():
-                if provider not in ['zhipu', 'siliconflow', 'custom']:
+                if provider not in ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom']:
                     continue
                     
                 model = provider_config.get('model')

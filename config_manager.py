@@ -5,17 +5,17 @@ class ConfigManager:
     def __init__(self):
         # 插件目录和配置文件路径
         self.dir_path = os.path.dirname(os.path.abspath(__file__))
-        
+
         # 创建config目录
         self.config_dir = os.path.join(self.dir_path, "config")
         if not os.path.exists(self.config_dir):
             os.makedirs(self.config_dir)
-        
+
         self.config_path = os.path.join(self.config_dir, "config.json")
         self.system_prompts_path = os.path.join(self.config_dir, "system_prompts.json")
         self.active_prompts_path = os.path.join(self.config_dir, "active_prompts.json")
         self.tags_user_path = os.path.join(self.config_dir, "tags_user.json")
-        
+
         # 默认配置
         self.default_config = {
             "__comment": "提示词小助手配置文件",
@@ -38,6 +38,22 @@ class ConfigManager:
                         "model": "Qwen/Qwen2.5-7B-Instruct",
                         "base_url": "https://api.siliconflow.cn/v1",
                         "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                        "top_p": 0.9
+                    },
+                    "302ai": {
+                        "model": "gemini-2.5-flash",
+                        "base_url": "https://api.302.ai/v1",
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                        "top_p": 0.9
+                    },
+                    "ollama": {
+                        "model": "huihui_ai/qwen3-abliterated:14b",
+                        "base_url": "http://localhost:11434/v1",
+                        "api_key": "ollama",
                         "temperature": 0.7,
                         "max_tokens": 1000,
                         "top_p": 0.9
@@ -71,6 +87,22 @@ class ConfigManager:
                         "max_tokens": 500,
                         "top_p": 0.9
                     },
+                    "302ai": {
+                        "model": "gemini-2.5-flash",
+                        "base_url": "https://api.302.ai/v1",
+                        "api_key": "",
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                        "top_p": 0.9
+                    },
+                    "ollama": {
+                        "model": "aha2025/llama-joycaption-beta-one-hf-llava:Q6_K",
+                        "base_url": "http://localhost:11434/v1",
+                        "api_key": "ollama",
+                        "temperature": 0.7,
+                        "max_tokens": 500,
+                        "top_p": 0.9
+                    },
                     "custom": {
                         "model": "",
                         "base_url": "",
@@ -82,7 +114,7 @@ class ConfigManager:
                 }
             }
         }
-        
+
         # 默认激活的提示词
         self.default_active_prompts = {
                 "expand": "expand_扩写-自然语言",
@@ -96,12 +128,12 @@ class ConfigManager:
                 "expand_扩写-自然语言": {
                     "name": "扩写-自然语言",
                     "role": "system",
-                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 艺术风格：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 使用自然流畅的语言描述，避免机械堆砌关键词\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 直接输出完整提示词，不添加解释、分类标签或注释\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
+                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 风格化：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 使用自然流畅的语言描述，避免机械堆砌关键词\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 直接输出完整提示词，不添加解释、分类标签或注释\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
                 },
                 "expand_扩写-Tag": {
                     "name": "扩写-Tag",
                     "role": "system",
-                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 艺术风格：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 直接输出标签，不添加任何分类或说明\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
+                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 风格化：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 直接输出标签，不添加任何分类或说明\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
                 },
                 "expand_Kontext优化并翻译": {
                     "name": "Kontext优化并翻译",
@@ -112,7 +144,7 @@ class ConfigManager:
             "translate_prompts": {
                 "ZH": {
                     "role": "system",
-                    "content": "你是一名AI绘画领域的提示词翻译专家，负责将用户提供的文本内容由{src_lang}准确地翻译成{dst_lang}。要求：1.完整翻译用户提供的所有文本，不要遗漏；2.保持格式，不要改变原文的书写结构、标点符号、权重标记格式【如(文本内容:1.2)】等；2.准确原文，使用准确、地道的{dst_lang}表达词汇和AI绘画领域的专业的术语；5.直接输出翻译结果，无需注释、说明。"
+                    "content": "你是一名AI绘画领域的提示词翻译专家，负责将用户提供的文本内容由{src_lang}准确地翻译成{dst_lang}。要求：1.完整翻译用户提供的所有文本，不要遗漏；2.保持格式，不要改变原文的书写结构、保持权重标记格式【如(提示词内容:1.2)】等；2.翻译要准确理解全文，使用地道的{dst_lang}和AI绘画领域的专业术语；5.直接输出翻译结果，无需解释说明。不要输出思考过程。"
                 }
             },
             "vision_prompts": {
@@ -139,95 +171,102 @@ class ConfigManager:
 
             }
         }
-        
+
         # 默认用户标签 - 空对象
         self.default_user_tags = {}
-        
+
         # 确保配置文件存在
         self.ensure_config_exists()
         self.ensure_system_prompts_exists()
+        # 先校验并补全系统提示词内容，再处理激活项
+        self.validate_and_fix_system_prompts()
         self.ensure_active_prompts_exists()
         self.ensure_user_tags_exists()
-        
+
         # 验证并修复激活提示词
         self.validate_and_fix_active_prompts()
 
         # 验证并修复模型参数配置
         self.validate_and_fix_model_params()
-    
+    # --- 统一日志输出（绿色前缀）---
+    def _log(self, msg: str):
+        """统一控制台日志前缀为绿色 [PromptAssistant]"""
+        print(f"\033[32m[✨PromptAssistant]\033[0m {msg}")
+
+
     def ensure_config_exists(self):
         """确保配置文件存在，不存在则创建默认配置"""
         if not os.path.exists(self.config_path):
-            print("[PromptAssistant] 配置文件不存在，创建默认配置文件...")
+            self._log("配置文件不存在，创建默认配置文件...")
             self.save_config(self.default_config)
-    
+
     def ensure_system_prompts_exists(self):
         """确保系统提示词配置文件存在，不存在则创建默认配置"""
         if not os.path.exists(self.system_prompts_path):
-            print("[PromptAssistant] 系统提示词配置文件不存在，创建默认配置文件...")
+            self._log("系统提示词配置文件不存在，创建默认配置文件...")
             self.save_system_prompts(self.default_system_prompts)
         else:
             # 即使文件存在，也检查一下是否包含所有必要的提示词类型
             try:
                 with open(self.system_prompts_path, "r", encoding="utf-8") as f:
                     system_prompts = json.load(f)
-                
+
                 # 检查是否包含所有必要的提示词类型
                 need_update = False
                 for prompt_type, default_prompts in self.default_system_prompts.items():
                     if prompt_type not in system_prompts:
-                        print(f"[PromptAssistant] 系统提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
+                        self._log(f"系统提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
                         system_prompts[prompt_type] = default_prompts
                         need_update = True
-                
+
                 # 如果需要更新，保存修复后的系统提示词
                 if need_update:
                     self.save_system_prompts(system_prompts)
-                    print("[PromptAssistant] 已完成系统提示词配置文件的修复")
+                    self._log("已完成系统提示词配置文件的修复")
             except Exception as e:
-                print(f"[PromptAssistant] 检查系统提示词配置文件时出错: {str(e)}")
-    
+                self._log(f"检查系统提示词配置文件时出错: {str(e)}")
+
     def ensure_active_prompts_exists(self):
         """确保激活的提示词配置文件存在，不存在则创建默认配置"""
         if not os.path.exists(self.active_prompts_path):
-            print("[PromptAssistant] 激活的提示词配置文件不存在，创建默认配置文件...")
+            self._log("激活的提示词配置文件不存在，创建默认配置文件...")
             self.save_active_prompts(self.default_active_prompts)
         else:
             # 即使文件存在，也检查一下是否包含所有必要的提示词类型
             try:
                 with open(self.active_prompts_path, "r", encoding="utf-8") as f:
                     active_prompts = json.load(f)
-                
+
                 # 检查是否包含所有必要的提示词类型
                 need_update = False
                 for prompt_type, default_value in self.default_active_prompts.items():
                     if prompt_type not in active_prompts:
-                        print(f"[PromptAssistant] 激活的提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
+                        self._log(f"激活的提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
                         active_prompts[prompt_type] = default_value
                         need_update = True
-                
+
                 # 如果需要更新，保存修复后的激活提示词
                 if need_update:
                     self.save_active_prompts(active_prompts)
-                    print("[PromptAssistant] 已完成激活提示词配置文件的修复")
+                    self._log("已完成激活提示词配置文件的修复")
             except Exception as e:
-                print(f"[PromptAssistant] 检查激活提示词配置文件时出错: {str(e)}")
-    
+                self._log(f"检查激活提示词配置文件时出错: {str(e)}")
+
     def ensure_user_tags_exists(self):
         """确保用户标签文件存在，不存在则创建空对象文件"""
         if not os.path.exists(self.tags_user_path):
-            print("[PromptAssistant] 用户标签文件不存在，创建空标签文件...")
+            self._log("用户标签文件不存在，创建空标签文件...")
             self.save_user_tags(self.default_user_tags)
-    
+
     def load_config(self):
         """加载配置文件"""
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[PromptAssistant] 加载配置文件失败: {str(e)}")
+            self._log(f"加载配置文件失败: {str(e)}")
             return self.default_config
-    
+
     def save_config(self, config):
         """保存配置文件"""
         try:
@@ -235,18 +274,18 @@ class ConfigManager:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"[PromptAssistant] 保存配置文件失败: {str(e)}")
+            self._log(f"保存配置文件失败: {str(e)}")
             return False
-    
+
     def load_system_prompts(self):
         """加载系统提示词配置"""
         try:
             with open(self.system_prompts_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[PromptAssistant] 加载系统提示词配置失败: {str(e)}")
+            self._log(f"加载系统提示词配置失败: {str(e)}")
             return self.default_system_prompts
-    
+
     def save_system_prompts(self, system_prompts):
         """保存系统提示词配置"""
         try:
@@ -254,16 +293,16 @@ class ConfigManager:
                 json.dump(system_prompts, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"[PromptAssistant] 保存系统提示词配置失败: {str(e)}")
+            self._log(f"保存系统提示词配置失败: {str(e)}")
             return False
-    
+
     def load_active_prompts(self):
         """加载激活的提示词配置"""
         try:
             with open(self.active_prompts_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[PromptAssistant] 加载激活的提示词配置失败: {str(e)}")
+            self._log(f"加载激活的提示词配置失败: {str(e)}")
             return self.default_active_prompts
 
     def save_active_prompts(self, active_prompts):
@@ -273,18 +312,18 @@ class ConfigManager:
                 json.dump(active_prompts, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"[PromptAssistant] 保存激活的提示词配置失败: {str(e)}")
+            self._log(f"保存激活的提示词配置失败: {str(e)}")
             return False
-    
+
     def load_user_tags(self):
         """加载用户标签配置"""
         try:
             with open(self.tags_user_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[PromptAssistant] 加载用户标签配置失败: {str(e)}")
+            self._log(f"加载用户标签配置失败: {str(e)}")
             return self.default_user_tags
-    
+
     def save_user_tags(self, user_tags):
         """保存用户标签配置"""
         try:
@@ -292,23 +331,23 @@ class ConfigManager:
                 json.dump(user_tags, f, ensure_ascii=False, indent=2)
             return True
         except Exception as e:
-            print(f"[PromptAssistant] 保存用户标签配置失败: {str(e)}")
+            self._log(f"保存用户标签配置失败: {str(e)}")
             return False
-    
+
     def get_system_prompts(self):
         """获取系统提示词配置 (合并提示词定义和激活状态)"""
         system_prompts = self.load_system_prompts()
         active_prompts = self.load_active_prompts()
         system_prompts['active_prompts'] = active_prompts
         return system_prompts
-    
+
     def update_system_prompts(self, system_prompts):
         """更新系统提示词配置 (仅更新提示词定义)"""
         prompts_to_save = system_prompts.copy()
         if 'active_prompts' in prompts_to_save:
             del prompts_to_save['active_prompts']
         return self.save_system_prompts(prompts_to_save)
-    
+
     def update_active_prompts(self, active_prompts):
         """更新所有激活的提示词"""
         return self.save_active_prompts(active_prompts)
@@ -318,21 +357,21 @@ class ConfigManager:
         active_prompts = self.load_active_prompts()
         active_prompts[prompt_type] = prompt_id
         return self.save_active_prompts(active_prompts)
-    
+
     def get_baidu_translate_config(self):
         """获取百度翻译配置"""
         config = self.load_config()
         return config.get("baidu_translate", self.default_config["baidu_translate"])
-    
+
     def get_llm_config(self):
         """获取LLM配置"""
         config = self.load_config()
         llm_config = config.get("llm", self.default_config["llm"])
-        
+
         # 构建前端友好的配置格式
         current_provider = llm_config.get("current_provider", "zhipu")
         provider_config = llm_config.get("providers", {}).get(current_provider, {})
-        
+
         return {
             "provider": current_provider,
             "model": provider_config.get("model", ""),
@@ -343,16 +382,16 @@ class ConfigManager:
             "top_p": provider_config.get("top_p", 0.9),
             "providers": llm_config.get("providers", {})
         }
-    
+
     def get_vision_config(self):
         """获取视觉模型配置"""
         config = self.load_config()
         vision_config = config.get("vlm", self.default_config["vlm"])
-        
+
         # 构建前端友好的配置格式
         current_provider = vision_config.get("current_provider", "zhipu")
         provider_config = vision_config.get("providers", {}).get(current_provider, {})
-        
+
         return {
             "provider": current_provider,
             "model": provider_config.get("model", ""),
@@ -363,21 +402,21 @@ class ConfigManager:
             "top_p": provider_config.get("top_p", 0.9),
             "providers": vision_config.get("providers", {})
         }
-    
+
     def update_baidu_translate_config(self, app_id=None, secret_key=None):
         """更新百度翻译配置"""
         config = self.load_config()
         if "baidu_translate" not in config:
             config["baidu_translate"] = {}
-        
+
         # 仅更新提供的参数
         if app_id is not None:
             config["baidu_translate"]["app_id"] = app_id
         if secret_key is not None:
             config["baidu_translate"]["secret_key"] = secret_key
-            
+
         return self.save_config(config)
-    
+
     def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
         """更新LLM配置"""
         config = self.load_config()
@@ -385,13 +424,13 @@ class ConfigManager:
             config["llm"] = {"providers": {}}
         if "providers" not in config["llm"]:
             config["llm"]["providers"] = {}
-        
+
         # 仅更新提供的参数
         if provider is not None:
             # 只有当update_current为True时才更新current_provider
             if update_current:
                 config["llm"]["current_provider"] = provider
-            
+
             # 确保provider存在于providers字典中
             if provider not in config["llm"]["providers"]:
                 config["llm"]["providers"][provider] = {
@@ -402,7 +441,7 @@ class ConfigManager:
                     "max_tokens": self.default_config["llm"]["providers"].get(provider, {}).get("max_tokens", 1000),
                     "top_p": self.default_config["llm"]["providers"].get(provider, {}).get("top_p", 0.9)
                 }
-                
+
         # 只有在同时提供provider和其他参数时才更新这些参数
         if provider is not None and model is not None:
             config["llm"]["providers"][provider]["model"] = model
@@ -416,9 +455,9 @@ class ConfigManager:
             config["llm"]["providers"][provider]["max_tokens"] = max_tokens
         if provider is not None and top_p is not None:
             config["llm"]["providers"][provider]["top_p"] = top_p
-            
+
         return self.save_config(config)
-    
+
     def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
         """更新视觉模型配置"""
         config = self.load_config()
@@ -426,13 +465,13 @@ class ConfigManager:
             config["vlm"] = {"providers": {}}
         if "providers" not in config["vlm"]:
             config["vlm"]["providers"] = {}
-        
+
         # 仅更新提供的参数
         if provider is not None:
             # 只有当update_current为True时才更新current_provider
             if update_current:
                 config["vlm"]["current_provider"] = provider
-            
+
             # 确保provider存在于providers字典中
             if provider not in config["vlm"]["providers"]:
                 config["vlm"]["providers"][provider] = {
@@ -443,7 +482,7 @@ class ConfigManager:
                     "max_tokens": self.default_config["vlm"]["providers"].get(provider, {}).get("max_tokens", 500),
                     "top_p": self.default_config["vlm"]["providers"].get(provider, {}).get("top_p", 0.9)
                 }
-                
+
         # 只有在同时提供provider和其他参数时才更新这些参数
         if provider is not None and model is not None:
             config["vlm"]["providers"][provider]["model"] = model
@@ -457,8 +496,42 @@ class ConfigManager:
             config["vlm"]["providers"][provider]["max_tokens"] = max_tokens
         if provider is not None and top_p is not None:
             config["vlm"]["providers"][provider]["top_p"] = top_p
-            
+
         return self.save_config(config)
+    def validate_and_fix_system_prompts(self):
+        """验证并补全系统提示词配置，按默认项补齐缺失项（不覆盖用户自定义）"""
+        try:
+            system_prompts = self.load_system_prompts()
+            need_update = False
+
+            # 逐类检查：扩写/翻译/反推
+            for prompt_type, default_prompts in self.default_system_prompts.items():
+                # 确保类型存在且为字典
+                if prompt_type not in system_prompts or not isinstance(system_prompts[prompt_type], dict):
+                    system_prompts[prompt_type] = {}
+                    need_update = True
+                    self._log(f"提示词类型缺失或格式不正确，已初始化: {prompt_type}")
+
+                # 按默认清单补齐缺失项，并为已存在项补齐缺失字段
+                for prompt_id, default_def in default_prompts.items():
+                    if prompt_id not in system_prompts[prompt_type]:
+                        system_prompts[prompt_type][prompt_id] = default_def
+                        need_update = True
+                        self._log(f"为 {prompt_type} 补充默认提示词: {prompt_id}")
+                    else:
+                        # 补齐缺失字段（如 name/role/content 等），不覆盖用户已有内容
+                        for key in default_def.keys():
+                            if key not in system_prompts[prompt_type][prompt_id]:
+                                system_prompts[prompt_type][prompt_id][key] = default_def[key]
+                                need_update = True
+                                self._log(f"为提示词 {prompt_id} 补齐字段: {key}")
+
+            if need_update:
+                self.save_system_prompts(system_prompts)
+                self._log("已完成系统提示词配置的验证和补全")
+        except Exception as e:
+            self._log(f"验证和补全系统提示词配置时出错: {str(e)}")
+
 
     def validate_and_fix_active_prompts(self):
         """验证激活提示词是否存在，如果不存在则修复"""
@@ -466,25 +539,25 @@ class ConfigManager:
             # 加载当前的系统提示词和激活提示词
             system_prompts = self.load_system_prompts()
             active_prompts = self.load_active_prompts()
-            
+
             # 标记是否需要更新系统提示词
             need_update_system = False
             # 标记是否需要更新激活提示词
             need_update_active = False
-            
+
             # 检查系统提示词类型是否为空，如果为空则从默认配置中恢复
             prompt_types = {
                 "expand_prompts": "扩写提示词",
                 "translate_prompts": "翻译提示词",
                 "vision_prompts": "反推提示词"
             }
-            
+
             for prompt_type, type_name in prompt_types.items():
                 if prompt_type not in system_prompts or not system_prompts[prompt_type]:
-                    print(f"[PromptAssistant] 警告：{type_name}类型为空，从默认配置中恢复...")
+                    self._log(f"警告：{type_name}类型为空，从默认配置中恢复...")
                     system_prompts[prompt_type] = self.default_system_prompts[prompt_type]
                     need_update_system = True
-            
+
             # 特别检查vision_prompts中是否包含中文和英文反推提示词
             if "vision_prompts" in system_prompts:
                 # 检查是否有中文反推提示词
@@ -493,135 +566,135 @@ class ConfigManager:
                     if key.startswith("vision_zh_"):
                         has_zh_vision = True
                         break
-                
+
                 if not has_zh_vision:
-                    print("[PromptAssistant] 警告：系统提示词中没有中文反推提示词，从默认配置中恢复...")
+                    self._log("警告：系统提示词中没有中文反推提示词，从默认配置中恢复...")
                     # 从默认配置中恢复所有中文反推提示词
                     for key, value in self.default_system_prompts["vision_prompts"].items():
                         if key.startswith("vision_zh_"):
                             system_prompts["vision_prompts"][key] = value
                             need_update_system = True
-                
+
                 # 检查是否有英文反推提示词
                 has_en_vision = False
                 for key in system_prompts["vision_prompts"].keys():
                     if key.startswith("vision_en_"):
                         has_en_vision = True
                         break
-                
+
                 if not has_en_vision:
-                    print("[PromptAssistant] 警告：系统提示词中没有英文反推提示词，从默认配置中恢复...")
+                    self._log("警告：系统提示词中没有英文反推提示词，从默认配置中恢复...")
                     # 从默认配置中恢复所有英文反推提示词
                     for key, value in self.default_system_prompts["vision_prompts"].items():
                         if key.startswith("vision_en_"):
                             system_prompts["vision_prompts"][key] = value
                             need_update_system = True
-            
+
             # 如果需要更新系统提示词，保存修复后的系统提示词
             if need_update_system:
                 self.save_system_prompts(system_prompts)
-                print(f"[PromptAssistant] 已恢复缺失的提示词类型")
-            
+                self._log("已恢复缺失的提示词类型")
+
             # 检查并修复扩写提示词
             if "expand" in active_prompts:
                 expand_id = active_prompts["expand"]
                 if expand_id not in system_prompts.get("expand_prompts", {}):
-                    print(f"[PromptAssistant] 警告：激活的扩写提示词 {expand_id} 不存在，尝试修复...")
+                    self._log(f"警告：激活的扩写提示词 {expand_id} 不存在，尝试修复...")
                     # 尝试获取第一个可用的扩写提示词
                     expand_prompts = system_prompts.get("expand_prompts", {})
                     if expand_prompts:
                         first_expand_id = next(iter(expand_prompts))
                         active_prompts["expand"] = first_expand_id
-                        print(f"[PromptAssistant] 已将激活的扩写提示词修复为 {first_expand_id}")
+                        self._log(f"已将激活的扩写提示词修复为 {first_expand_id}")
                         need_update_active = True
                     else:
                         # 如果没有可用的扩写提示词，使用默认值并确保它存在于系统提示词中
                         default_expand_id = "expand_扩写-自然语言"
                         active_prompts["expand"] = default_expand_id
-                        
+
                         # 确保默认值存在于系统提示词中
                         if default_expand_id not in system_prompts.get("expand_prompts", {}):
                             if "expand_prompts" not in system_prompts:
                                 system_prompts["expand_prompts"] = {}
                             system_prompts["expand_prompts"][default_expand_id] = self.default_system_prompts["expand_prompts"][default_expand_id]
                             need_update_system = True
-                            
-                        print(f"[PromptAssistant] 未找到可用的扩写提示词，使用默认值并确保它存在于系统提示词中")
+
+                        self._log("未找到可用的扩写提示词，使用默认值并确保它存在于系统提示词中")
                         need_update_active = True
-            
+
             # 检查并修复中文反推提示词
             if "vision_zh" in active_prompts:
                 vision_zh_id = active_prompts["vision_zh"]
                 if vision_zh_id not in system_prompts.get("vision_prompts", {}):
-                    print(f"[PromptAssistant] 警告：激活的中文反推提示词 {vision_zh_id} 不存在，尝试修复...")
+                    self._log(f"警告：激活的中文反推提示词 {vision_zh_id} 不存在，尝试修复...")
                     # 尝试获取第一个可用的中文反推提示词
                     vision_prompts = {k: v for k, v in system_prompts.get("vision_prompts", {}).items() if k.startswith("vision_zh_")}
                     if vision_prompts:
                         first_vision_zh_id = next(iter(vision_prompts))
                         active_prompts["vision_zh"] = first_vision_zh_id
-                        print(f"[PromptAssistant] 已将激活的中文反推提示词修复为 {first_vision_zh_id}")
+                        self._log(f"已将激活的中文反推提示词修复为 {first_vision_zh_id}")
                         need_update_active = True
                     else:
                         # 如果没有可用的中文反推提示词，使用默认值并确保它存在于系统提示词中
                         default_vision_zh_id = "vision_zh_全图反推(中文)"
                         active_prompts["vision_zh"] = default_vision_zh_id
-                        
+
                         # 确保默认值存在于系统提示词中
                         if default_vision_zh_id not in system_prompts.get("vision_prompts", {}):
                             if "vision_prompts" not in system_prompts:
                                 system_prompts["vision_prompts"] = {}
                             system_prompts["vision_prompts"][default_vision_zh_id] = self.default_system_prompts["vision_prompts"][default_vision_zh_id]
                             need_update_system = True
-                            
-                        print(f"[PromptAssistant] 未找到可用的中文反推提示词，使用默认值并确保它存在于系统提示词中")
+
+                        self._log("未找到可用的中文反推提示词，使用默认值并确保它存在于系统提示词中")
                         need_update_active = True
-            
+
             # 检查并修复英文反推提示词
             if "vision_en" in active_prompts:
                 vision_en_id = active_prompts["vision_en"]
                 if vision_en_id not in system_prompts.get("vision_prompts", {}):
-                    print(f"[PromptAssistant] 警告：激活的英文反推提示词 {vision_en_id} 不存在，尝试修复...")
+                    self._log(f"警告：激活的英文反推提示词 {vision_en_id} 不存在，尝试修复...")
                     # 尝试获取第一个可用的英文反推提示词
                     vision_prompts = {k: v for k, v in system_prompts.get("vision_prompts", {}).items() if k.startswith("vision_en_")}
                     if vision_prompts:
                         first_vision_en_id = next(iter(vision_prompts))
                         active_prompts["vision_en"] = first_vision_en_id
-                        print(f"[PromptAssistant] 已将激活的英文反推提示词修复为 {first_vision_en_id}")
+                        self._log(f"已将激活的英文反推提示词修复为 {first_vision_en_id}")
                         need_update_active = True
                     else:
                         # 如果没有可用的英文反推提示词，使用默认值并确保它存在于系统提示词中
                         default_vision_en_id = "vision_en_全图反推(英文)"
                         active_prompts["vision_en"] = default_vision_en_id
-                        
+
                         # 确保默认值存在于系统提示词中
                         if default_vision_en_id not in system_prompts.get("vision_prompts", {}):
                             if "vision_prompts" not in system_prompts:
                                 system_prompts["vision_prompts"] = {}
                             system_prompts["vision_prompts"][default_vision_en_id] = self.default_system_prompts["vision_prompts"][default_vision_en_id]
                             need_update_system = True
-                            
-                        print(f"[PromptAssistant] 未找到可用的英文反推提示词，使用默认值并确保它存在于系统提示词中")
+
+                        self._log("未找到可用的英文反推提示词，使用默认值并确保它存在于系统提示词中")
                         need_update_active = True
-            
+
             # 如果需要更新系统提示词，保存修复后的系统提示词
             if need_update_system:
                 self.save_system_prompts(system_prompts)
-                print("[PromptAssistant] 已完成系统提示词的验证和修复")
-                
+                self._log("已完成系统提示词的验证和修复")
+
             # 如果需要更新，保存修复后的激活提示词
             if need_update_active:
                 self.save_active_prompts(active_prompts)
-                print("[PromptAssistant] 已完成激活提示词的验证和修复")
-                
+                self._log("已完成激活提示词的验证和修复")
+
             # 如果系统提示词或激活提示词有更新，重新加载一次确保一致性
             if need_update_system or need_update_active:
                 # 重新加载系统提示词和激活提示词
                 system_prompts = self.load_system_prompts()
                 active_prompts = self.load_active_prompts()
-                print("[PromptAssistant] 已重新加载提示词配置")
-                
+                self._log("已重新加载提示词配置")
+
         except Exception as e:
-            print(f"[PromptAssistant] 验证和修复激活提示词时出错: {str(e)}")
+            self._log(f"验证和修复激活提示词时出错: {str(e)}")
 
     def validate_and_fix_model_params(self):
         """验证并修复模型参数配置，确保所有提供商都包含必要的参数"""
@@ -630,55 +703,73 @@ class ConfigManager:
             config = self.load_config()
             need_update = False
 
-            # 检查LLM配置
-            if "llm" in config and "providers" in config["llm"]:
+            # 检查LLM配置，并补全新增提供商
+            if "llm" in config:
+                if "providers" not in config["llm"]:
+                    config["llm"]["providers"] = {}
+                    need_update = True
+                # 新增提供商预设
+                for p in ["302ai", "ollama"]:
+                    if p not in config["llm"]["providers"]:
+                        config["llm"]["providers"][p] = self.default_config["llm"]["providers"][p]
+                        need_update = True
+                        self._log(f"为LLM添加默认提供商: {p}")
                 for provider_name, provider_config in config["llm"]["providers"].items():
                     # 检查并添加缺失的temperature参数
                     if "temperature" not in provider_config:
                         provider_config["temperature"] = 0.7
                         need_update = True
-                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认temperature参数: 0.7")
+                        self._log(f"为LLM提供商 {provider_name} 添加默认temperature参数: 0.7")
 
                     # 检查并添加缺失的max_tokens参数
                     if "max_tokens" not in provider_config:
                         provider_config["max_tokens"] = 1000
                         need_update = True
-                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认max_tokens参数: 1000")
+                        self._log(f"为LLM提供商 {provider_name} 添加默认max_tokens参数: 1000")
 
                     # 检查并添加缺失的top_p参数
                     if "top_p" not in provider_config:
                         provider_config["top_p"] = 0.9
                         need_update = True
-                        print(f"[PromptAssistant] 为LLM提供商 {provider_name} 添加默认top_p参数: 0.9")
+                        self._log(f"为LLM提供商 {provider_name} 添加默认top_p参数: 0.9")
 
-            # 检查视觉模型配置
-            if "vlm" in config and "providers" in config["vlm"]:
+            # 检查视觉模型配置，并补全新增提供商
+            if "vlm" in config:
+                if "providers" not in config["vlm"]:
+                    config["vlm"]["providers"] = {}
+                    need_update = True
+                # 新增提供商预设
+                for p in ["302ai", "ollama"]:
+                    if p not in config["vlm"]["providers"]:
+                        config["vlm"]["providers"][p] = self.default_config["vlm"]["providers"][p]
+                        need_update = True
+                        self._log(f"为视觉模型添加默认提供商: {p}")
                 for provider_name, provider_config in config["vlm"]["providers"].items():
                     # 检查并添加缺失的temperature参数
                     if "temperature" not in provider_config:
                         provider_config["temperature"] = 0.7
                         need_update = True
-                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认temperature参数: 0.7")
+                        self._log(f"为视觉模型提供商 {provider_name} 添加默认temperature参数: 0.7")
 
                     # 检查并添加缺失的max_tokens参数
                     if "max_tokens" not in provider_config:
                         provider_config["max_tokens"] = 500
                         need_update = True
-                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认max_tokens参数: 500")
+                        self._log(f"为视觉模型提供商 {provider_name} 添加默认max_tokens参数: 500")
 
                     # 检查并添加缺失的top_p参数
                     if "top_p" not in provider_config:
                         provider_config["top_p"] = 0.9
                         need_update = True
-                        print(f"[PromptAssistant] 为视觉模型提供商 {provider_name} 添加默认top_p参数: 0.9")
+                        self._log(f"为视觉模型提供商 {provider_name} 添加默认top_p参数: 0.9")
 
             # 如果有更新，保存配置
             if need_update:
                 self.save_config(config)
-                print("[PromptAssistant] 已完成模型参数配置的验证和修复")
+                self._log("已完成模型参数配置的验证和修复")
 
         except Exception as e:
-            print(f"[PromptAssistant] 验证和修复模型参数时出错: {str(e)}")
+            self._log(f"验证和修复模型参数时出错: {str(e)}")
 
 # 创建全局配置管理器实例
 config_manager = ConfigManager()

@@ -25,7 +25,6 @@
             "基础负面": "low resolution,worst quality, low quality, normal quality, lowres,jpeg, cropped, bad composition, artifacts bad proportions, error, inaccurate limb, bad anatomy, bad, ugly, terrible, extra fingers, fewer fingers, missing fingers, extra arms, extra legs, inaccurate eyes,extra digit, fewer digits, trademark, artist's name, username, watermarksignature, watermark,text, words",
             "低分辨率": "lowres",
             "NSFW": "nsfw",
-            "embeddings": "BadDream,badhandv4,EasyNegative,ng_deepnegative_v1_75t,rev2-badprompt,verybadimagenegative_v1.3,negative_hand-neg,bad-picture-chill-75v",
             "变异手指": "mutated hands and fingers",
             "畸形的": "deformed",
             "解剖不良": "bad anatomy",

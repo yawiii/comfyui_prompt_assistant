@@ -4,9 +4,9 @@
 
 /* Z-index 层级管理 */
 :root {
-    --settings-modal-z-index: 4203;
-    --settings-dropdown-z-index: 4204;
-    --settings-overlay-z-index: 4202;
+    --settings-modal-z-index: 9203;
+    --settings-dropdown-z-index: 9204;
+    --settings-overlay-z-index: 9202;
 }
 
 /* 遮罩层样式 */
@@ -58,6 +58,14 @@
     background-color: var(--p-button-secondary-background);
     border-radius: 10px;
     padding: 2px 8px;
+}
+
+
+/* 服务申请前缀文本样式（与链接字号一致） */
+.settings-service-prefix {
+    color: var(--p-button-text-primary-color);
+    font-size: 14px;
+    padding: 2px 4px;
 }
 
 /* 服务申请链接样式 */
@@ -158,6 +166,8 @@
 
 .settings-modal .p-dialog-content {
     padding: 20px 40px;
+    position: relative;
+    /* 作为二维码的定位参照，避免被外层裁剪 */
     /* 内容区域自适应 */
     flex: 1 1 auto;
     overflow-y: auto;
@@ -294,10 +304,143 @@
 
 .settings-modal .p-dialog-header-icon.p-dialog-header-close .pi-times {
     font-size: 1rem;
+
 }
 
+/* 独立下拉选择组件样式（不依赖 PrimeVue 全局样式） */
+/* 仅影响通过小助手创建的选择框，不改变ComfyUI内置组件 */
+.pa-dropdown {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    background: var(--p-inputtext-background);
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: 6px;
+    transition: border-color 0.2s;
+    width: 100%;
+    box-shadow: var(--p-inputtext-shadow);
+    height: 2.5rem;
+}
+
+.pa-dropdown:hover {
+    border-color: var(--p-form-field-hover-border-color);
+}
+
+.pa-dropdown.p-focus {
+    border-color: var(--p-form-field-focus-border-color);
+}
+
+.pa-dropdown .pa-dropdown-label {
+    flex: 1 1 auto;
+    border: 0 none;
+    color: var(--p-inputtext-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 1%;
+    height: 100%;
+    cursor: pointer;
+}
+
+.pa-dropdown .pa-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    color: var(--p-form-field-hover-border-color);
+    height: 100%;
+}
+
+/* 下拉面板（独立样式） */
+.pa-dropdown-panel {
+    z-index: var(--settings-dropdown-z-index);
+    background: var(--p-inputtext-background);
+    border: 1px solid var(--p-inputtext-border-color);
+    box-shadow: var(--p-inputtext-shadow);
+    border-radius: 6px;
+    transform-origin: center top;
+    transition: transform 0.12s cubic-bezier(0, 0, 0.2, 1),
+        opacity 0.12s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.pa-dropdown-panel.p-hidden {
+    opacity: 0;
+    transform: scaleY(0.8);
+    pointer-events: none;
+}
+
+.pa-dropdown-panel.p-enter-active {
+    opacity: 1;
+    transform: scaleY(1);
+    pointer-events: auto;
+}
+
+/* 隐藏辅助可访问性选择器（在未加载PrimeVue时也生效） */
+.p-hidden-accessible {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: -1px !important;
+}
+
+/* 面板内容滚动容器（独立样式） */
+.pa-dropdown-panel .p-dropdown-items-wrapper {
+    max-height: 240px;
+    overflow: auto;
+}
+
+
+/* 列表与选项（独立样式） */
+.pa-dropdown-panel .p-dropdown-items {
+    padding: 4px;
+    list-style: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pa-dropdown-panel .p-dropdown-item {
+    padding: 10px 12px;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    color: var(--p-select-option-color);
+}
+
+.pa-dropdown-panel .p-dropdown-item:hover {
+    background-color: var(--p-form-field-filled-hover-background);
+}
+
+.pa-dropdown-panel .p-dropdown-item.p-highlight {
+    background-color: var(--p-list-option-selected-focus-background);
+    color: var(--p-form-field-focus-border-color);
+}
+
+/* 水平表单布局中的宽度适配 */
+.settings-form-group.horizontal .pa-dropdown,
+.settings-form-group.horizontal .p-inputtext {
+    width: 100%;
+    min-width: 0;
+}
+
+.settings-form-group.horizontal .pa-dropdown-container {
+    min-width: 150px;
+}
+
+
 /* 选择器控件样式 */
-.settings-modal .p-dropdown {
+.settings-modal .p-dropdown:not(.pa-dropdown) {
     display: inline-flex;
     align-items: center;
     position: relative;
@@ -312,15 +455,15 @@
     height: 2.5rem;
 }
 
-.settings-modal .p-dropdown:hover {
+.settings-modal .p-dropdown:not(.pa-dropdown):hover {
     border-color: var(--p-form-field-hover-border-color);
 }
 
-.settings-modal .p-dropdown.p-focus {
+.settings-modal .p-dropdown:not(.pa-dropdown).p-focus {
     border-color: var(--p-primary-color);
 }
 
-.settings-modal .p-dropdown-label {
+.settings-modal .p-dropdown-label:not(.pa-dropdown-label) {
     flex: 1 1 auto;
     padding: var(--p-select-padding-y) var(--p-select-padding-x);
     padding-right: 0;
@@ -335,7 +478,7 @@
     cursor: pointer;
 }
 
-.settings-modal .p-dropdown-trigger {
+.settings-modal .p-dropdown-trigger:not(.pa-dropdown-trigger) {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -345,9 +488,9 @@
     height: 100%;
 }
 
-/* 下拉面板动画相关样式 */
-.settings-modal .p-dropdown-panel,
-.settings-modal-dropdown-panel {
+/* 下拉面板动画相关样式（排除小助手下拉） */
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel),
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) {
     z-index: var(--settings-dropdown-z-index);
     background: var(--p-dialog-background);
     border: 1px solid var(--p-select-overlay-border-color);
@@ -358,22 +501,22 @@
         opacity 0.12s cubic-bezier(0, 0, 0.2, 1);
 }
 
-.settings-modal .p-dropdown-panel.p-hidden,
-.settings-modal-dropdown-panel.p-hidden {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel).p-hidden,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel).p-hidden {
     opacity: 0;
     transform: scaleY(0.8);
     pointer-events: none;
 }
 
-.settings-modal .p-dropdown-panel.p-enter-active,
-.settings-modal-dropdown-panel.p-enter-active {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel).p-enter-active,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel).p-enter-active {
     opacity: 1;
     transform: scaleY(1);
     pointer-events: auto;
 }
 
-.settings-modal .p-dropdown-items,
-.settings-modal-dropdown-panel .p-dropdown-items {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-items,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-items {
     padding: var(--p-list-padding, 0.5rem 0);
     list-style: none;
     margin: 0;
@@ -382,8 +525,8 @@
     gap: var(--p-select-list-gap);
 }
 
-.settings-modal .p-dropdown-item,
-.settings-modal-dropdown-panel .p-dropdown-item {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item {
     padding: var(--p-list-item-padding, 0.75rem 1rem);
     margin: 0;
     cursor: pointer;
@@ -392,14 +535,14 @@
     color: var(--p-list-item-color);
 }
 
-.settings-modal .p-dropdown-item:hover,
-.settings-modal-dropdown-panel .p-dropdown-item:hover {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item:hover,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item:hover {
     background-color: var(--p-select-option-focus-background);
     color: var(--p-select-option-focus-color);
 }
 
-.settings-modal .p-dropdown-item.p-highlight,
-.settings-modal-dropdown-panel .p-dropdown-item.p-highlight {
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item.p-highlight,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item.p-highlight {
     background-color: var(--p-select-option-selected-background);
     color: var(--p-select-option-selected-color);
 }
@@ -1398,4 +1541,42 @@ body.column-resizing * {
 
 .dialog-btn.secondary:hover {
     background: var(--p-button-secondary-hover-background);
+}
+
+
+
+/* 微信徽标悬浮二维码 */
+.pa-wechat-badge {
+    position: relative;
+    /* 作为二维码定位参照 */
+    /* 让绝对定位参照到内容容器 */
+}
+
+.pa-wechat-qr {
+    position: absolute;
+    opacity: 0;
+    visibility: hidden;
+    top: calc(100% + 6px);
+    right: 10px;
+    /* 向左偏移，避免被滚动条遮挡 */
+    transform: none;
+    background: var(--p-dialog-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: var(--p-dialog-shadow);
+    z-index: calc(var(--settings-modal-z-index) + 5);
+    /* 淡入淡出动画 */
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.pa-wechat-badge:hover .pa-wechat-qr {
+    opacity: 1;
+    visibility: visible;
+}
+
+.pa-wechat-qr-img {
+    display: block;
+    width: 256px;
+    height: auto;
 }

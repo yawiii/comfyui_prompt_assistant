@@ -147,8 +147,10 @@ class BaiduTranslateService:
                 return {"success": False, "error": "百度: 请先配置百度翻译API的APP_ID和SECRET_KEY"}
 
             from ..server import PREFIX, AUTO_TRANSLATE_PREFIX
-            
-            prefix = AUTO_TRANSLATE_PREFIX if is_auto else PREFIX
+
+            # 请求阶段：蓝色
+            from ..server import AUTO_TRANSLATE_REQUEST_PREFIX, REQUEST_PREFIX
+            prefix = AUTO_TRANSLATE_REQUEST_PREFIX if is_auto else REQUEST_PREFIX
             print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'} | 服务:百度翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
 
             text_chunks = BaiduTranslateService.split_text_by_paragraphs(text)
@@ -175,9 +177,10 @@ class BaiduTranslateService:
                         return {"success": False, "error": str(chunk_error)}
             
             translated_text = '\n'.join(translated_parts)
+            # 结果阶段：绿色
             prefix = AUTO_TRANSLATE_PREFIX if is_auto else PREFIX
             print(f"{prefix} {'工作流翻译完成' if is_auto else '翻译完成'} | 服务:百度翻译 | 请求ID:{request_id} | 结果字符数:{len(translated_text)}")
-            
+
             return {
                 "success": True,
                 "data": {

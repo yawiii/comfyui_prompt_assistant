@@ -413,9 +413,13 @@ export function closeModalWithAnimation(modal, overlay) {
  * 创建表单组
  * @param {string} title 表单组标题
  * @param {Array<{text: string, url: string}>} links 标题右侧的链接数组
+ * @param {Object} [options] 额外可选项
+ * @param {string} [options.prefixText] 链接前的前缀纯文本（不作为链接，不包在标签内）
  * @returns {HTMLElement} 表单组容器
  */
-export function createFormGroup(title, links = []) {
+export function createFormGroup(title, links = [], options = {}) {
+    const { prefixText = null } = options;
+
     const group = document.createElement('div');
     group.className = 'settings-form-section';
 
@@ -439,6 +443,14 @@ export function createFormGroup(title, links = []) {
     if (links.length > 0) {
         const serviceLinksContainer = document.createElement('div');
         serviceLinksContainer.className = 'settings-service-links';
+
+        // 可选的前缀文本，保持与链接字号一致（不包在<a>标签内）
+        if (prefixText) {
+            const prefix = document.createElement('span');
+            prefix.className = 'settings-service-prefix';
+            prefix.textContent = prefixText;
+            serviceLinksContainer.appendChild(prefix);
+        }
 
         links.forEach((linkInfo, index) => {
             if (index > 0) {
@@ -511,7 +523,8 @@ export function createSelectGroup(label, options, initialValue = null) {
 
     // Main Container
     const dropdownContainer = document.createElement('div');
-    dropdownContainer.className = 'p-dropdown p-component w-full';
+    // 增加自定义样式类 pa-dropdown，保留 p-dropdown 以兼容现有逻辑（如脏检查与布局选择器）
+    dropdownContainer.className = 'pa-dropdown p-dropdown p-component w-full';
     dropdownContainer.style.position = 'relative'; // Needed for panel positioning
 
     // Hidden select for form data and accessibility
@@ -522,15 +535,15 @@ export function createSelectGroup(label, options, initialValue = null) {
 
     // Visible Part: Label and Trigger
     const dropdownLabel = document.createElement('span');
-    dropdownLabel.className = 'p-dropdown-label p-inputtext';
+    dropdownLabel.className = 'pa-dropdown-label p-dropdown-label p-inputtext';
 
     const dropdownTrigger = document.createElement('div');
-    dropdownTrigger.className = 'p-dropdown-trigger';
+    dropdownTrigger.className = 'pa-dropdown-trigger p-dropdown-trigger';
     dropdownTrigger.innerHTML = '<span class="p-dropdown-trigger-icon pi pi-chevron-down"></span>';
 
     // Dropdown Panel (the menu)
     const dropdownPanel = document.createElement('div');
-    dropdownPanel.className = 'p-dropdown-panel p-component settings-modal-dropdown-panel';
+    dropdownPanel.className = 'pa-dropdown-panel p-dropdown-panel p-component settings-modal-dropdown-panel';
     dropdownPanel.style.display = 'none'; // Initially hidden
     dropdownPanel.style.zIndex = '10001'; // 确保层级足够高
 
@@ -648,10 +661,7 @@ export function createSelectGroup(label, options, initialValue = null) {
         dropdownPanel.style.top = rect.bottom + 'px';
         dropdownPanel.style.left = rect.left + 'px';
         dropdownPanel.style.width = rect.width + 'px';
-        dropdownPanel.style.background = 'var(--p-dialog-background)';
-        dropdownPanel.style.border = '1px solid var(--p-select-overlay-border-color)';
-        dropdownPanel.style.boxShadow = 'var(--p-select-overlay-shadow)';
-        dropdownPanel.style.borderRadius = 'var(--p-select-overlay-border-radius)';
+        // 样式由 CSS 中的 .pa-dropdown-panel 接管，避免依赖 PrimeVue 变量
 
         dropdownPanel.classList.remove('p-hidden');
         // 强制重排，确保动画生效
@@ -1068,7 +1078,7 @@ export function registerSettings() {
                     id: "PromptAssistant.Settings.LogLevel",
                     name: "日志级别",
                     category: ["✨提示词小助手", "系统", "日志级别"],
-                    type: "combo",
+                    type: "hidden",
                     defaultValue: "0",
                     options: [
                         { text: "错误日志", value: "0" },
@@ -1280,25 +1290,89 @@ export function registerSettings() {
                         biliTag.style.alignItems = "center";
                         const biliBadge = document.createElement("img");
                         biliBadge.alt = "Bilibili";
-                        biliBadge.src = "https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B-blue?style=flat&logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF&color=%2307A3D7";
+                        biliBadge.src = "https://img.shields.io/badge/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B-blue?style=flat&logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF&color=%2307A3D7";
                         biliBadge.style.display = "block";
                         biliBadge.style.height = "20px";
                         biliTag.appendChild(biliBadge);
                         cell.appendChild(biliTag);
-                        // // 反馈群徽标
-                        // const wechatTag = document.createElement("a");
-                        // wechatTag.href = "https://img.shields.io/badge/Bug-%E5%8F%8D%E9%A6%88%E4%BA%A4%E6%B5%81-white?logo=wechat&logoColor=green";
-                        // wechatTag.target = "_blank";
-                        // wechatTag.style.textDecoration = "none";
-                        // wechatTag.style.display = "flex";
-                        // wechatTag.style.alignItems = "center";
-                        // const wechatBadge = document.createElement("img");
-                        // wechatBadge.alt = "Bug反馈交流";
-                        // wechatBadge.src = "https://img.shields.io/badge/Bug-%E5%8F%8D%E9%A6%88%E4%BA%A4%E6%B5%81-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7";
-                        // wechatBadge.style.display = "block";
-                        // wechatBadge.style.height = "20px";
-                        // wechatTag.appendChild(wechatBadge);
-                        // cell.appendChild(wechatTag);
+                        // 交流群徽标
+                        const wechatTag = document.createElement("a");
+                        // 取消跳转；点击不再打开链接，避免本地缓存链接
+                        wechatTag.href = 'javascript:void(0)';
+                        wechatTag.addEventListener('click', (e) => { e.preventDefault(); toggleWechatQr(); });
+                        wechatTag.style.textDecoration = "none";
+                        wechatTag.style.display = "flex";
+                        wechatTag.style.alignItems = "center";
+                        wechatTag.classList.add("has-tooltip", "pa-wechat-badge");
+                        const wechatBadge = document.createElement("img");
+                        wechatBadge.alt = "交流反馈群";
+                        wechatBadge.src = "https://img.shields.io/badge/%E4%BA%A4%E6%B5%81%E5%8F%8D%E9%A6%88-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7";
+                        wechatBadge.style.display = "block";
+                        wechatBadge.style.height = "20px";
+                        wechatTag.appendChild(wechatBadge);
+
+                        // 悬浮显示二维码
+                        const wechatQr = document.createElement("div");
+                        wechatQr.className = "pa-wechat-qr";
+                        const wechatQrImg = document.createElement("img");
+                        // 优先加载远程二维码，失败则回退到本地备用图
+                        const remoteQrUrl = 'https://raw.githubusercontent.com/yawiii/assets/refs/heads/main/prompt_assistant/wechat.png';
+                        let qrFallbackTimer = null;
+                        const localQrUrl = ResourceManager.getAssetUrl('wechat.png');
+
+                        // 每次显示时强制重新加载远程二维码（带时间戳），避免缓存
+                        const loadWechatQr = () => {
+                            if (qrFallbackTimer) { clearTimeout(qrFallbackTimer); qrFallbackTimer = null; }
+                            wechatQrImg.dataset.fallbackApplied = '';
+                            wechatQrImg.dataset.source = 'remote';
+                            wechatQrImg.src = `${remoteQrUrl}?t=${Date.now()}`;
+                            // 超时回退到本地，防止 onerror 未触发时无法回退
+                            qrFallbackTimer = setTimeout(() => {
+                                if (wechatQrImg.dataset.fallbackApplied !== '1') {
+                                    loadLocalQr();
+                                }
+                            }, 1500);
+                        };
+                        // 手动切换到本地二维码（带时间戳），清理超时
+                        const loadLocalQr = () => {
+                            if (qrFallbackTimer) { clearTimeout(qrFallbackTimer); qrFallbackTimer = null; }
+                            wechatQrImg.dataset.fallbackApplied = '1';
+                            wechatQrImg.dataset.source = 'local';
+                            wechatQrImg.src = localQrUrl; // 本地图片固定，不加时间戳
+                        };
+
+                        // 点击徽标时在远程/本地之间来回切换
+                        const toggleWechatQr = () => {
+                            if (wechatQrImg.dataset.source === 'local') {
+                                loadWechatQr();
+                            } else {
+                                loadLocalQr();
+                            }
+                        };
+
+
+                        wechatQrImg.alt = "微信交流群二维码";
+                        wechatQrImg.className = "pa-wechat-qr-img";
+
+                        // 加载成功清理超时定时器
+                        wechatQrImg.onload = () => { if (qrFallbackTimer) { clearTimeout(qrFallbackTimer); qrFallbackTimer = null; } };
+
+                        // 远程加载失败时回退到本地备用图（也带时间戳避免缓存）
+                        wechatQrImg.onerror = () => {
+                            if (qrFallbackTimer) { clearTimeout(qrFallbackTimer); qrFallbackTimer = null; }
+                            if (wechatQrImg.dataset.fallbackApplied !== '1') {
+                                loadLocalQr();
+                            }
+                        };
+
+                        // 初次渲染和每次鼠标进入都触发重新加载
+                        loadWechatQr();
+                        wechatTag.addEventListener('mouseenter', loadWechatQr);
+
+                        wechatQr.appendChild(wechatQrImg);
+                        wechatTag.appendChild(wechatQr);
+
+                        cell.appendChild(wechatTag);
 
                         row.appendChild(cell);
                         return row;

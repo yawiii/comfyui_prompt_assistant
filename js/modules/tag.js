@@ -4,7 +4,7 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { TagCacheService } from "../services/cache.js";
+import { CacheService, TagCacheService } from "../services/cache.js";
 import { UIToolkit } from "../utils/UIToolkit.js";
 import { PopupManager } from "../utils/popupManager.js";
 import { ResourceManager } from "../utils/resourceManager.js";
@@ -17,6 +17,31 @@ import { TagConfigManager } from "./tagConfigManager.js";
  * 管理标签弹窗和标签选择
  */
 class TagManager {
+    // ---UI状态持久化：上次激活的标签页---
+    static LAST_TAB_KEY = 'PromptAssistant_TagPopup_LastTab';
+
+    /**
+     * 获取上次激活的标签页（分类名）
+     */
+    static getLastActiveTab() {
+        try {
+            return CacheService.get(this.LAST_TAB_KEY) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * 记录本次激活的标签页（分类名）
+     */
+    static setLastActiveTab(category) {
+        try {
+            if (category && typeof category === 'string') {
+                CacheService.set(this.LAST_TAB_KEY, category);
+                logger.debug(`[助手-标签] 记忆标签页 | 当前:${category}`);
+            }
+        } catch (e) {}
+    }
     static popupInstance = null;
     static onCloseCallback = null;  // 添加关闭回调存储
     static eventCleanups = [];      // 事件清理函数数组
@@ -1584,6 +1609,14 @@ class TagManager {
                 preventCloseOnElementTypes: ['tag_item', 'tag_item_text', 'tag_search_input'], // 阻止标签和搜索框关闭弹窗
                 enableResize: true, // 启用窗口大小调节功能
                 onClose: () => {
+                    try {
+                        // 关闭时记住当前激活的标签页
+                        const activeTab = popup.querySelector('.popup_tab.active');
+                        if (activeTab) {
+                            const category = activeTab.getAttribute('data-category');
+                            TagManager.setLastActiveTab(category);
+                        }
+                    } catch (e) {}
                     this._cleanupEvents();
                     if (typeof onClose === 'function') {
                         onClose();
@@ -1700,7 +1733,12 @@ class TagManager {
         // 获取所有标签页，重新排序将"⭐️"放在最前面
         const normalTabs = Object.keys(tagData);
         const allTabs = ['⭐️', ...normalTabs, '已插入'];
-        const activeTabIndex = 1; // 设置第二个标签（即tags.json的第一个类别）为激活状态
+        // 记忆上次激活的标签页
+        let activeTabIndex = 1; // 默认第二个标签（即tags.json的第一个类别）
+        const lastCategory = this.getLastActiveTab();
+        if (lastCategory && allTabs.includes(lastCategory)) {
+            activeTabIndex = allTabs.indexOf(lastCategory);
+        }
 
         // 创建所有标签页但不立即加载内容
         allTabs.forEach((category, index) => {
@@ -1741,6 +1779,9 @@ class TagManager {
                 if (content) {
                     content.classList.add('active');
                     content.style.display = 'block';
+
+                    // 记忆当前选择的标签页
+                    TagManager.setLastActiveTab(contentId);
 
                     // 对于特殊标签页，每次点击都重新加载
                     if (contentId === '⭐️') {
@@ -1803,6 +1844,8 @@ class TagManager {
         const firstContent = tabContents.querySelector('.popup_tab_content.active');
         if (firstContent) {
             const firstCategory = firstContent.getAttribute('data-category');
+            // 初始激活的标签页也进行记忆
+            TagManager.setLastActiveTab(firstCategory);
             if (firstCategory === '⭐️') {
                 this._loadUserTagsContent(firstContent);
             } else if (firstCategory === '已插入') {
@@ -2228,6 +2271,7 @@ class TagManager {
 
     /**
      * 刷新搜索结果中的标签状态
+     * 注意：不在此处绑定点击事件，避免与创建时的事件重复导致触发两次（插入后又被移除）。
      */
     static refreshSearchResultsState() {
         // 获取搜索结果中的所有标签
@@ -2236,8 +2280,6 @@ class TagManager {
         // 更新每个搜索结果标签的状态
         searchResultTags.forEach(tagItem => {
             const tagValue = tagItem.getAttribute('data-value');
-            const tagName = tagItem.getAttribute('data-name');
-
             if (!tagValue) return;
 
             // 检查是否已使用
@@ -2245,13 +2287,6 @@ class TagManager {
 
             // 更新状态
             this.updateTagState(tagItem, isUsed);
-
-            // 确保点击事件正常工作
-            if (!tagItem.onclick) {
-                tagItem.onclick = (e) => {
-                    this.handleTagClick(tagItem, tagName, tagValue, e);
-                };
-            }
         });
     }
 

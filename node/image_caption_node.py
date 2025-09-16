@@ -53,9 +53,9 @@ class ImageCaptionNode:
         return {
             "required": {
                 "图像": ("IMAGE",),
-                "规则类型": (["规则模板", "手动输入"], {"default": "规则模板"}),
                 "规则模板": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "默认中文反推提示词"}),
-                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "规则类型设置为\"手动输入\"后，输入框内容才会生效"}),
+                "临时规则": ("BOOLEAN", {"default": False, "label_on": "启用", "label_off": "禁用"}),
+                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用“临时规则”时生效"}),
                 "视觉服务": (["智谱", "硅基流动", "自定义"], {"default": "智谱"}),
             },
         }
@@ -67,7 +67,7 @@ class ImageCaptionNode:
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 图像, 规则类型, 规则模板, 临时规则内容, 视觉服务):
+    def IS_CHANGED(cls, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -96,22 +96,22 @@ class ImageCaptionNode:
         # 组合所有输入的哈希值
         input_hash = hash((
             img_hash,
-            规则类型,
             规则模板,
+            bool(临时规则),
             临时规则内容,
             视觉服务
         ))
 
         return input_hash
     
-    def analyze_image(self, 图像, 规则类型, 规则模板, 临时规则内容, 视觉服务):
+    def analyze_image(self, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务):
         """
         分析图像并生成提示词
 
         Args:
             图像: 输入的图像数据
-            规则类型: 选择使用模板还是手动输入
             规则模板: 选择的提示词模板
+            临时规则: 是否启用临时规则
             临时规则内容: 临时规则的内容
             视觉服务: 选择的视觉服务
 
@@ -129,9 +129,9 @@ class ImageCaptionNode:
             # 获取提示词模板内容
             prompt_template = None
 
-            if 规则类型 == "手动输入" and 临时规则内容:
+            if 临时规则 and 临时规则内容:
                 prompt_template = 临时规则内容
-                print(f"{self.LOG_PREFIX} 图像反推: 使用手动输入规则")
+                print(f"{self.LOG_PREFIX} 图像反推: 使用临时规则")
             else:
                 # 从config_manager获取系统提示词配置
                 from ..config_manager import config_manager
