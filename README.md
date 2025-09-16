@@ -22,7 +22,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 ## 📣更新
 <details>
  <summary>[2025-9-16]V1.2.0： </summary>
-  
+- 新增提示词扩写节点
 - 新增302ai、ollama服务
 - 标签面板新增记忆功能
 - 右键菜单支持快速切换服务
@@ -176,6 +176,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
