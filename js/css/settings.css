@@ -86,7 +86,7 @@
 
 /* 服务链接分隔符 */
 .settings-service-separator {
-    color: var(--p-message-info-border-color);
+    color: var(--p-button-text-primary-color);
     opacity: 0.5;
     padding: 0 2px;
     user-select: none;
