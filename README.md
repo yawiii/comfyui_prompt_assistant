@@ -23,14 +23,23 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 <details>
  <summary>[2025-9-16]V1.2.0： </summary>
 - 新增提示词扩写节点
+  
 - 新增302.AI、Ollama服务
+  
 - 标签面板新增记忆功能
+  
 - 右键菜单支持快速切换服务
+  
 - 针对某些主流模型支持关闭思维链
+  
 - 优化反推和翻译节点
+  
 - 新增交流反馈入口徽标
+  
 - 修复下拉菜单bug
+  
 - 修复标签面板搜索标签无法插入bug
+  
 - 修复base_url裁剪错误，解决偶发性请求报错
 </details>
 <details>
@@ -176,6 +185,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
