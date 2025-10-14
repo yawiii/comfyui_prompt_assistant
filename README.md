@@ -6,8 +6,9 @@
 
 
 > 使用教程请查看：👉<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;👈
+> 
 交流及bug反馈
-<img src="https://raw.githubusercontent.com/yawiii/assets/refs/heads/main/prompt_assistant/wechat.png" width="200" alt="提示词小助手交流群二维码">
+<img src="http://data.xflow.cc/wechat.png" width="300" alt="提示词小助手交流群二维码">
 
 🎀特别感谢以下朋友提出的宝贵方案！
 
@@ -21,8 +22,26 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 
 ## 📣更新
+<details open>
+ <summary>[2025-10-14]  V1.2.1 </summary>
+  
+- 优化小助手UI的反应灵敏度；
+  
+- 增强api请求重试机制；
+
+- 设置界面新增翻译标点符号、自动移除多余空格、移除多余连续点号、保留换行符等选项；
+
+- 标签窗口记忆窗口大小，记忆上次选中的分类，以及标签栏滚动；
+  
+- API配置界面，新增自动获取模型列表功能；
+  
+- Ollama新增自动释放显存选项；
+  
+- 修复预览任意节点在列表情况无法为每个文本框创建小助手的bug。
+
+</details>
 <details>
- <summary>[2025-9-16]V1.2.0： </summary>
+ <summary>[2025-9-16]V1.2.0 </summary>
 - 新增提示词扩写节点
   
 - 新增302.AI、Ollama服务
@@ -46,14 +65,14 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 <details>
  <summary>V1.1.x </summary>
 <details>
- <summary>[2025-8-28]V1.1.3： </summary>
+ <summary>[2025-8-28]V1.1.3 </summary>
   
 - 优化小助手UI，实现自动避开滚动条，避免重叠误触
 - 修复标签弹窗无滚动条，内容显示不全的问题
   
 </details>
 <details>
- <summary>[2025-8-23]V1.1.2： </summary>
+ <summary>[2025-8-23]V1.1.2 </summary>
   
 - 重构节点，解决执行时产生多队列和重复执行的问题
 - API配置界面添加模型参数，某些报错可以尝试调整最大token数解决
@@ -62,13 +81,13 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
   
 </details>
 <details>
- <summary>[2025-8-10]V1.1.1： </summary>
+ <summary>[2025-8-10]V1.1.1 </summary>
   
 -修复图像反推节点报错
   
 </details>
 <details>
- <summary>[2025-8-10]V1.1.0： </summary>
+ <summary>[2025-8-10]V1.1.0 </summary>
   
 - 修改了UI交互
 - 支持所有兼容OpenAI SDK API
@@ -186,6 +205,7 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 #### 填入App id 、密钥、大模型API key
 
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
+
 
 
 
