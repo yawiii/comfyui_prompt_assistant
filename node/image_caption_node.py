@@ -55,8 +55,8 @@ class ImageCaptionNode:
                 "图像": ("IMAGE",),
                 "规则模板": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "默认中文反推提示词"}),
                 "临时规则": ("BOOLEAN", {"default": False, "label_on": "启用", "label_off": "禁用"}),
-                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用“临时规则”时生效"}),
-                "视觉服务": (["智谱", "硅基流动", "自定义"], {"default": "智谱"}),
+                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用'临时规则'时生效"}),
+                "视觉服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
             },
         }
 
@@ -173,6 +173,8 @@ class ImageCaptionNode:
             provider_map = {
                 "智谱": "zhipu",
                 "硅基流动": "siliconflow",
+                "302.AI": "302ai",
+                "Ollama": "ollama",
                 "自定义": "custom"
             }
 

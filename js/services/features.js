@@ -57,6 +57,12 @@ export const FEATURES = {
     autoTranslate: false, // 自动翻译功能
     imageCaption: true, // 图像反推提示词功能
 
+    // 翻译格式化选项
+    translateFormatPunctuation: true, // 标点符号自动转成半角
+    translateFormatSpace: true, // 移除多余空格
+    translateFormatDots: false, // 处理连续点号
+    translateFormatNewline: false, // 保留换行符
+
     /**
      * 更新所有实例的按钮显示状态
      * 根据功能开关状态控制UI元素的显示和隐藏
@@ -149,6 +155,9 @@ export function handleFeatureChange(featureName, value, oldValue) {
                 }
             });
             logger.debug(`功能重建 | 结果:完成 | 功能: ${featureName}`);
+            
+            // 重新计算并更新所有实例的宽度
+            promptAssistant.updateAllInstancesWidth();
         }
 
         // 如果是图像反推功能被启用
@@ -187,6 +196,11 @@ export function handleFeatureChange(featureName, value, oldValue) {
         if (featureName === '图像反推' && !value && imageCaption) {
             // 清理所有图像小助手实例
             imageCaption.cleanup();
+        }
+        
+        // 功能开关变化时，更新所有实例的宽度
+        if (PromptAssistant.instances.size > 0) {
+            promptAssistant.updateAllInstancesWidth();
         }
     }
 } 

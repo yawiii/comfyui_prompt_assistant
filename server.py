@@ -4,6 +4,7 @@ from .config_manager import config_manager
 from .services.baidu import BaiduTranslateService
 from .services.llm import LLMService
 from .services.vlm import VisionService
+from .services.model_list import ModelListService
 import base64
 import json
 import traceback
@@ -310,6 +311,7 @@ async def update_llm_config(request):
                 temperature = provider_config.get('temperature')
                 max_tokens = provider_config.get('max_tokens')
                 top_p = provider_config.get('top_p')
+                auto_unload = provider_config.get('auto_unload')
 
                 # 更新配置，但不更新current_provider
                 success = success and config_manager.update_llm_config(
@@ -320,6 +322,7 @@ async def update_llm_config(request):
                     temperature=temperature,
                     max_tokens=max_tokens,
                     top_p=top_p,
+                    auto_unload=auto_unload,
                     update_current=False
                 )
                 
@@ -369,6 +372,7 @@ async def update_vision_config(request):
                 temperature = provider_config.get('temperature')
                 max_tokens = provider_config.get('max_tokens')
                 top_p = provider_config.get('top_p')
+                auto_unload = provider_config.get('auto_unload')
 
                 # 更新配置，但不更新current_provider
                 success = success and config_manager.update_vision_config(
@@ -379,6 +383,7 @@ async def update_vision_config(request):
                     temperature=temperature,
                     max_tokens=max_tokens,
                     top_p=top_p,
+                    auto_unload=auto_unload,
                     update_current=False
                 )
                 
@@ -585,4 +590,55 @@ async def vlm_analyze(request):
         return web.json_response({"success": False, "error": error_msg})
     finally:
         if request_id and request_id in ACTIVE_TASKS:
-            del ACTIVE_TASKS[request_id] 
+            del ACTIVE_TASKS[request_id]
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/models/list')
+async def get_models_list(request):
+    """
+    获取模型列表API
+    请求参数:
+    - provider: 服务提供商 (zhipu, siliconflow, 302ai, ollama, custom)
+    - model_type: 模型类型 ('llm' 或 'vision')
+    - recommended: 是否获取推荐列表 (可选，默认False)
+    """
+    try:
+        data = await request.json()
+        provider = data.get("provider")
+        model_type = data.get("model_type", "llm")
+        recommended = data.get("recommended", False)
+        
+        if not provider:
+            return web.json_response({
+                "success": False,
+                "error": "缺少provider参数"
+            }, status=400)
+        
+        # 如果请求推荐模型列表，直接返回静态列表
+        if recommended:
+            result = ModelListService.get_recommended_models(provider, model_type)
+            return web.json_response(result)
+        
+        # 从配置中获取对应provider的API Key
+        if model_type == 'llm':
+            config = config_manager.get_llm_config()
+        else:
+            config = config_manager.get_vision_config()
+        
+        # 获取对应provider的配置
+        providers_config = config.get('providers', {})
+        provider_config = providers_config.get(provider, {})
+        api_key = provider_config.get('api_key', '')
+        base_url = provider_config.get('base_url', '')
+        
+        # 调用模型列表服务
+        result = ModelListService.get_models(provider, api_key, model_type, base_url)
+        
+        return web.json_response(result)
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"{ERROR_PREFIX} 获取模型列表异常 | 错误:{error_msg}")
+        return web.json_response({
+            "success": False,
+            "error": error_msg
+        }, status=500) 

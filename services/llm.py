@@ -14,8 +14,8 @@ from .thinking_control import build_thinking_suppression
 class LLMService:
     _provider_base_urls = {
         'openai': None,  # 使用默认
-        'siliconflow': 'https://api.siliconflow.cn/v1',
-        'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
+        'siliconflow': 'https://api.siliconflow.cn/v1',  # 硅基流动
+        'zhipu': 'https://open.bigmodel.cn/api/paas/v4/',  # 智谱（官方文档要求末尾斜杠）
         '302ai': 'https://api.302.ai/v1',
         'ollama': 'http://localhost:11434/v1',
         'custom': None  # 使用配置中的自定义URL
@@ -53,8 +53,8 @@ class LLMService:
         else:
             base_url = cls._provider_base_urls.get(provider)
 
-        # 创建简化的httpx客户端，不使用HTTP/2，避免额外依赖
-        # 仅在“发起请求”阶段打印一条请求日志，避免重复
+        # 创建简化的httpx客户端，明确禁用HTTP/2以提高国内服务商兼容性
+        # 仅在"发起请求"阶段打印一条请求日志，避免重复
         from ..server import PROCESS_PREFIX
 
         async def _on_request(request: httpx.Request):
@@ -63,19 +63,34 @@ class LLMService:
             except Exception:
                 pass
 
+        # 使用细粒度的超时配置，提高网络波动下的稳定性
+        # connect: 建立连接的超时时间
+        # read: 等待服务器响应的超时时间
+        # write: 发送请求数据的超时时间
+        # pool: 从连接池获取连接的超时时间
         http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0),  # 设置超时时间，稍微增加以适应网络延迟
-            event_hooks={'request': [_on_request]}
+            timeout=httpx.Timeout(
+                connect=10.0,  # 连接超时：10秒
+                read=60.0,     # 读取超时：60秒（流式响应需要较长时间）
+                write=10.0,    # 写入超时：10秒
+                pool=5.0       # 连接池超时：5秒
+            ),
+            event_hooks={'request': [_on_request]},
+            http2=False,       # 明确禁用HTTP/2，提高国内服务商兼容性
+            proxy=None,        # 明确禁用代理，避免连接问题
+            verify=True        # 启用SSL验证，但使用系统证书
         )
 
         kwargs = {
             "api_key": api_key,
             "http_client": http_client,
-            "max_retries": 2  # 设置最大重试次数
+            "max_retries": 3  # 增加重试次数到3次
         }
         if base_url:
-            # 确保base_url末尾没有斜杠
-            base_url = base_url.rstrip('/')
+            # 根据官方文档，保留base_url原样，不做处理
+            # 智谱文档要求：https://open.bigmodel.cn/api/paas/v4/
+            # 硅基流动文档要求：https://api.siliconflow.cn/v1
+            # OpenAI SDK会自动处理URL拼接
             kwargs["base_url"] = base_url
 
 
@@ -100,11 +115,51 @@ class LLMService:
                 'api_key': provider_config.get('api_key', ''),
                 'temperature': provider_config.get('temperature', 0.7),
                 'top_p': provider_config.get('top_p', 0.9),
-                'max_tokens': provider_config.get('max_tokens', 2000)
+                'max_tokens': provider_config.get('max_tokens', 2000),
+                'auto_unload': provider_config.get('auto_unload', True)
             }
         else:
             # 兼容旧版配置格式
             return config
+
+    @staticmethod
+    async def _unload_ollama_model(model: str, config: Dict[str, Any]):
+        """
+        卸载Ollama模型以释放显存和内存
+        
+        参数:
+            model: 模型名称
+            config: 配置字典
+        """
+        try:
+            # 检查是否启用自动释放
+            auto_unload = config.get('auto_unload', True)
+            if not auto_unload:
+                return
+            
+            # 获取base_url
+            base_url = config.get('base_url', 'http://localhost:11434')
+            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
+            if base_url.endswith('/v1'):
+                base_url = base_url[:-3]
+            
+            # 调用Ollama API卸载模型
+            url = f"{base_url}/api/generate"
+            payload = {
+                "model": model,
+                "keep_alive": 0  # 立即卸载模型
+            }
+            
+            from ..server import PROCESS_PREFIX
+            print(f"{PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
+            
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(url, json=payload)
+                
+        except Exception as e:
+            # 释放失败不影响主流程，只记录警告
+            from ..server import WARN_PREFIX
+            print(f"{WARN_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
 
     @staticmethod
     async def expand_prompt(prompt: str, request_id: Optional[str] = None, stream_callback: Optional[Callable[[str], None]] = None) -> Dict[str, Any]:
@@ -191,40 +246,34 @@ class LLMService:
 
             # 使用OpenAI SDK
             client = LLMService.get_openai_client(api_key, provider)
-            try:
-                # 添加调试信息
-                _thinking_extra = build_thinking_suppression(provider, model)
-                _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
-                from ..server import PROCESS_PREFIX
-                print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
-                start_time = time.perf_counter()
-
-                # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body
-                extra_args = {}
-                if _thinking_extra:
-                    _extra_copy = dict(_thinking_extra)
-                    if "reasoning_effort" in _extra_copy:
-                        extra_args["reasoning_effort"] = _extra_copy.pop("reasoning_effort")
-                    if _extra_copy:
-                        extra_args["extra_body"] = _extra_copy
-
-                # 使用配置中的参数
+            
+            # 添加手动重试机制，处理连接错误
+            max_retries = 3
+            retry_delay = 1.0  # 初始重试延迟（秒）
+            
+            for attempt in range(max_retries):
                 try:
-                    stream = await client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                        temperature=temperature,
-                        top_p=top_p,
-                        max_tokens=max_tokens,
-                        stream=True,
-                        response_format={"type": "text"},
-                        **extra_args
-                    )
-                except Exception as e_first:
-                    # 针对硅基流动返回 "enable_thinking 不支持" 的场景做一次性回退
-                    msg = str(e_first).lower()
-                    if "enable_thinking" in msg and "not support" in msg:
-                        print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
+                    # 添加调试信息
+                    _thinking_extra = build_thinking_suppression(provider, model)
+                    _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
+                    from ..server import PROCESS_PREFIX
+                    if attempt > 0:
+                        print(f"{PROCESS_PREFIX} 重试LLM API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                    else:
+                        print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                    start_time = time.perf_counter()
+
+                    # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body
+                    extra_args = {}
+                    if _thinking_extra:
+                        _extra_copy = dict(_thinking_extra)
+                        if "reasoning_effort" in _extra_copy:
+                            extra_args["reasoning_effort"] = _extra_copy.pop("reasoning_effort")
+                        if _extra_copy:
+                            extra_args["extra_body"] = _extra_copy
+
+                    # 使用配置中的参数
+                    try:
                         stream = await client.chat.completions.create(
                             model=model,
                             messages=[{"role": m["role"], "content": m["content"]} for m in messages],
@@ -232,10 +281,49 @@ class LLMService:
                             top_p=top_p,
                             max_tokens=max_tokens,
                             stream=True,
-                            response_format={"type": "text"}
+                            response_format={"type": "text"},
+                            **extra_args
                         )
-                    else:
+                    except Exception as e_first:
+                        # 针对硅基流动返回 "enable_thinking 不支持" 的场景做一次性回退
+                        msg = str(e_first).lower()
+                        if "enable_thinking" in msg and "not support" in msg:
+                            print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
+                            stream = await client.chat.completions.create(
+                                model=model,
+                                messages=[{"role": m["role"], "content": m["content"]} for m in messages],
+                                temperature=temperature,
+                                top_p=top_p,
+                                max_tokens=max_tokens,
+                                stream=True,
+                                response_format={"type": "text"}
+                            )
+                        else:
+                            raise
+                    
+                    # 请求成功，跳出重试循环
+                    break
+                    
+                except Exception as e:
+                    # 检查是否为连接错误
+                    error_msg = str(e).lower()
+                    is_connection_error = any(keyword in error_msg for keyword in [
+                        'connection', 'connect', 'timeout', 'timed out', 
+                        'network', 'unreachable', 'refused'
+                    ])
+                    
+                    # 如果是最后一次尝试，或者不是连接错误，则抛出异常
+                    if attempt == max_retries - 1 or not is_connection_error:
                         raise
+                    
+                    # 否则等待后重试（使用指数退避策略）
+                    wait_time = retry_delay * (2 ** attempt)
+                    from ..server import WARN_PREFIX
+                    print(f"{WARN_PREFIX} LLM API连接失败 | 尝试:{attempt + 1}/{max_retries} | 错误:{str(e)[:100]} | {wait_time:.1f}秒后重试")
+                    await asyncio.sleep(wait_time)
+                    continue
+            
+            try:
 
                 full_content = ""
                 async for chunk in stream:
@@ -254,6 +342,10 @@ class LLMService:
                 # 输出结构化成功日志
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                 print(f"{PREFIX} LLM扩写成功 | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+
+                # Ollama自动释放显存
+                if provider == 'ollama':
+                    await LLMService._unload_ollama_model(model, config)
 
                 return {
                     "success": True,
@@ -357,39 +449,34 @@ class LLMService:
 
             # 使用OpenAI SDK
             client = LLMService.get_openai_client(api_key, provider)
-            try:
-                # 添加调试信息
-                _thinking_extra = build_thinking_suppression(provider, model)
-                _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
-                from ..server import PROCESS_PREFIX
-                print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
-                start_time = time.perf_counter()
-
-                # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body
-                extra_args = {}
-                if _thinking_extra:
-                    _extra_copy = dict(_thinking_extra)
-                    if "reasoning_effort" in _extra_copy:
-                        extra_args["reasoning_effort"] = _extra_copy.pop("reasoning_effort")
-                    if _extra_copy:
-                        extra_args["extra_body"] = _extra_copy
-
-                # 使用配置中的参数
+            
+            # 添加手动重试机制，处理连接错误
+            max_retries = 3
+            retry_delay = 1.0  # 初始重试延迟（秒）
+            
+            for attempt in range(max_retries):
                 try:
-                    stream = await client.chat.completions.create(
-                        model=model,
-                        messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                        temperature=temperature,
-                        top_p=top_p,
-                        max_tokens=max_tokens,
-                        stream=True,
-                        response_format={"type": "text"},
-                        **extra_args
-                    )
-                except Exception as e_first:
-                    msg = str(e_first).lower()
-                    if "enable_thinking" in msg and "not support" in msg:
-                        print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
+                    # 添加调试信息
+                    _thinking_extra = build_thinking_suppression(provider, model)
+                    _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
+                    from ..server import PROCESS_PREFIX
+                    if attempt > 0:
+                        print(f"{PROCESS_PREFIX} 重试LLM API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                    else:
+                        print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                    start_time = time.perf_counter()
+
+                    # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body
+                    extra_args = {}
+                    if _thinking_extra:
+                        _extra_copy = dict(_thinking_extra)
+                        if "reasoning_effort" in _extra_copy:
+                            extra_args["reasoning_effort"] = _extra_copy.pop("reasoning_effort")
+                        if _extra_copy:
+                            extra_args["extra_body"] = _extra_copy
+
+                    # 使用配置中的参数
+                    try:
                         stream = await client.chat.completions.create(
                             model=model,
                             messages=[{"role": m["role"], "content": m["content"]} for m in messages],
@@ -397,10 +484,48 @@ class LLMService:
                             top_p=top_p,
                             max_tokens=max_tokens,
                             stream=True,
-                            response_format={"type": "text"}
+                            response_format={"type": "text"},
+                            **extra_args
                         )
-                    else:
+                    except Exception as e_first:
+                        msg = str(e_first).lower()
+                        if "enable_thinking" in msg and "not support" in msg:
+                            print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
+                            stream = await client.chat.completions.create(
+                                model=model,
+                                messages=[{"role": m["role"], "content": m["content"]} for m in messages],
+                                temperature=temperature,
+                                top_p=top_p,
+                                max_tokens=max_tokens,
+                                stream=True,
+                                response_format={"type": "text"}
+                            )
+                        else:
+                            raise
+                    
+                    # 请求成功，跳出重试循环
+                    break
+                    
+                except Exception as e:
+                    # 检查是否为连接错误
+                    error_msg = str(e).lower()
+                    is_connection_error = any(keyword in error_msg for keyword in [
+                        'connection', 'connect', 'timeout', 'timed out', 
+                        'network', 'unreachable', 'refused'
+                    ])
+                    
+                    # 如果是最后一次尝试，或者不是连接错误，则抛出异常
+                    if attempt == max_retries - 1 or not is_connection_error:
                         raise
+                    
+                    # 否则等待后重试（使用指数退避策略）
+                    wait_time = retry_delay * (2 ** attempt)
+                    from ..server import WARN_PREFIX
+                    print(f"{WARN_PREFIX} LLM API连接失败 | 尝试:{attempt + 1}/{max_retries} | 错误:{str(e)[:100]} | {wait_time:.1f}秒后重试")
+                    await asyncio.sleep(wait_time)
+                    continue
+            
+            try:
 
                 full_content = ""
                 async for chunk in stream:
@@ -420,6 +545,10 @@ class LLMService:
                 prefix = AUTO_TRANSLATE_PREFIX if is_auto else PREFIX
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                 print(f"{prefix} {'工作流翻译完成' if is_auto else '翻译完成'} | 服务:{provider_display_name}翻译 | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+
+                # Ollama自动释放显存
+                if provider == 'ollama':
+                    await LLMService._unload_ollama_model(model, config)
 
                 return {
                     "success": True,

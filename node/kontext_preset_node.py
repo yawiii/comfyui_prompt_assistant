@@ -71,7 +71,7 @@ class KontextPresetNode:
             "required": {
                 "图像": ("IMAGE",),
                 "Kontext预设": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "情境深度融合"}),
-                "视觉服务": (["智谱", "硅基流动", "自定义"], {"default": "智谱"}),
+                "视觉服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
             },
         }
 
@@ -183,6 +183,8 @@ class KontextPresetNode:
             provider_map = {
                 "智谱": "zhipu",
                 "硅基流动": "siliconflow",
+                "302.AI": "302ai",
+                "Ollama": "ollama",
                 "自定义": "custom"
             }
 

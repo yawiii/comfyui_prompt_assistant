@@ -23,6 +23,7 @@ let isFirstLoad = true;
  * @param {Object} options 弹窗配置选项
  * @param {string} options.title 弹窗标题
  * @param {Function} options.renderContent 渲染弹窗内容的函数
+ * @param {Function} options.renderNotice 渲染通知区域的函数（可选，显示在标题和内容之间）
  * @param {Function} options.onSave 保存按钮点击回调
  * @param {Function} options.onCancel 取消按钮点击回调（可选）
  * @param {boolean} options.isConfirmDialog 是否是确认对话框（可选）
@@ -36,6 +37,7 @@ export function createSettingsDialog(options) {
         const {
             title,
             renderContent,
+            renderNotice = null,
             onSave,
             onCancel = null,
             isConfirmDialog = false,
@@ -172,6 +174,14 @@ export function createSettingsDialog(options) {
 
         header.appendChild(titleSpan);
         header.appendChild(headerIcons);
+
+        // 创建通知区域（在标题和内容之间）
+        let noticeArea = null;
+        if (renderNotice) {
+            noticeArea = document.createElement('div');
+            noticeArea.className = 'p-dialog-notice';
+            renderNotice(noticeArea);
+        }
 
         // 创建弹窗内容
         const content = document.createElement('div');
@@ -358,6 +368,9 @@ export function createSettingsDialog(options) {
 
         // 组装弹窗
         modal.appendChild(header);
+        if (noticeArea) {
+            modal.appendChild(noticeArea);
+        }
         modal.appendChild(content);
         modal.appendChild(footer);
 
@@ -1029,11 +1042,61 @@ export function registerSettings() {
                     category: ["✨提示词小助手", " 翻译功能设置", "翻译缓存"],
                     type: "boolean",
                     defaultValue: true,
-                    tooltip: "开启后，会优先使用之前相同翻译的结果，避免相同内容重复翻译",
+                    tooltip: "开启后，如果翻译内容翻译过，则使用历史翻译结果，避免相同内容重复翻译改变原意。如果需要重新翻译，请随便加一个空格即可跳过缓存。",
                     onChange: (value) => {
                         const oldValue = FEATURES.useTranslateCache;
                         FEATURES.useTranslateCache = value;
                         logger.log(`使用翻译缓存 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
+                // 翻译格式化选项
+                {
+                    id: "PromptAssistant.Features.TranslateFormatPunctuation",
+                    name: "始终使用半角标点符号",
+                    category: ["✨提示词小助手", " 翻译功能设置", "标点处理"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "打开后，翻译结果会自动将中文标点符号替换成英文标点符号",
+                    onChange: (value) => {
+                        FEATURES.translateFormatPunctuation = value;
+                        logger.log(`标点符号转换 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+                {
+                    id: "PromptAssistant.Features.TranslateFormatSpace",
+                    name: "自动移除多余空格",
+                    category: ["✨提示词小助手", " 翻译功能设置", "空格处理"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "打开后，翻译结果会自动移除多余空格",
+                    onChange: (value) => {
+                        FEATURES.translateFormatSpace = value;
+                        logger.log(`移除多余空格 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+                {
+                    id: "PromptAssistant.Features.TranslateFormatDots",
+                    name: "移除多余连续点号",
+                    category: ["✨提示词小助手", " 翻译功能设置", "点号处理"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "打开后，翻译结果会将多余的“......”统一为“...”",
+                    onChange: (value) => {
+                        FEATURES.translateFormatDots = value;
+                        logger.log(`处理连续点号 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+                {
+                    id: "PromptAssistant.Features.TranslateFormatNewline",
+                    name: "保留换行符",
+                    category: ["✨提示词小助手", " 翻译功能设置", "换行处理"],
+                    type: "boolean",
+                    defaultValue: true,
+                    tooltip: "打开后，翻译结果会尽量保持原文的换行，避免翻译后丢失段落",
+                    onChange: (value) => {
+                        FEATURES.translateFormatNewline = value;
+                        logger.log(`保留换行符 - 已${value ? "启用" : "禁用"}`);
                     }
                 },
 
@@ -1316,7 +1379,7 @@ export function registerSettings() {
                         wechatQr.className = "pa-wechat-qr";
                         const wechatQrImg = document.createElement("img");
                         // 优先加载远程二维码，失败则回退到本地备用图
-                        const remoteQrUrl = 'https://raw.githubusercontent.com/yawiii/assets/refs/heads/main/prompt_assistant/wechat.png';
+                        const remoteQrUrl = 'http://data.xflow.cc/wechat.png';
                         let qrFallbackTimer = null;
                         const localQrUrl = ResourceManager.getAssetUrl('wechat.png');
 
@@ -1326,12 +1389,22 @@ export function registerSettings() {
                             wechatQrImg.dataset.fallbackApplied = '';
                             wechatQrImg.dataset.source = 'remote';
                             wechatQrImg.src = `${remoteQrUrl}?t=${Date.now()}`;
-                            // 超时回退到本地，防止 onerror 未触发时无法回退
+                            // 超时回退到本地，但需要判断图片是否已开始加载
                             qrFallbackTimer = setTimeout(() => {
-                                if (wechatQrImg.dataset.fallbackApplied !== '1') {
+                                // 检查是否已标记为已回退
+                                if (wechatQrImg.dataset.fallbackApplied === '1') return;
+                                
+                                // 检查图片是否已开始加载（naturalHeight > 0 说明图片正在加载）
+                                if (wechatQrImg.naturalHeight > 0) {
+                                    Logger.log(2, '远程二维码加载中，延长等待时间');
+                                    // 图片已开始加载，继续等待 onload，取消超时回退
+                                    if (qrFallbackTimer) { clearTimeout(qrFallbackTimer); qrFallbackTimer = null; }
+                                } else {
+                                    // 图片未开始加载，可能是网络问题，回退到本地
+                                    Logger.log(1, '远程二维码加载超时，切换到本地备用图');
                                     loadLocalQr();
                                 }
-                            }, 1500);
+                            }, 3000); // 延长到 3 秒，给远程图片更多加载时间
                         };
                         // 手动切换到本地二维码（带时间戳），清理超时
                         const loadLocalQr = () => {

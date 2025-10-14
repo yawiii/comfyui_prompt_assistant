@@ -15,8 +15,8 @@ from .error_util import format_api_error
 class VisionService:
     _provider_base_urls = {
         'openai': None,  # 使用默认
-        'siliconflow': 'https://api.siliconflow.cn/v1',
-        'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
+        'siliconflow': 'https://api.siliconflow.cn/v1',  # 硅基流动
+        'zhipu': 'https://open.bigmodel.cn/api/paas/v4/',  # 智谱（官方文档要求末尾斜杠）
         '302ai': 'https://api.302.ai/v1',
         'ollama': 'http://localhost:11434/v1',
         'custom': None  # 使用配置中的自定义URL
@@ -52,9 +52,9 @@ class VisionService:
         else:
             base_url = cls._provider_base_urls.get(provider)
 
-        # 创建简化的httpx客户端，不使用HTTP/2，避免额外依赖
+        # 创建简化的httpx客户端，明确禁用HTTP/2以提高国内服务商兼容性
         # 视觉模型需要较长的超时时间
-        # 仅在“发起请求”阶段打印一条请求日志，避免重复
+        # 仅在"发起请求"阶段打印一条请求日志，避免重复
         from ..server import PROCESS_PREFIX
 
         async def _on_request(request: httpx.Request):
@@ -63,19 +63,31 @@ class VisionService:
             except Exception:
                 pass
 
+        # 使用细粒度的超时配置，提高网络波动下的稳定性
+        # 视觉模型处理需要较长时间，因此读取超时设置更长
         http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(90.0),  # 视觉模型通常较慢，适当增加超时时间
-            event_hooks={'request': [_on_request]}
+            timeout=httpx.Timeout(
+                connect=15.0,   # 连接超时：15秒
+                read=120.0,     # 读取超时：120秒（视觉模型分析需要更长时间）
+                write=15.0,     # 写入超时：15秒
+                pool=10.0       # 连接池超时：10秒
+            ),
+            event_hooks={'request': [_on_request]},
+            http2=False,       # 明确禁用HTTP/2，提高国内服务商兼容性
+            proxy=None,        # 明确禁用代理，避免连接问题
+            verify=True        # 启用SSL验证，但使用系统证书
         )
 
         kwargs = {
             "api_key": api_key,
             "http_client": http_client,
-            "max_retries": 2  # 设置最大重试次数
+            "max_retries": 3  # 增加重试次数到3次
         }
         if base_url:
-            # 确保base_url末尾没有斜杠
-            base_url = base_url.rstrip('/')
+            # 根据官方文档，保留base_url原样，不做处理
+            # 智谱文档要求：https://open.bigmodel.cn/api/paas/v4/
+            # 硅基流动文档要求：https://api.siliconflow.cn/v1
+            # OpenAI SDK会自动处理URL拼接
             kwargs["base_url"] = base_url
 
 
@@ -100,11 +112,52 @@ class VisionService:
                 'api_key': provider_config.get('api_key', ''),
                 'temperature': provider_config.get('temperature', 0.7),
                 'top_p': provider_config.get('top_p', 0.9),
-                'max_tokens': provider_config.get('max_tokens', 2000)
+                'max_tokens': provider_config.get('max_tokens', 2000),
+                'auto_unload': provider_config.get('auto_unload', True)
             }
         else:
             # 兼容旧版配置格式
             return config
+
+    @staticmethod
+    async def _unload_ollama_model(model: str, provider_config: Dict[str, Any]):
+        """
+        卸载Ollama模型以释放显存和内存
+        
+        参数:
+            model: 模型名称
+            provider_config: 提供商配置字典
+        """
+        try:
+            # 检查是否启用自动释放
+            auto_unload = provider_config.get('auto_unload', True)
+            if not auto_unload:
+                return
+            
+            # 获取base_url
+            base_url = provider_config.get('base_url', 'http://localhost:11434')
+            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
+            if base_url.endswith('/v1'):
+                base_url = base_url[:-3]
+            
+            # 调用Ollama API卸载模型
+            url = f"{base_url}/api/generate"
+            payload = {
+                "model": model,
+                "keep_alive": 0  # 立即卸载模型
+            }
+            
+            from ..server import PROCESS_PREFIX
+            print(f"{PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
+            
+            import httpx as httpx_module
+            async with httpx_module.AsyncClient(timeout=5.0) as client:
+                await client.post(url, json=payload)
+                
+        except Exception as e:
+            # 释放失败不影响主流程，只记录警告
+            from ..server import WARN_PREFIX
+            print(f"{WARN_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
 
     @staticmethod
     def preprocess_image(image_data: str, request_id: Optional[str] = None) -> str:
@@ -278,59 +331,92 @@ class VisionService:
 
             # 使用OpenAI SDK
             client = VisionService.get_openai_client(api_key, provider)
-            try:
-                # 添加调试信息
-                from ..server import PROCESS_PREFIX
-                print(f"{PROCESS_PREFIX} 调用视觉模型API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
-                start_time = time.perf_counter()
-
-                # 使用配置中的参数
-                _thinking_extra = build_thinking_suppression(provider, model)
+            
+            # 添加手动重试机制，处理连接错误
+            max_retries = 3
+            retry_delay = 1.0  # 初始重试延迟（秒）
+            
+            for attempt in range(max_retries):
                 try:
-                    # 构建基础参数（保守：不带 response_format，默认流式）
-                    create_kwargs = dict(
-                        model=model,
-                        messages=[{
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": system_prompt},
-                                {"type": "image_url", "image_url": {"url": image_data}}
-                            ]
-                        }],
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        stream=True
-                    )
-                    # 思维链控制：extra_body 或 顶层参数
-                    if _thinking_extra:
-                        # Gemini 的 reasoning_effort 需要顶层；其余放入 extra_body
-                        _extra = dict(_thinking_extra)
-                        if "reasoning_effort" in _extra:
-                            create_kwargs["reasoning_effort"] = _extra.pop("reasoning_effort")
-                        if _extra:
-                            create_kwargs["extra_body"] = _extra
-                    response = await client.chat.completions.create(**create_kwargs)
-                except Exception as e_first:
-                    msg = str(e_first).lower()
-                    if "enable_thinking" in msg and "not support" in msg:
-                        print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
-                        create_kwargs.pop("extra_body", None)
-                        response = await client.chat.completions.create(**create_kwargs)
-                    elif ("response_format" in msg and ("unknown" in msg or "not support" in msg)) or (
-                        "stream" in msg and ("not support" in msg or "unsupported" in msg)
-                    ):
-                        # 去除不被支持的参数并关闭流式重试一次
-                        create_kwargs.pop("response_format", None)
-                        create_kwargs["stream"] = False
-                        response = await client.chat.completions.create(**create_kwargs)
-                    elif "max_tokens" in msg and ("unknown" in msg or "invalid" in msg):
-                        # 少数聚合网关可能要求 max_output_tokens
-                        create_kwargs.pop("max_tokens", None)
-                        create_kwargs["max_output_tokens"] = max_tokens
-                        response = await client.chat.completions.create(**create_kwargs)
+                    # 添加调试信息
+                    from ..server import PROCESS_PREFIX
+                    if attempt > 0:
+                        print(f"{PROCESS_PREFIX} 重试视觉模型API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     else:
+                        print(f"{PROCESS_PREFIX} 调用视觉模型API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                    start_time = time.perf_counter()
+
+                    # 使用配置中的参数
+                    _thinking_extra = build_thinking_suppression(provider, model)
+                    try:
+                        # 构建基础参数（保守：不带 response_format，默认流式）
+                        create_kwargs = dict(
+                            model=model,
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": system_prompt},
+                                    {"type": "image_url", "image_url": {"url": image_data}}
+                                ]
+                            }],
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            top_p=top_p,
+                            stream=True
+                        )
+                        # 思维链控制：extra_body 或 顶层参数
+                        if _thinking_extra:
+                            # Gemini 的 reasoning_effort 需要顶层；其余放入 extra_body
+                            _extra = dict(_thinking_extra)
+                            if "reasoning_effort" in _extra:
+                                create_kwargs["reasoning_effort"] = _extra.pop("reasoning_effort")
+                            if _extra:
+                                create_kwargs["extra_body"] = _extra
+                        response = await client.chat.completions.create(**create_kwargs)
+                    except Exception as e_first:
+                        msg = str(e_first).lower()
+                        if "enable_thinking" in msg and "not support" in msg:
+                            print(f"{PREFIX} 发现 enable_thinking 不被模型支持，移除后重试 | 模型:{model}")
+                            create_kwargs.pop("extra_body", None)
+                            response = await client.chat.completions.create(**create_kwargs)
+                        elif ("response_format" in msg and ("unknown" in msg or "not support" in msg)) or (
+                            "stream" in msg and ("not support" in msg or "unsupported" in msg)
+                        ):
+                            # 去除不被支持的参数并关闭流式重试一次
+                            create_kwargs.pop("response_format", None)
+                            create_kwargs["stream"] = False
+                            response = await client.chat.completions.create(**create_kwargs)
+                        elif "max_tokens" in msg and ("unknown" in msg or "invalid" in msg):
+                            # 少数聚合网关可能要求 max_output_tokens
+                            create_kwargs.pop("max_tokens", None)
+                            create_kwargs["max_output_tokens"] = max_tokens
+                            response = await client.chat.completions.create(**create_kwargs)
+                        else:
+                            raise
+                    
+                    # 请求成功，跳出重试循环
+                    break
+                    
+                except Exception as e:
+                    # 检查是否为连接错误
+                    error_msg = str(e).lower()
+                    is_connection_error = any(keyword in error_msg for keyword in [
+                        'connection', 'connect', 'timeout', 'timed out', 
+                        'network', 'unreachable', 'refused'
+                    ])
+                    
+                    # 如果是最后一次尝试，或者不是连接错误，则抛出异常
+                    if attempt == max_retries - 1 or not is_connection_error:
                         raise
+                    
+                    # 否则等待后重试（使用指数退避策略）
+                    wait_time = retry_delay * (2 ** attempt)
+                    from ..server import WARN_PREFIX
+                    print(f"{WARN_PREFIX} 视觉模型API连接失败 | 尝试:{attempt + 1}/{max_retries} | 错误:{str(e)[:100]} | {wait_time:.1f}秒后重试")
+                    await asyncio.sleep(wait_time)
+                    continue
+            
+            try:
 
                 full_content = ""
                 async for chunk in response:
@@ -349,6 +435,15 @@ class VisionService:
                 # 输出结构化成功日志
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                 print(f"{PREFIX} 视觉模型分析成功 | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+
+                # Ollama自动释放显存
+                if provider == 'ollama':
+                    # 构建配置字典用于释放
+                    provider_config = {
+                        'auto_unload': custom_provider_config.get('auto_unload', True) if custom_provider_config else config.get('auto_unload', True),
+                        'base_url': base_url if custom_provider_config else config.get('base_url', 'http://localhost:11434')
+                    }
+                    await VisionService._unload_ollama_model(model, provider_config)
 
                 return {
                     "success": True,

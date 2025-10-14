@@ -66,6 +66,49 @@ export function updateAutoTranslateIndicators(enabled) {
 // ====================== 工具函数 ======================
 
 /**
+ * 计算小助手UI的预设宽度
+ * 根据当前启用的功能数量返回对应的固定宽度值
+ * @returns {number} 宽度值（像素）
+ */
+function calculateAssistantWidth() {
+    // 统计启用的功能
+    const hasHistory = window.FEATURES.history;
+    const hasTag = window.FEATURES.tag;
+    const hasExpand = window.FEATURES.expand;
+    const hasTranslate = window.FEATURES.translate;
+    
+    // 统计非历史功能的数量
+    const otherFeaturesCount = [hasTag, hasExpand, hasTranslate].filter(Boolean).length;
+    
+    // 根据功能组合返回预设宽度
+    if (hasHistory && otherFeaturesCount === 3) {
+        // 所有功能全开
+        return 179.04;
+    } else if (hasHistory && otherFeaturesCount === 2) {
+        // 历史 + 两个其他功能
+        return 151.36;
+    } else if (!hasHistory && otherFeaturesCount === 3) {
+        // 只有三个其他功能
+        return 87.21;
+    } else if (hasHistory && otherFeaturesCount === 1) {
+        // 历史 + 一个其他功能
+        return 123.69;
+    } else if (!hasHistory && otherFeaturesCount === 2) {
+        // 只有两个其他功能
+        return 59.54;
+    } else if (hasHistory && otherFeaturesCount === 0) {
+        // 只有历史功能
+        return 87.21;
+    } else if (!hasHistory && otherFeaturesCount === 1) {
+        // 只有一个其他功能
+        return 31.87;
+    }
+    
+    // 默认值（理论上不应该到这里）
+    return 31.87;
+}
+
+/**
  * 生成唯一请求ID
  */
 function generateRequestId(prefix = 'baidu_trans', type = null) {
@@ -460,9 +503,29 @@ class PromptAssistant {
         }
 
         // 为每个有效控件创建小助手
-        validInputs.forEach(inputWidget => {
+        validInputs.forEach((inputWidget, widgetIndex) => {
             const inputId = inputWidget.name || inputWidget.id;
-            const assistantKey = `${node.id}_${inputId}`;
+            
+            // 生成唯一的 assistantKey
+            // 对于同名的多个输入框（如 Show Any 节点的列表输入），使用索引区分
+            let assistantKey = `${node.id}_${inputId}`;
+            
+            // 检查是否存在同名的输入框，如果存在则使用索引或 DOM 元素的唯一标识
+            const sameNameWidgets = validInputs.filter(w => (w.name || w.id) === inputId);
+            if (sameNameWidgets.length > 1) {
+                // 多个同名输入框，使用索引或输入框元素的内存地址作为唯一标识
+                const inputEl = inputWidget.inputEl || inputWidget.element;
+                if (inputEl) {
+                    // 为输入框元素添加唯一标识
+                    if (!inputEl.dataset.promptAssistantUniqueId) {
+                        inputEl.dataset.promptAssistantUniqueId = `${node.id}_${inputId}_${widgetIndex}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    }
+                    assistantKey = inputEl.dataset.promptAssistantUniqueId;
+                } else {
+                    // 降级方案：使用索引
+                    assistantKey = `${node.id}_${inputId}_${widgetIndex}`;
+                }
+            }
 
             // 检查实例是否已存在
             if (PromptAssistant.hasInstance(assistantKey)) {
@@ -482,9 +545,9 @@ class PromptAssistant {
             }
 
             // 创建小助手实例
-            const assistant = this.setupNodeAssistant(node, inputWidget);
+            const assistant = this.setupNodeAssistant(node, inputWidget, assistantKey);
             if (assistant) {
-                logger.log(`创建小助手 | 节点:${node.id} | 控件:${inputId} | 实例:${assistantKey}`);
+                logger.log(`创建小助手 | 节点:${node.id} | 控件:${inputId} | 索引:${widgetIndex} | 实例:${assistantKey}`);
 
                 // 检查是否为指定的CLIP编码器节点，并应用自动翻译样式
                 // 使用从interceptor.js导入的CLIP_NODE_TYPES，确保UI指示器与实际功能一致
@@ -504,7 +567,7 @@ class PromptAssistant {
      * 为节点设置小助手
      * 创建小助手实例并初始化显示状态
      */
-    setupNodeAssistant(node, inputWidget) {
+    setupNodeAssistant(node, inputWidget, assistantKey = null) {
         // 简化参数检查
         if (!node || !inputWidget) {
             return null;
@@ -528,7 +591,8 @@ class PromptAssistant {
                 node,
                 inputId,
                 isNoteNode ? { ...inputWidget, inputEl: inputWidget.element } : inputWidget, // Note节点特殊处理
-                nodeInfo
+                nodeInfo,
+                assistantKey
             );
 
             if (assistant) {
@@ -549,7 +613,7 @@ class PromptAssistant {
      * 创建小助手实例
      * 根据节点和输入控件构建小助手对象并初始化UI
      */
-    createAssistant(node, inputId, inputWidget, nodeInfo = {}) {
+    createAssistant(node, inputId, inputWidget, nodeInfo = {}, assistantKey = null) {
         // 简化前置检查
         if (!window.FEATURES.enabled || !node || !inputId || !inputWidget || !UIToolkit.isValidInput(inputWidget)) {
             return null;
@@ -562,7 +626,8 @@ class PromptAssistant {
         }
 
         const nodeId = node.id;
-        const widgetKey = `${nodeId}_${inputId}`;
+        // 使用传入的 assistantKey，如果没有则使用默认生成方式
+        const widgetKey = assistantKey || `${nodeId}_${inputId}`;
 
         // 检查是否已存在实例
         if (PromptAssistant.hasInstance(widgetKey)) {
@@ -707,7 +772,7 @@ class PromptAssistant {
 
             // 创建折叠状态指示器图标
             const indicatorDiv = document.createElement('div');
-            indicatorDiv.className = 'prompt-assistant-indicator';
+            indicatorDiv.className = 'prompt-assistant-indicator animate-creation';
 
             // 从ResourceManager获取图标并添加到指示器
             const mainIcon = ResourceManager.getIcon('icon-main.svg');
@@ -724,20 +789,36 @@ class PromptAssistant {
             widget.hoverArea = hoverAreaDiv;
             widget.indicator = indicatorDiv;
             widget.buttons = {};
-            widget.isCollapsed = false; // 初始状态为展开
+            widget.isCollapsed = true; // 初始状态为折叠
 
             // 初始化UI组件和事件
             this.addFunctionButtons(widget);
             this._setupUIEventHandling(widget, inputEl, containerDiv);
             this._setupUIPosition(widget, inputEl, containerDiv, canvasContainerRect);
 
+            // 立即设置预设的展开宽度，避免首次展开时需要测量
+            const presetWidth = calculateAssistantWidth();
+            containerDiv.style.setProperty('--expanded-width', `${presetWidth}px`);
+            logger.debug(`[宽度预设] 节点:${nodeId} | 宽度:${presetWidth}px`);
+
             // 初始滚动条检测和位置调整
             setTimeout(() => {
                 this._adjustPositionForScrollbar(widget, inputEl);
             }, 100); // 延迟执行，确保DOM完全渲染
 
+            // 设置初始折叠状态
+            containerDiv.classList.add('collapsed');
+            hoverAreaDiv.style.display = 'block'; // 显示悬停区域以便用户展开
+
             // 默认隐藏状态
             containerDiv.style.display = 'none';
+
+            // 移除动画类的定时器
+            setTimeout(() => {
+                if (indicatorDiv && indicatorDiv.classList.contains('animate-creation')) {
+                    indicatorDiv.classList.remove('animate-creation');
+                }
+            }, 1000);
 
             logger.log(`UI创建 | 结果:完成 | 节点ID: ${nodeId}`);
             return containerDiv;
@@ -749,40 +830,36 @@ class PromptAssistant {
 
     /**
      * 显示小助手UI
-     * 控制UI显示动画和状态，始终保持显示
+     * 控制UI显示动画和状态，创建时直接以折叠状态显示
      */
     showAssistantUI(widget, forceAnimation = false) {
         if (!widget?.element) return;
 
-        // 避免重复显示和不必要的动画
-        const isCurrentlyShown = widget.element.classList.contains('assistant-show');
-        if (isCurrentlyShown && !forceAnimation) {
-            // 如果已经显示且不需要强制动画，则仅确保显示状态
+        // 避免重复显示
+        if (widget.element.classList.contains('assistant-show')) {
+            // 确保元素可见
             widget.element.style.display = 'flex';
             widget.element.style.opacity = '1';
             return;
         }
 
-        // 设置过渡状态
-        widget.isTransitioning = true;
-
-        // 优化渲染性能
-        widget.element.style.willChange = 'auto';
-        widget.element.style.transform = 'translateZ(0)';
+        // 直接显示，无动画过渡
         widget.element.style.opacity = '1';
-
-        // 显示元素并应用动画类
         widget.element.style.display = 'flex';
-        void widget.element.offsetWidth; // 触发回流，确保动画生效
         widget.element.classList.add('assistant-show');
 
-        // 动画结束后重置过渡状态
-        setTimeout(() => {
-            widget.isTransitioning = false;
+        // 确保悬停区域可见（用于折叠状态下的交互）
+        if (widget.isCollapsed && widget.hoverArea) {
+            widget.hoverArea.style.display = 'block';
+        }
 
-            // 检查是否需要自动折叠
+        // 重置过渡状态
+        widget.isTransitioning = false;
+
+        // 只有当明确不是折叠状态时才触发自动折叠
+        if (!widget.isCollapsed) {
             this.triggerAutoCollapse(widget);
-        }, 300); // 与CSS动画时长匹配
+        }
     }
 
     /**
@@ -851,7 +928,24 @@ class PromptAssistant {
      * 展开小助手
      */
     _expandAssistant(widget) {
-        if (!widget || !widget.element || !widget.isCollapsed || widget.isTransitioning) return;
+        if (!widget || !widget.element) return;
+
+        // 如果已经是展开状态，直接返回
+        if (!widget.isCollapsed && !widget.isTransitioning) return;
+
+        // 如果正在折叠中，允许打断折叠动画
+        if (widget.isTransitioning) {
+            // 清理折叠动画的定时器
+            if (widget._transitionTimer) {
+                clearTimeout(widget._transitionTimer);
+                widget._transitionTimer = null;
+            }
+            // 重置过渡状态，准备执行展开
+            widget.isTransitioning = false;
+        }
+
+        // 如果不是折叠状态，不执行展开
+        if (!widget.isCollapsed) return;
 
         widget.isTransitioning = true;
 
@@ -862,38 +956,15 @@ class PromptAssistant {
 
         const containerDiv = widget.element;
 
-        // 计算展开后的宽度
+        // 使用预设宽度，不再实时测量
         let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
 
-        // 如果没有保存宽度或需要重新计算
+        // 如果没有预设宽度，立即计算并设置
         if (!targetWidth || targetWidth === '') {
-            // 先移除折叠类，但保持不可见状态进行测量
-            containerDiv.classList.remove('collapsed');
-            const originalDisplay = containerDiv.style.display;
-            const originalOpacity = containerDiv.style.opacity;
-
-            // 临时设置样式以便测量
-            containerDiv.style.opacity = '0';
-            containerDiv.style.display = 'flex';
-            containerDiv.style.position = 'absolute';
-
-            // 强制回流并测量
-            void containerDiv.offsetWidth;
-
-            // 获取自然宽度
-            const naturalWidth = containerDiv.offsetWidth;
-            targetWidth = naturalWidth + 'px';
-
-            // 保存宽度供将来使用
+            const presetWidth = calculateAssistantWidth();
+            targetWidth = `${presetWidth}px`;
             containerDiv.style.setProperty('--expanded-width', targetWidth);
-
-            // 恢复原始样式
-            containerDiv.style.opacity = originalOpacity;
-            containerDiv.style.position = '';
-
-            // 重新应用折叠类以准备动画
-            containerDiv.classList.add('collapsed');
-            void containerDiv.offsetWidth; // 强制回流
+            logger.debug(`[宽度预设] 展开时设置 | 宽度:${targetWidth}`);
         }
 
         // 手动设置宽度转换
@@ -908,12 +979,18 @@ class PromptAssistant {
         // 设置目标宽度以触发过渡
         containerDiv.style.width = targetWidth;
 
+        // 清理之前的过渡定时器
+        if (widget._transitionTimer) {
+            clearTimeout(widget._transitionTimer);
+        }
+
         // 动画结束后清理
-        setTimeout(() => {
+        widget._transitionTimer = setTimeout(() => {
             // 移除固定宽度，恢复自动宽度
             containerDiv.style.width = '';
             widget.isCollapsed = false;
             widget.isTransitioning = false;
+            widget._transitionTimer = null;
         }, 300);
     }
 
@@ -1004,6 +1081,21 @@ class PromptAssistant {
     }
 
     /**
+     * 更新所有实例的预设宽度
+     * 在功能开关变更时调用，重新计算并设置宽度
+     */
+    updateAllInstancesWidth() {
+        const newWidth = calculateAssistantWidth();
+        logger.debug(`[宽度更新] 计算新宽度:${newWidth}px | 实例数量:${PromptAssistant.instances.size}`);
+        
+        PromptAssistant.instances.forEach((widget) => {
+            if (widget && widget.element) {
+                widget.element.style.setProperty('--expanded-width', `${newWidth}px`);
+            }
+        });
+    }
+
+    /**
      * 显示状态提示
      * 创建临时提示信息气泡
      */
@@ -1048,6 +1140,9 @@ class PromptAssistant {
             // 延迟保存宽度，确保DOM已完全渲染
             setTimeout(saveOriginalWidth, 300);
 
+            // 过渡动画定时器，保存到widget对象上供所有函数访问
+            widget._transitionTimer = null;
+
             // 折叠函数
             const collapseAssistant = () => {
                 if (widget.isCollapsed || widget.isTransitioning) return;
@@ -1063,53 +1158,51 @@ class PromptAssistant {
                 // 显示悬停区域，用于检测鼠标悬停以展开UI
                 widget.hoverArea.style.display = 'block';
 
+                // 清理之前的过渡定时器
+                if (widget._transitionTimer) {
+                    clearTimeout(widget._transitionTimer);
+                }
+
                 // 动画结束后重置过渡状态
-                setTimeout(() => {
+                widget._transitionTimer = setTimeout(() => {
                     widget.isTransitioning = false;
+                    widget._transitionTimer = null;
                 }, 300);
             };
 
             // 展开函数
             const expandAssistant = () => {
-                if (!widget.isCollapsed || widget.isTransitioning) return;
+                // 如果已经是展开状态，直接返回
+                if (!widget.isCollapsed && !widget.isTransitioning) return;
+
+                // 如果正在折叠中，允许打断折叠动画
+                if (widget.isTransitioning) {
+                    // 清理折叠动画的定时器
+                    if (widget._transitionTimer) {
+                        clearTimeout(widget._transitionTimer);
+                        widget._transitionTimer = null;
+                    }
+                    // 重置过渡状态，准备执行展开
+                    widget.isTransitioning = false;
+                }
+
+                // 如果不是折叠状态，不执行展开
+                if (!widget.isCollapsed) return;
 
                 widget.isTransitioning = true;
 
                 // 隐藏悬停区域，避免覆盖按钮
                 widget.hoverArea.style.display = 'none';
 
-                // 计算展开后的宽度
+                // 使用预设宽度，不再实时测量
                 let targetWidth = widget.element.style.getPropertyValue('--expanded-width');
 
-                // 如果没有保存宽度或需要重新计算
+                // 如果没有预设宽度，立即计算并设置
                 if (!targetWidth || targetWidth === '') {
-                    // 先移除折叠类，但保持不可见状态进行测量
-                    containerDiv.classList.remove('collapsed');
-                    const originalDisplay = containerDiv.style.display;
-                    const originalOpacity = containerDiv.style.opacity;
-
-                    // 临时设置样式以便测量
-                    containerDiv.style.opacity = '0';
-                    containerDiv.style.display = 'flex';
-                    containerDiv.style.position = 'absolute';
-
-                    // 强制回流并测量
-                    void containerDiv.offsetWidth;
-
-                    // 获取自然宽度
-                    const naturalWidth = containerDiv.offsetWidth;
-                    targetWidth = naturalWidth + 'px';
-
-                    // 保存宽度供将来使用
+                    const presetWidth = calculateAssistantWidth();
+                    targetWidth = `${presetWidth}px`;
                     containerDiv.style.setProperty('--expanded-width', targetWidth);
-
-                    // 恢复原始样式
-                    containerDiv.style.opacity = originalOpacity;
-                    containerDiv.style.position = '';
-
-                    // 重新应用折叠类以准备动画
-                    containerDiv.classList.add('collapsed');
-                    void containerDiv.offsetWidth; // 强制回流
+                    logger.debug(`[宽度预设] 事件处理中设置 | 宽度:${targetWidth}`);
                 }
 
                 // 手动设置宽度转换
@@ -1124,12 +1217,18 @@ class PromptAssistant {
                 // 设置目标宽度以触发过渡
                 containerDiv.style.width = targetWidth;
 
+                // 清理之前的过渡定时器
+                if (widget._transitionTimer) {
+                    clearTimeout(widget._transitionTimer);
+                }
+
                 // 动画结束后清理
-                setTimeout(() => {
+                widget._transitionTimer = setTimeout(() => {
                     // 移除固定宽度，恢复自动宽度
                     containerDiv.style.width = '';
                     widget.isCollapsed = false;
                     widget.isTransitioning = false;
+                    widget._transitionTimer = null;
                 }, 300);
             };
 
@@ -1200,6 +1299,10 @@ class PromptAssistant {
                 if (autoCollapseTimer) {
                     clearTimeout(autoCollapseTimer);
                     autoCollapseTimer = null;
+                }
+                if (widget._transitionTimer) {
+                    clearTimeout(widget._transitionTimer);
+                    widget._transitionTimer = null;
                 }
             });
 

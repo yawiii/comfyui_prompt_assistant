@@ -17,8 +17,10 @@ import { TagConfigManager } from "./tagConfigManager.js";
  * 管理标签弹窗和标签选择
  */
 class TagManager {
-    // ---UI状态持久化：上次激活的标签页---
-    static LAST_TAB_KEY = 'PromptAssistant_TagPopup_LastTab';
+    // ---UI状态持久化配置---
+    static LAST_TAB_KEY = 'PromptAssistant_TagPopup_LastTab';           // 上次激活的标签页
+    static ACCORDION_STATE_KEY = 'PromptAssistant_TagPopup_AccordionState'; // 手风琴展开状态
+    static POPUP_SIZE_KEY = 'PromptAssistant_TagPopup_Size';            // 弹窗尺寸
 
     /**
      * 获取上次激活的标签页（分类名）
@@ -41,6 +43,67 @@ class TagManager {
                 logger.debug(`[助手-标签] 记忆标签页 | 当前:${category}`);
             }
         } catch (e) {}
+    }
+
+    /**
+     * 获取手风琴展开状态
+     * @returns {Object} { tabName: { accordionPath: isExpanded } }
+     */
+    static getAccordionState() {
+        try {
+            const state = CacheService.get(this.ACCORDION_STATE_KEY);
+            return state ? JSON.parse(state) : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    /**
+     * 保存手风琴展开状态
+     * @param {string} tabName 标签页名称
+     * @param {string} accordionPath 手风琴路径（用分类名表示）
+     * @param {boolean} isExpanded 是否展开
+     */
+    static setAccordionState(tabName, accordionPath, isExpanded) {
+        try {
+            const state = this.getAccordionState();
+            if (!state[tabName]) {
+                state[tabName] = {};
+            }
+            state[tabName][accordionPath] = isExpanded;
+            CacheService.set(this.ACCORDION_STATE_KEY, JSON.stringify(state));
+            logger.debug(`[助手-标签] 记忆手风琴 | 标签页:${tabName} | 路径:${accordionPath} | 展开:${isExpanded}`);
+        } catch (e) {
+            logger.error(`保存手风琴状态失败: ${e.message}`);
+        }
+    }
+
+    /**
+     * 获取保存的弹窗尺寸
+     * @returns {Object|null} { width: number, height: number }
+     */
+    static getPopupSize() {
+        try {
+            const size = CacheService.get(this.POPUP_SIZE_KEY);
+            return size ? JSON.parse(size) : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    /**
+     * 保存弹窗尺寸
+     * @param {number} width 宽度
+     * @param {number} height 高度
+     */
+    static setPopupSize(width, height) {
+        try {
+            const size = { width, height };
+            CacheService.set(this.POPUP_SIZE_KEY, JSON.stringify(size));
+            logger.debug(`[助手-标签] 记忆窗口大小 | 宽:${width}px | 高:${height}px`);
+        } catch (e) {
+            logger.error(`保存窗口大小失败: ${e.message}`);
+        }
     }
     static popupInstance = null;
     static onCloseCallback = null;  // 添加关闭回调存储
@@ -504,8 +567,11 @@ class TagManager {
 
     /**
      * 递归创建标签结构
+     * @param {Object} data 数据对象
+     * @param {string} level 层级
+     * @param {string} tabName 标签页名称（用于恢复状态）
      */
-    static _createAccordionContent(data, level = '0') {
+    static _createAccordionContent(data, level = '0', tabName = null) {
         // 如果是顶级（一级分类），则创建标签页结构
         if (level === '0') {
             // 创建外层容器
@@ -554,7 +620,7 @@ class TagManager {
 
             // 添加图标
             const leftIconSpan = document.createElement('span');
-            leftIconSpan.className = 'pi pi-chevron-down rotate_left scroll_indicator_icon';
+            leftIconSpan.className = 'pi pi-angle-left scroll_indicator_icon';
             leftIndicator.appendChild(leftIconSpan);
             leftIndicator.style.display = 'none'; // 初始隐藏
 
@@ -563,67 +629,124 @@ class TagManager {
 
             // 添加图标
             const rightIconSpan = document.createElement('span');
-            rightIconSpan.className = 'pi pi-chevron-down rotate_right scroll_indicator_icon';
+            rightIconSpan.className = 'pi pi-angle-right scroll_indicator_icon';
             rightIndicator.appendChild(rightIconSpan);
             rightIndicator.style.display = 'none'; // 初始隐藏
 
-            // 添加指示器点击事件 - 改进滚动逻辑
-            const leftClickCleanup = EventManager.addDOMListener(leftIndicator, 'click', () => {
-                // 获取可视区域宽度
-                const visibleWidth = tabsScroll.clientWidth;
-
-                // 计算滚动距离，PrimeVue风格是滚动一个较大的距离
-                const scrollDistance = visibleWidth * 0.75;
-
-                // 平滑滚动
-                tabsScroll.scrollBy({
-                    left: -scrollDistance,
-                    behavior: 'smooth'
-                });
-            });
-
-            const rightClickCleanup = EventManager.addDOMListener(rightIndicator, 'click', () => {
-                // 获取可视区域宽度
-                const visibleWidth = tabsScroll.clientWidth;
-
-                // 计算滚动距离，PrimeVue风格是滚动一个较大的距离
-                const scrollDistance = visibleWidth * 0.75;
-
-                // 平滑滚动
-                tabsScroll.scrollBy({
-                    left: scrollDistance,
-                    behavior: 'smooth'
-                });
-            });
-
-            // 监听滚动事件，显示/隐藏滚动指示器
-            const scrollCleanup = EventManager.addDOMListener(tabsScroll, 'scroll', () => {
-                // 检查是否需要滚动
+            // 更新指示器状态的函数
+            const updateIndicators = () => {
                 const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
-
                 if (!canScroll) {
-                    // 如果不需要滚动，隐藏两个指示器
                     leftIndicator.style.display = 'none';
                     rightIndicator.style.display = 'none';
                     return;
                 }
+                // 使用更大的阈值（5像素）确保边界情况下能正确隐藏
+                const scrollLeft = tabsScroll.scrollLeft;
+                const maxScroll = tabsScroll.scrollWidth - tabsScroll.clientWidth;
+                
+                // 临时调试日志 - 显示接近边界时的滚动值
+                if (scrollLeft < 10 || scrollLeft > maxScroll - 10) {
+                    logger.debug(`[标签-滚动] scrollLeft: ${scrollLeft.toFixed(2)}, maxScroll: ${maxScroll.toFixed(2)}`);
+                }
+                
+                leftIndicator.style.display = scrollLeft > 5 ? 'flex' : 'none';
+                rightIndicator.style.display = scrollLeft < (maxScroll - 5) ? 'flex' : 'none';
+            };
 
-                // 显示/隐藏左右滚动指示器
-                leftIndicator.style.display = tabsScroll.scrollLeft > 0 ? 'flex' : 'none';
-                rightIndicator.style.display =
-                    tabsScroll.scrollLeft < (tabsScroll.scrollWidth - tabsScroll.clientWidth - 2) ? 'flex' : 'none';
+            // 添加指示器点击事件 - 每次滚动一个标签
+            const leftClickCleanup = EventManager.addDOMListener(leftIndicator, 'click', () => {
+                // 获取所有标签
+                const allTabs = tabs.querySelectorAll('.popup_tab');
+                if (allTabs.length === 0) return;
+
+                // 找到当前第一个可见的标签
+                const scrollRect = tabsScroll.getBoundingClientRect();
+                let firstVisibleTab = null;
+
+                for (const tab of allTabs) {
+                    const tabRect = tab.getBoundingClientRect();
+                    // 如果标签的右边缘在可视区域内，说明它至少部分可见
+                    if (tabRect.right > scrollRect.left + 10) {
+                        firstVisibleTab = tab;
+                        break;
+                    }
+                }
+
+                // 找到前一个标签
+                if (firstVisibleTab) {
+                    const currentIndex = Array.from(allTabs).indexOf(firstVisibleTab);
+                    if (currentIndex > 0) {
+                        const prevTab = allTabs[currentIndex - 1];
+                        prevTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+                        // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                        setTimeout(updateIndicators, 600);
+                    }
+                }
             });
 
-            this.eventCleanups.push(leftClickCleanup, rightClickCleanup, scrollCleanup);
+            const rightClickCleanup = EventManager.addDOMListener(rightIndicator, 'click', () => {
+                // 获取所有标签
+                const allTabs = tabs.querySelectorAll('.popup_tab');
+                if (allTabs.length === 0) return;
 
-            // 初始检测是否需要滚动指示器
+                // 找到当前最后一个可见的标签
+                const scrollRect = tabsScroll.getBoundingClientRect();
+                let lastVisibleTab = null;
+
+                for (let i = allTabs.length - 1; i >= 0; i--) {
+                    const tab = allTabs[i];
+                    const tabRect = tab.getBoundingClientRect();
+                    // 如果标签的左边缘在可视区域内，说明它至少部分可见
+                    if (tabRect.left < scrollRect.right - 10) {
+                        lastVisibleTab = tab;
+                        break;
+                    }
+                }
+
+                // 找到下一个标签
+                if (lastVisibleTab) {
+                    const currentIndex = Array.from(allTabs).indexOf(lastVisibleTab);
+                    if (currentIndex < allTabs.length - 1) {
+                        const nextTab = allTabs[currentIndex + 1];
+                        nextTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'end' });
+                        // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                        setTimeout(updateIndicators, 600);
+                    }
+                }
+            });
+
+            // 监听滚动事件，显示/隐藏滚动指示器
+            const scrollCleanup = EventManager.addDOMListener(tabsScroll, 'scroll', updateIndicators);
+
+            // 监听窗口大小调整事件
+            const resizeObserver = new ResizeObserver(() => {
+                updateIndicators();
+            });
+            resizeObserver.observe(popup);
+            
+            // 添加清理函数
+            const resizeCleanup = () => {
+                resizeObserver.disconnect();
+            };
+
+            this.eventCleanups.push(leftClickCleanup, rightClickCleanup, scrollCleanup, resizeCleanup);
+
+            // 初始检测是否需要滚动指示器，并自动定位到激活的标签页
             setTimeout(() => {
                 // 检查是否需要滚动
                 const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
 
                 if (canScroll) {
-                    // 如果需要滚动，显示右侧指示器
-                    rightIndicator.style.display = 'flex';
+                    // 找到激活的标签页
+                    const activeTab = tabs.querySelector('.popup_tab.active');
+                    if (activeTab) {
+                        // 将激活的标签页滚动到可见区域
+                        activeTab.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+                    }
+
+                    // 等待滚动完成后，更新滚动指示器显示状态
+                    setTimeout(updateIndicators, 50);
                 }
             }, 100);
 
@@ -719,7 +842,7 @@ class TagManager {
 
                 // 递归创建子内容（二级分类开始使用手风琴）
                 if (typeof data[category] === 'object' && data[category] !== null) {
-                    const innerContent = this._createInnerAccordion(data[category], '1');
+                    const innerContent = this._createInnerAccordion(data[category], '1', category);
                     content.appendChild(innerContent);
                 }
 
@@ -812,19 +935,27 @@ class TagManager {
                     const content = document.createElement('div');
                     content.className = 'tag_accordion_content';
 
-                    // 递归创建子内容
-                    const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString());
+                    // 递归创建子内容，传递 tabName
+                    const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString(), tabName);
                     content.appendChild(childContent);
 
-                    // 如果是当前层级的第一个手风琴，默认展开
-                    if (isFirstAccordionInLevel) {
+                    // 根据保存的状态或默认行为确定是否展开
+                    const accordionState = this.getAccordionState();
+                    const shouldExpand = tabName && accordionState[tabName]?.[key] !== undefined
+                        ? accordionState[tabName][key]  // 使用保存的状态
+                        : isFirstAccordionInLevel;       // 默认展开第一个
+
+                    if (shouldExpand) {
                         header.classList.add('active');
                         content.classList.add('active');
                         const arrowIconSpan = headerIcon.querySelector('.accordion_arrow_icon');
                         if (arrowIconSpan) {
                             arrowIconSpan.classList.add('rotate-180');
                         }
-                        isFirstAccordionInLevel = false;
+                        if (!tabName || !accordionState[tabName]?.[key]) {
+                            // 只有在使用默认行为时才更新标志
+                            isFirstAccordionInLevel = false;
+                        }
                     }
 
                     // 添加手风琴切换事件
@@ -850,6 +981,12 @@ class TagManager {
                                             // 使用优化的切换方法关闭其他手风琴
                                             if (otherHeader.classList.contains('active')) {
                                                 this._toggleAccordion(otherHeader, otherContent, otherHeaderIcon);
+                                                // 保存关闭状态
+                                                const otherAccordionCategory = parentAccordion.getAttribute('data-category');
+                                                const otherTabName = parentTab.getAttribute('data-category');
+                                                if (otherTabName && otherAccordionCategory) {
+                                                    this.setAccordionState(otherTabName, otherAccordionCategory, false);
+                                                }
                                             }
                                         }
                                     }
@@ -859,6 +996,14 @@ class TagManager {
 
                         // 使用优化的切换方法切换当前手风琴
                         this._toggleAccordion(header, content, headerIcon);
+
+                        // 保存当前手风琴状态
+                        const accordionCategory = accordion.getAttribute('data-category');
+                        const tabName = parentTab?.getAttribute('data-category');
+                        if (tabName && accordionCategory) {
+                            const isExpanded = header.classList.contains('active');
+                            this.setAccordionState(tabName, accordionCategory, isExpanded);
+                        }
                     });
 
                     this.eventCleanups.push(accordionCleanup);
@@ -959,8 +1104,11 @@ class TagManager {
 
     /**
      * 为二级分类创建内容
+     * @param {Object} data 数据对象
+     * @param {string} level 层级
+     * @param {string} tabName 标签页名称（用于恢复状态）
      */
-    static _createInnerAccordion(data, level) {
+    static _createInnerAccordion(data, level, tabName = null) {
         const container = document.createElement('div');
         container.className = 'tag_category_container';
         container.style.flex = '1';
@@ -997,21 +1145,29 @@ class TagManager {
                 const content = document.createElement('div');
                 content.className = 'tag_accordion_content';
 
-                // 递归创建子内容
-                const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString());
+                // 递归创建子内容，传递 tabName
+                const childContent = this._createAccordionContent(value, (parseInt(level) + 1).toString(), tabName);
                 childContent.style.flex = '1'; // 让子内容占满可用空间
                 childContent.style.minHeight = '0'; // 允许flex收缩
                 content.appendChild(childContent);
 
-                // 如果是第一个手风琴，默认展开
-                if (isFirstAccordion) {
+                // 根据保存的状态或默认行为确定是否展开
+                const accordionState = this.getAccordionState();
+                const shouldExpand = tabName && accordionState[tabName]?.[key] !== undefined
+                    ? accordionState[tabName][key]  // 使用保存的状态
+                    : isFirstAccordion;              // 默认展开第一个
+
+                if (shouldExpand) {
                     header.classList.add('active');
                     content.classList.add('active');
                     const firstArrowIcon = headerIcon.querySelector('.pi.pi-chevron-down');
                     if (firstArrowIcon) {
                         firstArrowIcon.classList.add('rotate-180');
                     }
-                    isFirstAccordion = false;
+                    if (!tabName || !accordionState[tabName]?.[key]) {
+                        // 只有在使用默认行为时才更新标志
+                        isFirstAccordion = false;
+                    }
                 }
 
                 // 添加手风琴切换事件，包含关闭其他手风琴的逻辑
@@ -1029,6 +1185,13 @@ class TagManager {
                                     // 使用优化的切换方法关闭其他手风琴
                                     if (otherHeader.classList.contains('active')) {
                                         this._toggleAccordion(otherHeader, otherContent, otherHeaderIcon);
+                                        // 保存关闭状态
+                                        const otherAccordion = otherHeader.closest('.tag_accordion');
+                                        const otherAccordionCategory = otherAccordion?.getAttribute('data-category');
+                                        const tabName = parentTab.getAttribute('data-category');
+                                        if (tabName && otherAccordionCategory) {
+                                            this.setAccordionState(tabName, otherAccordionCategory, false);
+                                        }
                                     }
                                 }
                             });
@@ -1036,6 +1199,14 @@ class TagManager {
                     }
                     // 使用优化的切换方法切换当前手风琴
                     this._toggleAccordion(header, content, headerIcon);
+
+                    // 保存当前手风琴状态
+                    const accordionCategory = accordion.getAttribute('data-category');
+                    const tabName = parentTab?.getAttribute('data-category');
+                    if (tabName && accordionCategory) {
+                        const isExpanded = header.classList.contains('active');
+                        this.setAccordionState(tabName, accordionCategory, isExpanded);
+                    }
                 });
 
                 this.eventCleanups.push(accordionCleanup);
@@ -1188,58 +1359,111 @@ class TagManager {
         // 创建左右滚动指示器
         const leftIndicator = document.createElement('div');
         leftIndicator.className = 'tabs_scroll_indicator left';
-        const leftIcon = ResourceManager.getIcon('icon-movedown.svg');
-        if (leftIcon) {
-            leftIcon.classList.add('rotate_left', 'scroll_indicator_icon');
-            leftIndicator.appendChild(leftIcon);
-        }
+        const leftIconSpan = document.createElement('span');
+        leftIconSpan.className = 'pi pi-angle-left scroll_indicator_icon';
+        leftIndicator.appendChild(leftIconSpan);
         leftIndicator.style.display = 'none';
 
         const rightIndicator = document.createElement('div');
         rightIndicator.className = 'tabs_scroll_indicator right';
-        const rightIcon = ResourceManager.getIcon('icon-movedown.svg');
-        if (rightIcon) {
-            rightIcon.classList.add('rotate_right', 'scroll_indicator_icon');
-            rightIndicator.appendChild(rightIcon);
-        }
+        const rightIconSpan = document.createElement('span');
+        rightIconSpan.className = 'pi pi-angle-right scroll_indicator_icon';
+        rightIndicator.appendChild(rightIconSpan);
         rightIndicator.style.display = 'none';
 
-        // 添加滚动指示器点击事件
-        const leftClickCleanup = EventManager.addDOMListener(leftIndicator, 'click', () => {
-            const visibleWidth = tabsScroll.clientWidth;
-            const scrollDistance = visibleWidth * 0.75;
-            tabsScroll.scrollBy({
-                left: -scrollDistance,
-                behavior: 'smooth'
-            });
-        });
-
-        const rightClickCleanup = EventManager.addDOMListener(rightIndicator, 'click', () => {
-            const visibleWidth = tabsScroll.clientWidth;
-            const scrollDistance = visibleWidth * 0.75;
-            tabsScroll.scrollBy({
-                left: scrollDistance,
-                behavior: 'smooth'
-            });
-        });
-
-        this.eventCleanups.push(leftClickCleanup, rightClickCleanup);
-
-        // 监听滚动事件
-        const scrollCleanup = EventManager.addDOMListener(tabsScroll, 'scroll', () => {
+        // 更新指示器状态的函数
+        const updateIndicators = () => {
             const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
             if (!canScroll) {
                 leftIndicator.style.display = 'none';
                 rightIndicator.style.display = 'none';
                 return;
             }
+            // 使用更大的阈值（8像素）确保边界情况下能正确隐藏
+            const scrollLeft = tabsScroll.scrollLeft;
+            const maxScroll = tabsScroll.scrollWidth - tabsScroll.clientWidth;
+            
+            leftIndicator.style.display = scrollLeft > 8 ? 'flex' : 'none';
+            rightIndicator.style.display = scrollLeft < (maxScroll - 8) ? 'flex' : 'none';
+        };
 
-            leftIndicator.style.display = tabsScroll.scrollLeft > 0 ? 'flex' : 'none';
-            rightIndicator.style.display =
-                tabsScroll.scrollLeft < (tabsScroll.scrollWidth - tabsScroll.clientWidth - 2) ? 'flex' : 'none';
+        // 添加滚动指示器点击事件 - 每次滚动一个标签
+        const leftClickCleanup = EventManager.addDOMListener(leftIndicator, 'click', () => {
+            // 获取所有标签
+            const allTabs = tabs.querySelectorAll('.popup_tab');
+            if (allTabs.length === 0) return;
+
+            // 找到当前第一个可见的标签
+            const scrollRect = tabsScroll.getBoundingClientRect();
+            let firstVisibleTab = null;
+
+            for (const tab of allTabs) {
+                const tabRect = tab.getBoundingClientRect();
+                // 如果标签的右边缘在可视区域内，说明它至少部分可见
+                if (tabRect.right > scrollRect.left + 10) {
+                    firstVisibleTab = tab;
+                    break;
+                }
+            }
+
+            // 找到前一个标签
+            if (firstVisibleTab) {
+                const currentIndex = Array.from(allTabs).indexOf(firstVisibleTab);
+                if (currentIndex > 0) {
+                    const prevTab = allTabs[currentIndex - 1];
+                    prevTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+                    // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                    setTimeout(updateIndicators, 600);
+                }
+            }
         });
 
-        this.eventCleanups.push(scrollCleanup);
+        const rightClickCleanup = EventManager.addDOMListener(rightIndicator, 'click', () => {
+            // 获取所有标签
+            const allTabs = tabs.querySelectorAll('.popup_tab');
+            if (allTabs.length === 0) return;
+
+            // 找到当前最后一个可见的标签
+            const scrollRect = tabsScroll.getBoundingClientRect();
+            let lastVisibleTab = null;
+
+            for (let i = allTabs.length - 1; i >= 0; i--) {
+                const tab = allTabs[i];
+                const tabRect = tab.getBoundingClientRect();
+                // 如果标签的左边缘在可视区域内，说明它至少部分可见
+                if (tabRect.left < scrollRect.right - 10) {
+                    lastVisibleTab = tab;
+                    break;
+                }
+            }
+
+            // 找到下一个标签
+            if (lastVisibleTab) {
+                const currentIndex = Array.from(allTabs).indexOf(lastVisibleTab);
+                if (currentIndex < allTabs.length - 1) {
+                    const nextTab = allTabs[currentIndex + 1];
+                    nextTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'end' });
+                    // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                    setTimeout(updateIndicators, 600);
+                }
+            }
+        });
+
+        // 监听滚动事件
+        const scrollCleanup = EventManager.addDOMListener(tabsScroll, 'scroll', updateIndicators);
+
+        // 监听窗口大小调整事件
+        const resizeObserver = new ResizeObserver(() => {
+            updateIndicators();
+        });
+        resizeObserver.observe(container);
+        
+        // 添加清理函数
+        const resizeCleanup = () => {
+            resizeObserver.disconnect();
+        };
+
+        this.eventCleanups.push(leftClickCleanup, rightClickCleanup, scrollCleanup, resizeCleanup);
 
         // 组装标签页结构
         tabsScroll.appendChild(tabs);
@@ -1338,11 +1562,19 @@ class TagManager {
             tabContents.appendChild(content);
         });
 
-        // 初始化滚动指示器
+        // 初始化滚动指示器，并自动定位到激活的标签页
         setTimeout(() => {
             const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
             if (canScroll) {
-                rightIndicator.style.display = 'flex';
+                // 找到激活的标签页
+                const activeTab = tabs.querySelector('.popup_tab.active');
+                if (activeTab) {
+                    // 将激活的标签页滚动到可见区域
+                    activeTab.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+                }
+
+                // 等待滚动完成后，更新滚动指示器显示状态
+                setTimeout(updateIndicators, 50);
             }
         }, 50);
 
@@ -1374,7 +1606,7 @@ class TagManager {
             try {
                 // 创建分类内容
                 if (typeof categoryData === 'object' && categoryData !== null) {
-                    const innerContent = this._createInnerAccordion(categoryData, '1');
+                    const innerContent = this._createInnerAccordion(categoryData, '1', categoryName);
                     contentWrapper.appendChild(innerContent);
 
                     // 添加到父容器
@@ -1597,9 +1829,16 @@ class TagManager {
             // 添加标签弹窗特有的类名，用于识别
             popup.classList.add('tag_popup');
 
-            // 设置初始尺寸
-            popup.style.width = '600px';
-            popup.style.height = '400px';
+            // 恢复保存的窗口大小或使用默认尺寸
+            const savedSize = this.getPopupSize();
+            if (savedSize) {
+                popup.style.width = `${savedSize.width}px`;
+                popup.style.height = `${savedSize.height}px`;
+                logger.debug(`[助手-标签] 恢复窗口大小 | 宽:${savedSize.width}px | 高:${savedSize.height}px`);
+            } else {
+                popup.style.width = '600px';
+                popup.style.height = '400px';
+            }
 
             // 显示弹窗
             PopupManager.showPopup({
@@ -1615,8 +1854,24 @@ class TagManager {
                         if (activeTab) {
                             const category = activeTab.getAttribute('data-category');
                             TagManager.setLastActiveTab(category);
+
+                            // 保存当前标签页中所有手风琴的展开状态
+                            const activeTabContent = popup.querySelector('.popup_tab_content.active');
+                            if (activeTabContent) {
+                                const accordions = activeTabContent.querySelectorAll('.tag_accordion');
+                                accordions.forEach(accordion => {
+                                    const accordionCategory = accordion.getAttribute('data-category');
+                                    const header = accordion.querySelector('.tag_accordion_header');
+                                    if (accordionCategory && header) {
+                                        const isExpanded = header.classList.contains('active');
+                                        TagManager.setAccordionState(category, accordionCategory, isExpanded);
+                                    }
+                                });
+                            }
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        logger.error(`保存弹窗状态失败: ${e.message}`);
+                    }
                     this._cleanupEvents();
                     if (typeof onClose === 'function') {
                         onClose();
@@ -1702,21 +1957,111 @@ class TagManager {
         // 创建左右滚动指示器
         const leftIndicator = document.createElement('div');
         leftIndicator.className = 'tabs_scroll_indicator left';
-        const leftIcon = ResourceManager.getIcon('icon-movedown.svg');
-        if (leftIcon) {
-            leftIcon.classList.add('rotate_left', 'scroll_indicator_icon');
-            leftIndicator.appendChild(leftIcon);
-        }
+        const leftIconSpan = document.createElement('span');
+        leftIconSpan.className = 'pi pi-angle-left scroll_indicator_icon';
+        leftIndicator.appendChild(leftIconSpan);
         leftIndicator.style.display = 'none';
 
         const rightIndicator = document.createElement('div');
         rightIndicator.className = 'tabs_scroll_indicator right';
-        const rightIcon = ResourceManager.getIcon('icon-movedown.svg');
-        if (rightIcon) {
-            rightIcon.classList.add('rotate_right', 'scroll_indicator_icon');
-            rightIndicator.appendChild(rightIcon);
-        }
+        const rightIconSpan = document.createElement('span');
+        rightIconSpan.className = 'pi pi-angle-right scroll_indicator_icon';
+        rightIndicator.appendChild(rightIconSpan);
         rightIndicator.style.display = 'none';
+
+        // 更新指示器状态的函数
+        const updateIndicators = () => {
+            const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
+            if (!canScroll) {
+                leftIndicator.style.display = 'none';
+                rightIndicator.style.display = 'none';
+                return;
+            }
+            // 使用更大的阈值（8像素）确保边界情况下能正确隐藏
+            const scrollLeft = tabsScroll.scrollLeft;
+            const maxScroll = tabsScroll.scrollWidth - tabsScroll.clientWidth;
+            
+            leftIndicator.style.display = scrollLeft > 8 ? 'flex' : 'none';
+            rightIndicator.style.display = scrollLeft < (maxScroll - 8) ? 'flex' : 'none';
+        };
+
+        // 添加滚动指示器点击事件 - 每次滚动一个标签
+        const leftClickCleanup = EventManager.addDOMListener(leftIndicator, 'click', () => {
+            // 获取所有标签
+            const allTabs = tabs.querySelectorAll('.popup_tab');
+            if (allTabs.length === 0) return;
+
+            // 找到当前第一个可见的标签
+            const scrollRect = tabsScroll.getBoundingClientRect();
+            let firstVisibleTab = null;
+
+            for (const tab of allTabs) {
+                const tabRect = tab.getBoundingClientRect();
+                // 如果标签的右边缘在可视区域内，说明它至少部分可见
+                if (tabRect.right > scrollRect.left + 10) {
+                    firstVisibleTab = tab;
+                    break;
+                }
+            }
+
+            // 找到前一个标签
+            if (firstVisibleTab) {
+                const currentIndex = Array.from(allTabs).indexOf(firstVisibleTab);
+                if (currentIndex > 0) {
+                    const prevTab = allTabs[currentIndex - 1];
+                    prevTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
+                    // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                    setTimeout(updateIndicators, 600);
+                }
+            }
+        });
+
+        const rightClickCleanup = EventManager.addDOMListener(rightIndicator, 'click', () => {
+            // 获取所有标签
+            const allTabs = tabs.querySelectorAll('.popup_tab');
+            if (allTabs.length === 0) return;
+
+            // 找到当前最后一个可见的标签
+            const scrollRect = tabsScroll.getBoundingClientRect();
+            let lastVisibleTab = null;
+
+            for (let i = allTabs.length - 1; i >= 0; i--) {
+                const tab = allTabs[i];
+                const tabRect = tab.getBoundingClientRect();
+                // 如果标签的左边缘在可视区域内，说明它至少部分可见
+                if (tabRect.left < scrollRect.right - 10) {
+                    lastVisibleTab = tab;
+                    break;
+                }
+            }
+
+            // 找到下一个标签
+            if (lastVisibleTab) {
+                const currentIndex = Array.from(allTabs).indexOf(lastVisibleTab);
+                if (currentIndex < allTabs.length - 1) {
+                    const nextTab = allTabs[currentIndex + 1];
+                    nextTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'end' });
+                    // 滚动完成后更新指示器状态（使用更长的延迟确保动画完成）
+                    setTimeout(updateIndicators, 600);
+                }
+            }
+        });
+
+        // 监听滚动事件，控制滚动指示器的显示/隐藏
+        const scrollCleanup = EventManager.addDOMListener(tabsScroll, 'scroll', updateIndicators);
+
+        // 监听窗口大小调整事件
+        const resizeObserver = new ResizeObserver(() => {
+            updateIndicators();
+        });
+        resizeObserver.observe(container);
+        
+        // 添加清理函数
+        const resizeCleanup = () => {
+            resizeObserver.disconnect();
+        };
+
+        this.eventCleanups.push(leftClickCleanup, rightClickCleanup, scrollCleanup, resizeCleanup);
 
         // 添加滚动指示器
         tabsContainer.appendChild(leftIndicator);
@@ -1832,11 +2177,19 @@ class TagManager {
             tabContents.appendChild(content);
         });
 
-        // 初始化滚动指示器
+        // 初始化滚动指示器，并自动定位到激活的标签页
         setTimeout(() => {
             const canScroll = tabsScroll.scrollWidth > tabsScroll.clientWidth;
             if (canScroll) {
-                rightIndicator.style.display = 'flex';
+                // 找到激活的标签页
+                const activeTab = tabs.querySelector('.popup_tab.active');
+                if (activeTab) {
+                    // 将激活的标签页滚动到可见区域
+                    activeTab.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+                }
+
+                // 等待滚动完成后，更新滚动指示器显示状态
+                setTimeout(updateIndicators, 50);
             }
         }, 50);
 
@@ -2315,7 +2668,7 @@ class TagManager {
                 contentWrapper.appendChild(emptyMessage);
             } else {
                 // 如果有自定义标签，使用标准的创建方法
-                const tagsContent = this._createInnerAccordion(userTagData, '1');
+                const tagsContent = this._createInnerAccordion(userTagData, '1', '⭐️');
                 contentWrapper.appendChild(tagsContent);
             }
 

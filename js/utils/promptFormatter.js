@@ -198,7 +198,7 @@ class PromptFormatter {
 
     /**
      * 格式化翻译后的文本
-     * 将中文标点符号转换为英文标点符号
+     * 根据用户设置的格式化选项进行处理
      * 注意：此方法负责处理所有翻译结果的格式（包括百度翻译和LLM翻译），
      * 后端不再进行任何格式预处理或后处理。
      */
@@ -208,46 +208,79 @@ class PromptFormatter {
 
             // 记录原始文本用于日志
             const originalText = text;
+            
+            // 获取格式化选项（从全局 FEATURES 对象）
+            const options = {
+                punctuation: window.FEATURES?.translateFormatPunctuation ?? true,
+                space: window.FEATURES?.translateFormatSpace ?? true,
+                dots: window.FEATURES?.translateFormatDots ?? false,
+                newline: window.FEATURES?.translateFormatNewline ?? false
+            };
 
-            // 保留换行符，按行处理文本
-            const lines = text.split('\n');
-            const formattedLines = lines.map(line => {
-                // 使用映射表替换所有中文标点
-                let formattedLine = line;
-                for (const [cnPunct, enPunct] of Object.entries(this.PUNCTUATION_MAP)) {
-                    formattedLine = formattedLine.split(cnPunct).join(enPunct);
-                }
+            let formattedText = text;
 
-                // 处理连续的点号（超过3个的情况）
-                formattedLine = formattedLine.replace(/\.{3,}/g, '...');
-                
-                // 处理多余的空格
-                formattedLine = formattedLine
-                    .replace(/\s+/g, ' ')           // 多个空格转换为单个空格
-                    .replace(/\s*,\s*/g, ', ')      // 统一逗号后的空格
-                    .trim();                        // 去除首尾空格
-
-                return formattedLine;
-            });
-
-            // 合并处理后的行，保留原始换行符
-            const formattedText = formattedLines.join('\n');
+            // 根据是否保留换行符选择不同的处理方式
+            if (options.newline) {
+                // 保留换行符：按行处理
+                const lines = text.split('\n');
+                const formattedLines = lines.map(line => {
+                    return this._formatLine(line, options);
+                });
+                formattedText = formattedLines.join('\n');
+            } else {
+                // 不保留换行符：整体处理（换行符会被空格替换逻辑处理）
+                formattedText = this._formatLine(text, options);
+            }
 
             // 记录日志
             if (originalText !== formattedText) {
-                const logOriginal = originalText.length > 100 ?
-                    originalText.substring(0, 100) + '...' : originalText;
+                const enabledOptions = [];
+                if (options.punctuation) enabledOptions.push('标点转换');
+                if (options.space) enabledOptions.push('空格处理');
+                if (options.dots) enabledOptions.push('点号处理');
+                if (options.newline) enabledOptions.push('保留换行');
+                
                 const logFormatted = formattedText.length > 100 ?
                     formattedText.substring(0, 100) + '...' : formattedText;
-                logger.debug(`标点符号转换 | 结果:成功 | 原行数:${lines.length} | 转换后行数:${formattedLines.length} | 样例:"${logFormatted}"`);
+                logger.debug(`文本格式化 | 选项:[${enabledOptions.join(', ')}] | 结果:"${logFormatted}"`);
             }
 
             return formattedText;
 
         } catch (error) {
-            logger.error(`标点符号转换 | 结果:异常 | 错误:${error.message}`);
+            logger.error(`文本格式化 | 结果:异常 | 错误:${error.message}`);
             return text; // 发生错误时返回原始文本
         }
+    }
+
+    /**
+     * 格式化单行文本
+     * 根据选项执行对应的格式化操作
+     */
+    static _formatLine(line, options) {
+        let formattedLine = line;
+
+        // 1. 标点符号转换
+        if (options.punctuation) {
+            for (const [cnPunct, enPunct] of Object.entries(this.PUNCTUATION_MAP)) {
+                formattedLine = formattedLine.split(cnPunct).join(enPunct);
+            }
+        }
+
+        // 2. 处理连续点号
+        if (options.dots) {
+            formattedLine = formattedLine.replace(/\.{3,}/g, '...');
+        }
+
+        // 3. 处理多余空格
+        if (options.space) {
+            formattedLine = formattedLine
+                .replace(/\s+/g, ' ')           // 多个空格转换为单个空格
+                .replace(/\s*,\s*/g, ', ')      // 统一逗号后的空格
+                .trim();                        // 去除首尾空格
+        }
+
+        return formattedLine;
     }
 
     /**

@@ -67,6 +67,11 @@
         transform 0.4s cubic-bezier(.78, 1.76, .68, .96) 0.25s;
 }
 
+/* 指示器图标创建时的动画 */
+.prompt-assistant-container.collapsed .prompt-assistant-indicator.animate-creation {
+    animation: indicator-creation 0.4s cubic-bezier(.78, 1.76, .68, .96);
+}
+
 /* 指示器图标隐藏动画 */
 .prompt-assistant-container:not(.collapsed) .prompt-assistant-indicator {
     opacity: 0;
@@ -182,24 +187,27 @@
 
 /* 指示器图标创建时的动画 */
 .image-assistant-container.collapsed .image-assistant-indicator.animate-creation {
-    animation: indicator-creation 0.6s cubic-bezier(.49, 1.98, .67, .83);
+    animation: indicator-creation 0.4s cubic-bezier(.78, 1.76, .68, .96);
 }
 
-/* 指示器创建动画 */
+/* 指示器创建动画 - 透明度过冲效果 */
 @keyframes indicator-creation {
     0% {
         opacity: 0;
         transform: translateY(-50%) scale(0);
+        filter: drop-shadow(0 0 0px rgba(255, 255, 255, 0)) drop-shadow(0 0 0px rgba(100, 200, 255, 0));
     }
 
-    60% {
-        opacity: 0.5;
-        transform: translateY(-50%) scale(1.0);
+    65% {
+        opacity: calc(var(--assistant-icon-opacity) + 0.1);
+        transform: translateY(-50%) scale(0.8);
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 4px rgba(100, 200, 255, 0.5));
     }
 
     100% {
-        opacity: 0.3;
+        opacity: var(--assistant-icon-opacity);
         transform: translateY(-50%) scale(0.8);
+        filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.6)) drop-shadow(0 0 4px rgba(100, 200, 255, 0.5));
     }
 }
 
@@ -235,6 +243,13 @@
 .image-assistant-container.collapsed .image-assistant-button {
     transition: opacity 0.3s cubic-bezier(0.11, 0, 0.5, 0);
     opacity: 0;
+}
+
+/* 折叠状态下隐藏分割线 */
+.image-assistant-container.collapsed .image-assistant-divider {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 0.3s cubic-bezier(0.11, 0, 0.5, 0);
 }
 
 /* 图像小助手过渡效果 */
@@ -290,10 +305,9 @@
         left 0.2s ease-out;
 }
 
-/* 显示动画类 */
+/* 显示动画类 - 直接显示，无创建动画 */
 .assistant-show {
     display: flex !important;
-    animation: clipFadeInDown 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
 }
 
@@ -340,6 +354,13 @@
     opacity: 0 !important;
     pointer-events: none !important;
     transition: opacity 0.4s ease-out, pointer-events 0s 0.4s;
+}
+
+/* 折叠状态下隐藏分割线 */
+.prompt-assistant-container.collapsed .prompt-assistant-divider {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: opacity 0.4s ease-out;
 }
 
 /* SVG图标样式 */

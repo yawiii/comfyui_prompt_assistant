@@ -58,11 +58,11 @@ class PromptExpand:
                 # 临时规则开关：BOOLEAN，并添加中文开关标签
                 "临时规则": ("BOOLEAN", {"default": False, "label_on": "启用", "label_off": "禁用"}),
                 # 临时规则内容输入框：仅在启用临时规则时生效
-                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用“临时规则”时生效"}),
+                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用'临时规则'时生效"}),
                 # 用户提示词：与原文合并后提交
                 "用户提示词": ("STRING", {"multiline": True, "default": "", "placeholder": "填写的要扩写的提示词原文，若存在原文端口输入和内容输入，将合并提交"}),
                 # 扩写服务（使用LLM提供商）
-                "扩写服务": (["智谱", "硅基流动", "自定义"], {"default": "智谱"}),
+                "扩写服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
             },
             "optional": {
                 # 原文输入端口：非必选
@@ -156,6 +156,8 @@ class PromptExpand:
             provider_map = {
                 "智谱": "zhipu",
                 "硅基流动": "siliconflow",
+                "302.AI": "302ai",
+                "Ollama": "ollama",
                 "自定义": "custom",
             }
             selected_provider = provider_map.get(扩写服务)
@@ -166,7 +168,7 @@ class PromptExpand:
             from ..config_manager import config_manager
             provider_config = self._get_provider_config(config_manager, selected_provider)
             if not provider_config:
-                provider_display = {"zhipu": "智谱", "siliconflow": "硅基流动", "custom": "自定义"}.get(selected_provider, selected_provider)
+                provider_display = {"zhipu": "智谱", "siliconflow": "硅基流动", "302ai": "302.AI", "ollama": "Ollama", "custom": "自定义"}.get(selected_provider, selected_provider)
                 raise ValueError(f"未找到{provider_display}的配置，请先完成API配置")
 
             print(f"{self.LOG_PREFIX} 扩写: 使用{扩写服务}服务, 模型: {provider_config.get('model')}")

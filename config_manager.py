@@ -56,7 +56,8 @@ class ConfigManager:
                         "api_key": "ollama",
                         "temperature": 0.7,
                         "max_tokens": 1000,
-                        "top_p": 0.9
+                        "top_p": 0.9,
+                        "auto_unload": True
                     },
                     "custom": {
                         "model": "",
@@ -101,7 +102,8 @@ class ConfigManager:
                         "api_key": "ollama",
                         "temperature": 0.7,
                         "max_tokens": 500,
-                        "top_p": 0.9
+                        "top_p": 0.9,
+                        "auto_unload": True
                     },
                     "custom": {
                         "model": "",
@@ -417,7 +419,7 @@ class ConfigManager:
 
         return self.save_config(config)
 
-    def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
+    def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, auto_unload=None, update_current=True):
         """更新LLM配置"""
         config = self.load_config()
         if "llm" not in config:
@@ -455,10 +457,12 @@ class ConfigManager:
             config["llm"]["providers"][provider]["max_tokens"] = max_tokens
         if provider is not None and top_p is not None:
             config["llm"]["providers"][provider]["top_p"] = top_p
+        if provider is not None and auto_unload is not None:
+            config["llm"]["providers"][provider]["auto_unload"] = auto_unload
 
         return self.save_config(config)
 
-    def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, update_current=True):
+    def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, auto_unload=None, update_current=True):
         """更新视觉模型配置"""
         config = self.load_config()
         if "vlm" not in config:
@@ -496,6 +500,8 @@ class ConfigManager:
             config["vlm"]["providers"][provider]["max_tokens"] = max_tokens
         if provider is not None and top_p is not None:
             config["vlm"]["providers"][provider]["top_p"] = top_p
+        if provider is not None and auto_unload is not None:
+            config["vlm"]["providers"][provider]["auto_unload"] = auto_unload
 
         return self.save_config(config)
     def validate_and_fix_system_prompts(self):
@@ -733,6 +739,12 @@ class ConfigManager:
                         need_update = True
                         self._log(f"为LLM提供商 {provider_name} 添加默认top_p参数: 0.9")
 
+                    # 检查并添加缺失的auto_unload参数（仅Ollama）
+                    if provider_name == "ollama" and "auto_unload" not in provider_config:
+                        provider_config["auto_unload"] = True
+                        need_update = True
+                        self._log(f"为LLM提供商 {provider_name} 添加默认auto_unload参数: True")
+
             # 检查视觉模型配置，并补全新增提供商
             if "vlm" in config:
                 if "providers" not in config["vlm"]:
@@ -762,6 +774,12 @@ class ConfigManager:
                         provider_config["top_p"] = 0.9
                         need_update = True
                         self._log(f"为视觉模型提供商 {provider_name} 添加默认top_p参数: 0.9")
+
+                    # 检查并添加缺失的auto_unload参数（仅Ollama）
+                    if provider_name == "ollama" and "auto_unload" not in provider_config:
+                        provider_config["auto_unload"] = True
+                        need_update = True
+                        self._log(f"为视觉模型提供商 {provider_name} 添加默认auto_unload参数: True")
 
             # 如果有更新，保存配置
             if need_update:

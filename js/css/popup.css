@@ -634,7 +634,7 @@
     flex: 1;
     display: flex;
     align-items: center;
-    margin: 0 2px;
+    width: 100%;
 }
 
 /* 隐藏滚动条 */
@@ -769,51 +769,53 @@
     flex-direction: column;
 }
 
-/* 滚动指示器 - PrimeVue 风格 */
+/* 滚动指示器 - 漂浮设计 */
 .popup_container .tabs_scroll_indicator {
-    position: relative;
-    width: 20px;
-    height: 20px;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    /* color: rgba(255, 255, 255, 0.7); */
     color: var(--p-text-muted-color);
-    font-size: 16px;
     cursor: pointer;
-    z-index: 5;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-    margin: 0 2px;
+    z-index: 10;
+    pointer-events: auto;
+    transition: color 0.2s ease;
     border: none;
-    border-radius: 50%;
 }
 
 /* 添加滚动指示器图标尺寸控制 */
 .popup_container .tabs_scroll_indicator .pi {
     font-size: 14px;
+    transition: transform 0.2s ease;
 }
 
 /* 左侧滚动指示器 */
 .popup_container .tabs_scroll_indicator.left {
-    order: -1;
-    /* 确保在滚动区域左侧 */
-    margin: 0 4px;
+    left: 0;
+    background: linear-gradient(to right, 
+        var(--p-content-background) 0%, 
+        var(--p-content-background) 40%, 
+        transparent 100%);
 }
 
 /* 右侧滚动指示器 */
 .popup_container .tabs_scroll_indicator.right {
-    order: 1;
-    /* 确保在滚动区域右侧 */
-    margin: 0 4px;
+    right: 0;
+    background: linear-gradient(to left, 
+        var(--p-content-background) 0%, 
+        var(--p-content-background) 40%, 
+        transparent 100%);
 }
 
 .popup_container .tabs_scroll_indicator:hover {
-    color: rgba(255, 255, 255, 1);
-    background-color: rgba(60, 60, 60, 0.7);
-    transform: scale(1.1);
-    background-color: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 5px rgba(255, 255, 255, 0.2);
+    color: var(--p-text-color);
+}
+
+.popup_container .tabs_scroll_indicator:hover .pi {
+    transform: scale(1.2);
 }
 
 /* 滚动指示器图标样式 */

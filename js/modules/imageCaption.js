@@ -1055,9 +1055,12 @@ class ImageCaption {
                 const success = document.execCommand('copy');
                 if (success) {
                     copyButton.textContent = '复制成功!';
+                    // 复制成功后，延迟500ms关闭弹窗，让用户看到成功提示
                     setTimeout(() => {
-                        copyButton.textContent = '复制到剪贴板';
-                    }, 2000);
+                        if (document.body.contains(dialogContainer)) {
+                            document.body.removeChild(dialogContainer);
+                        }
+                    }, 500);
                 } else {
                     copyButton.textContent = '复制失败，请手动选择和复制';
                     contentArea.focus();

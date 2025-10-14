@@ -36,6 +36,19 @@ class APIConfigManager {
                 title: 'API管理器',
                 dialogClassName: 'api-config-dialog',
                 disableBackdropAndCloseOnClickOutside: true,
+                renderNotice: (noticeArea) => {
+                    // 添加副标题说明
+                    const subtitle = document.createElement('div');
+                    subtitle.style.cssText = `
+                        font-size: 12px;
+                        color: var(--p-text-muted-color);
+                        padding: 4px 40px 4px 40px;
+                        line-height: 1.6;
+                        text-align: left;
+                    `;
+                    subtitle.textContent = '⚠️本插件仅提供API调用，服务可用性、质量效果及收费标准均由第三方提供商以及所调用的模型能力决定。填写的APIkey仅保存在本地插件目录“config/config.json”文件中。请不要向别人分享config.json文件！避免APIkey泄露造成损失。本插件不对账号问题负责。';
+                    noticeArea.appendChild(subtitle);
+                },
                 renderContent: (container) => {
                     this._createAPIConfigUI(container);
                 },
@@ -80,32 +93,46 @@ class APIConfigManager {
                         // 确保每个提供商都有配置
                         const providerList = ["zhipu", "siliconflow", "302ai", "ollama", "custom"];
                         providerList.forEach(provider => {
-                            // 确保LLM提供商配置存在
-                            if (!config.llm.providers[provider]) {
-                                config.llm.providers[provider] = {
-                                    model: provider === "zhipu" ? "glm-4-flash-250414" :
-                                        (provider === "siliconflow" ? "Qwen/Qwen2.5-7B-Instruct" : ""),
-                                    base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" :
-                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1" : ""),
-                                    api_key: "",
-                                    temperature: 0.7,
-                                    max_tokens: 2000,
-                                    top_p: 0.9
-                                };
+                        // 确保LLM提供商配置存在
+                        if (!config.llm.providers[provider]) {
+                            const providerConfig = {
+                                model: provider === "zhipu" ? "glm-4-flash-250414" :
+                                    (provider === "siliconflow" ? "Qwen/Qwen2.5-7B-Instruct" : 
+                                    (provider === "ollama" ? "llama3.1" : "")),
+                                base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" :
+                                    (provider === "siliconflow" ? "https://api.siliconflow.cn/v1" :
+                                    (provider === "ollama" ? "http://localhost:11434/v1" : "")),
+                                api_key: provider === "ollama" ? "ollama" : "",
+                                temperature: 0.7,
+                                max_tokens: 2000,
+                                top_p: 0.9
+                            };
+                            // Ollama添加auto_unload参数
+                            if (provider === "ollama") {
+                                providerConfig.auto_unload = true;
                             }
+                            config.llm.providers[provider] = providerConfig;
+                        }
 
                             // 确保视觉模型提供商配置存在
                             if (!config.vision.providers[provider]) {
-                                config.vision.providers[provider] = {
+                                const visionProviderConfig = {
                                     model: provider === "zhipu" ? "glm-4v-flash" :
-                                        (provider === "siliconflow" ? "THUDM/GLM-4.1V-9B-Thinking" : ""),
+                                        (provider === "siliconflow" ? "THUDM/GLM-4.1V-9B-Thinking" :
+                                        (provider === "ollama" ? "llava:latest" : "")),
                                     base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
-                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" : ""),
-                                    api_key: "",
+                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" :
+                                        (provider === "ollama" ? "http://localhost:11434/v1" : "")),
+                                    api_key: provider === "ollama" ? "ollama" : "",
                                     temperature: 0.7,
                                     max_tokens: 2000,
                                     top_p: 0.9
                                 };
+                                // Ollama添加auto_unload参数
+                                if (provider === "ollama") {
+                                    visionProviderConfig.auto_unload = true;
+                                }
+                                config.vision.providers[provider] = visionProviderConfig;
                             }
                         });
 
@@ -245,7 +272,7 @@ class APIConfigManager {
             { text: '智谱', url: 'https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D' },
             { text: '硅基流动', url: 'https://cloud.siliconflow.cn/i/FCDL2zBQ' },
             { text: '302.AI', url: 'https://share.302.ai/JrO51c' }
-        ], { prefixText: '大模型API申请：' });
+        ], { prefixText: 'API key申请：' });
 
         // 创建选择器和输入框
         const llmProvider = createSelectGroup('', [
@@ -257,6 +284,9 @@ class APIConfigManager {
         ]);
         const llmModelInput = createInputGroup('', '请输入模型名称');
         this.llmModel = llmModelInput.input; // 保存引用以供外部函数使用
+        
+        // 为模型输入框添加自动完成功能
+        this._attachAutocomplete(this.llmModel, 'llm', () => this.llmProvider.value);
 
         // 创建base_url输入框（初始隐藏）
         const llmBaseUrlInput = createInputGroup('Base URL', '请输入API基础URL，例如: https://api.example.com/v1');
@@ -283,7 +313,54 @@ class APIConfigManager {
         const llmApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
         this.llmApiKey = llmApiKeyInput.input; // 保存引用以供外部函数使用
 
-        // ---模型参数配置---
+        // ---模型参数配置（可折叠）---
+        // 创建高级设置折叠容器
+        const llmAdvancedContainer = document.createElement('div');
+        llmAdvancedContainer.className = 'advanced-settings-container';
+        llmAdvancedContainer.style.cssText = `
+            margin-top: 12px;
+        `;
+        
+        // 创建高级设置标题（可点击折叠/展开）
+        const llmAdvancedHeader = document.createElement('div');
+        llmAdvancedHeader.className = 'advanced-settings-header';
+        llmAdvancedHeader.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 2px 0;
+            user-select: none;
+        `;
+        
+        const llmAdvancedIcon = document.createElement('span');
+        llmAdvancedIcon.className = 'pi pi-angle-right';
+        llmAdvancedIcon.style.cssText = `
+            font-size: 12px;
+            color: var(--p-text-muted-color);
+            transition: transform 0.2s;
+        `;
+        
+        const llmAdvancedTitle = document.createElement('span');
+        llmAdvancedTitle.textContent = '高级设置';
+        llmAdvancedTitle.style.cssText = `
+            font-size: 13px;
+            color: var(--p-text-color);
+            font-weight: 500;
+        `;
+        
+        llmAdvancedHeader.appendChild(llmAdvancedIcon);
+        llmAdvancedHeader.appendChild(llmAdvancedTitle);
+        
+        // 创建参数内容区域（默认隐藏）
+        const llmAdvancedContent = document.createElement('div');
+        llmAdvancedContent.className = 'advanced-settings-content';
+        llmAdvancedContent.style.cssText = `
+            display: none;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        `;
+        
         // 创建温度和最大token输入框
         const llmTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
         llmTemperatureInput.input.type = 'number';
@@ -315,11 +392,82 @@ class APIConfigManager {
             { label: '核采样 (Top-P)', element: this.llmTopP },
             { label: '最大Token数', element: this.llmMaxTokens }
         ]);
+        
+        llmAdvancedContent.appendChild(llmParamsGroup);
+        
+        // 创建Ollama专属选项（初始隐藏）
+        const llmOllamaOptionsGroup = document.createElement('div');
+        llmOllamaOptionsGroup.className = 'ollama-options-group';
+        llmOllamaOptionsGroup.style.cssText = `
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--p-content-background);
+            border: 1px solid var(--p-divider-color);
+            border-radius: 4px;
+        `;
+        
+        const llmOllamaAutoUnload = document.createElement('div');
+        llmOllamaAutoUnload.className = 'p-field-checkbox';
+        llmOllamaAutoUnload.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
+        
+        const llmOllamaAutoUnloadCheckbox = document.createElement('input');
+        llmOllamaAutoUnloadCheckbox.type = 'checkbox';
+        llmOllamaAutoUnloadCheckbox.id = 'llm-ollama-auto-unload';
+        llmOllamaAutoUnloadCheckbox.className = 'p-checkbox';
+        llmOllamaAutoUnloadCheckbox.checked = true; // 默认勾选
+        this.llmOllamaAutoUnload = llmOllamaAutoUnloadCheckbox;
+        
+        const llmOllamaAutoUnloadLabel = document.createElement('label');
+        llmOllamaAutoUnloadLabel.htmlFor = 'llm-ollama-auto-unload';
+        llmOllamaAutoUnloadLabel.textContent = '自动释放显存';
+        llmOllamaAutoUnloadLabel.style.cssText = `
+            font-size: 13px;
+            color: var(--p-text-color);
+            cursor: pointer;
+            user-select: none;
+        `;
+        
+        const llmOllamaAutoUnloadHint = document.createElement('div');
+        llmOllamaAutoUnloadHint.style.cssText = `
+            font-size: 12px;
+            color: var(--p-text-muted-color);
+            margin-top: 4px;
+            margin-left: 24px;
+        `;
+        llmOllamaAutoUnloadHint.textContent = '启用后，模型在生成响应后会立即卸载，释放显存和内存（推荐）';
+        
+        llmOllamaAutoUnload.appendChild(llmOllamaAutoUnloadCheckbox);
+        llmOllamaAutoUnload.appendChild(llmOllamaAutoUnloadLabel);
+        llmOllamaOptionsGroup.appendChild(llmOllamaAutoUnload);
+        llmOllamaOptionsGroup.appendChild(llmOllamaAutoUnloadHint);
+        
+        llmAdvancedContent.appendChild(llmOllamaOptionsGroup);
+        
+        // 折叠/展开切换
+        let llmIsExpanded = false;
+        llmAdvancedHeader.addEventListener('click', () => {
+            llmIsExpanded = !llmIsExpanded;
+            if (llmIsExpanded) {
+                llmAdvancedContent.style.display = 'block';
+                llmAdvancedIcon.style.transform = 'rotate(90deg)';
+            } else {
+                llmAdvancedContent.style.display = 'none';
+                llmAdvancedIcon.style.transform = 'rotate(0deg)';
+            }
+        });
+        
+        llmAdvancedContainer.appendChild(llmAdvancedHeader);
+        llmAdvancedContainer.appendChild(llmAdvancedContent);
 
         llmSection.appendChild(llmProviderGroup);
         llmSection.appendChild(llmBaseUrlInput.group); // 添加base_url输入框
         llmSection.appendChild(llmApiKeyInput.group);
-        llmSection.appendChild(llmParamsGroup); // 添加模型参数配置（三个参数在同一行）
+        llmSection.appendChild(llmAdvancedContainer); // 添加高级设置折叠容器
 
         // 监听LLM提供商选择变化
         llmProvider.select.addEventListener('change', () => {
@@ -331,19 +479,23 @@ class APIConfigManager {
                 this._saveLLMProviderConfig(oldProvider);
             }
 
-            // 根据提供商类型显示/隐藏 base_url 与 API Key
+            // 根据提供商类型显示/隐藏 base_url 与 API Key 以及 Ollama 选项
             if (provider === 'custom') {
                 llmBaseUrlInput.group.style.display = 'block';
                 llmApiKeyInput.group.style.display = 'block';
+                llmOllamaOptionsGroup.style.display = 'none';
             } else if (provider === '302ai') {
                 llmBaseUrlInput.group.style.display = 'none';
                 llmApiKeyInput.group.style.display = 'block';
+                llmOllamaOptionsGroup.style.display = 'none';
             } else if (provider === 'ollama') {
                 llmBaseUrlInput.group.style.display = 'none';
                 llmApiKeyInput.group.style.display = 'none';
+                llmOllamaOptionsGroup.style.display = 'block';
             } else {
                 llmBaseUrlInput.group.style.display = 'none';
                 llmApiKeyInput.group.style.display = 'block';
+                llmOllamaOptionsGroup.style.display = 'none';
             }
 
             // 加载选定提供商的配置
@@ -373,6 +525,8 @@ class APIConfigManager {
                     // Ollama base_url 与 api_key 内置
                     this.llmBaseUrl.value = '';
                     this._setMaskedValue(this.llmApiKey, 'ollama');
+                    // 加载 Ollama 自动释放显存选项
+                    this.llmOllamaAutoUnload.checked = providerConfig.auto_unload !== false; // 默认为 true
                 }
             } else {
                 // 设置默认模型名称
@@ -384,6 +538,8 @@ class APIConfigManager {
                     this.llmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
                 } else if (provider === 'ollama') {
                     this.llmModel.value = 'llama3.1';
+                    // Ollama 默认启用自动释放显存
+                    this.llmOllamaAutoUnload.checked = true;
                 } else {
                     this.llmModel.value = '';
                 }
@@ -427,6 +583,9 @@ class APIConfigManager {
         ]);
         const visionModelInput = createInputGroup('', '请输入模型名称');
         this.visionModel = visionModelInput.input; // 保存引用以供外部函数使用
+        
+        // 为模型输入框添加自动完成功能
+        this._attachAutocomplete(this.visionModel, 'vision', () => this.visionProvider.value);
 
         // 创建base_url输入框（初始隐藏）
         const visionBaseUrlInput = createInputGroup('Base URL', '请输入API基础URL，例如: https://api.example.com/v1');
@@ -453,7 +612,54 @@ class APIConfigManager {
         const visionApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
         this.visionApiKey = visionApiKeyInput.input; // 保存引用以供外部函数使用
 
-        // ---视觉模型参数配置---
+        // ---视觉模型参数配置（可折叠）---
+        // 创建高级设置折叠容器
+        const visionAdvancedContainer = document.createElement('div');
+        visionAdvancedContainer.className = 'advanced-settings-container';
+        visionAdvancedContainer.style.cssText = `
+            margin-top: 12px;
+        `;
+        
+        // 创建高级设置标题（可点击折叠/展开）
+        const visionAdvancedHeader = document.createElement('div');
+        visionAdvancedHeader.className = 'advanced-settings-header';
+        visionAdvancedHeader.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 8px 0;
+            user-select: none;
+        `;
+        
+        const visionAdvancedIcon = document.createElement('span');
+        visionAdvancedIcon.className = 'pi pi-angle-right';
+        visionAdvancedIcon.style.cssText = `
+            font-size: 12px;
+            color: var(--p-text-muted-color);
+            transition: transform 0.2s;
+        `;
+        
+        const visionAdvancedTitle = document.createElement('span');
+        visionAdvancedTitle.textContent = '高级设置';
+        visionAdvancedTitle.style.cssText = `
+            font-size: 13px;
+            color: var(--p-text-color);
+            font-weight: 500;
+        `;
+        
+        visionAdvancedHeader.appendChild(visionAdvancedIcon);
+        visionAdvancedHeader.appendChild(visionAdvancedTitle);
+        
+        // 创建参数内容区域（默认隐藏）
+        const visionAdvancedContent = document.createElement('div');
+        visionAdvancedContent.className = 'advanced-settings-content';
+        visionAdvancedContent.style.cssText = `
+            display: none;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        `;
+        
         // 创建温度和最大token输入框
         const visionTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
         visionTemperatureInput.input.type = 'number';
@@ -485,11 +691,82 @@ class APIConfigManager {
             { label: '核采样 (Top-P)', element: this.visionTopP },
             { label: '最大Token数', element: this.visionMaxTokens }
         ]);
+        
+        visionAdvancedContent.appendChild(visionParamsGroup);
+        
+        // 创建Ollama专属选项（初始隐藏）
+        const visionOllamaOptionsGroup = document.createElement('div');
+        visionOllamaOptionsGroup.className = 'ollama-options-group';
+        visionOllamaOptionsGroup.style.cssText = `
+            display: none;
+            margin-top: 12px;
+            padding: 12px;
+            background: var(--p-content-background);
+            border: 1px solid var(--p-divider-color);
+            border-radius: 4px;
+        `;
+        
+        const visionOllamaAutoUnload = document.createElement('div');
+        visionOllamaAutoUnload.className = 'p-field-checkbox';
+        visionOllamaAutoUnload.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        `;
+        
+        const visionOllamaAutoUnloadCheckbox = document.createElement('input');
+        visionOllamaAutoUnloadCheckbox.type = 'checkbox';
+        visionOllamaAutoUnloadCheckbox.id = 'vision-ollama-auto-unload';
+        visionOllamaAutoUnloadCheckbox.className = 'p-checkbox';
+        visionOllamaAutoUnloadCheckbox.checked = true; // 默认勾选
+        this.visionOllamaAutoUnload = visionOllamaAutoUnloadCheckbox;
+        
+        const visionOllamaAutoUnloadLabel = document.createElement('label');
+        visionOllamaAutoUnloadLabel.htmlFor = 'vision-ollama-auto-unload';
+        visionOllamaAutoUnloadLabel.textContent = '自动释放显存';
+        visionOllamaAutoUnloadLabel.style.cssText = `
+            font-size: 13px;
+            color: var(--p-text-color);
+            cursor: pointer;
+            user-select: none;
+        `;
+        
+        const visionOllamaAutoUnloadHint = document.createElement('div');
+        visionOllamaAutoUnloadHint.style.cssText = `
+            font-size: 12px;
+            color: var(--p-text-muted-color);
+            margin-top: 4px;
+            margin-left: 24px;
+        `;
+        visionOllamaAutoUnloadHint.textContent = '启用后，模型在生成响应后会立即卸载，释放显存和内存（推荐）';
+        
+        visionOllamaAutoUnload.appendChild(visionOllamaAutoUnloadCheckbox);
+        visionOllamaAutoUnload.appendChild(visionOllamaAutoUnloadLabel);
+        visionOllamaOptionsGroup.appendChild(visionOllamaAutoUnload);
+        visionOllamaOptionsGroup.appendChild(visionOllamaAutoUnloadHint);
+        
+        visionAdvancedContent.appendChild(visionOllamaOptionsGroup);
+        
+        // 折叠/展开切换
+        let visionIsExpanded = false;
+        visionAdvancedHeader.addEventListener('click', () => {
+            visionIsExpanded = !visionIsExpanded;
+            if (visionIsExpanded) {
+                visionAdvancedContent.style.display = 'block';
+                visionAdvancedIcon.style.transform = 'rotate(90deg)';
+            } else {
+                visionAdvancedContent.style.display = 'none';
+                visionAdvancedIcon.style.transform = 'rotate(0deg)';
+            }
+        });
+        
+        visionAdvancedContainer.appendChild(visionAdvancedHeader);
+        visionAdvancedContainer.appendChild(visionAdvancedContent);
 
         visionSection.appendChild(visionProviderGroup);
         visionSection.appendChild(visionBaseUrlInput.group); // 添加base_url输入框
         visionSection.appendChild(visionApiKeyInput.group);
-        visionSection.appendChild(visionParamsGroup); // 添加视觉模型参数配置（三个参数在同一行）
+        visionSection.appendChild(visionAdvancedContainer); // 添加高级设置折叠容器
 
         // 监听视觉模型提供商选择变化
         visionProvider.select.addEventListener('change', () => {
@@ -501,19 +778,23 @@ class APIConfigManager {
                 this._saveVisionProviderConfig(oldProvider);
             }
 
-            // 根据提供商类型显示/隐藏 base_url 与 API Key
+            // 根据提供商类型显示/隐藏 base_url 与 API Key 以及 Ollama 选项
             if (provider === 'custom') {
                 visionBaseUrlInput.group.style.display = 'block';
                 visionApiKeyInput.group.style.display = 'block';
+                visionOllamaOptionsGroup.style.display = 'none';
             } else if (provider === '302ai') {
                 visionBaseUrlInput.group.style.display = 'none';
                 visionApiKeyInput.group.style.display = 'block';
+                visionOllamaOptionsGroup.style.display = 'none';
             } else if (provider === 'ollama') {
                 visionBaseUrlInput.group.style.display = 'none';
                 visionApiKeyInput.group.style.display = 'none';
+                visionOllamaOptionsGroup.style.display = 'block';
             } else {
                 visionBaseUrlInput.group.style.display = 'none';
                 visionApiKeyInput.group.style.display = 'block';
+                visionOllamaOptionsGroup.style.display = 'none';
             }
 
             // 加载选定提供商的配置
@@ -541,6 +822,8 @@ class APIConfigManager {
                 } else if (provider === 'ollama') {
                     this.visionBaseUrl.value = '';
                     this._setMaskedValue(this.visionApiKey, 'ollama');
+                    // 加载 Ollama 自动释放显存选项
+                    this.visionOllamaAutoUnload.checked = providerConfig.auto_unload !== false; // 默认为 true
                 }
             } else {
                 // 设置默认模型名称
@@ -552,6 +835,8 @@ class APIConfigManager {
                     this.visionModel.value = 'THUDM/GLM-4.1V-9B-Thinking';
                 } else if (provider === 'ollama') {
                     this.visionModel.value = 'llava:latest';
+                    // Ollama 默认启用自动释放显存
+                    this.visionOllamaAutoUnload.checked = true;
                 } else {
                     this.visionModel.value = '';
                 }
@@ -780,6 +1065,11 @@ class APIConfigManager {
             max_tokens: parseInt(this.llmMaxTokens.value) || 2000,
             top_p: parseFloat(this.llmTopP.value) || 0.9
         };
+        
+        // 如果是 Ollama，保存自动释放显存选项
+        if (provider === 'ollama') {
+            providerConfig.auto_unload = this.llmOllamaAutoUnload ? this.llmOllamaAutoUnload.checked : true;
+        }
 
         // 保留现有配置中的has_key标记
         if (this.llmAllProviders[provider] && this.llmAllProviders[provider].has_key) {
@@ -842,6 +1132,11 @@ class APIConfigManager {
             max_tokens: parseInt(this.visionMaxTokens.value) || 2000,
             top_p: parseFloat(this.visionTopP.value) || 0.9
         };
+        
+        // 如果是 Ollama，保存自动释放显存选项
+        if (provider === 'ollama') {
+            providerConfig.auto_unload = this.visionOllamaAutoUnload ? this.visionOllamaAutoUnload.checked : true;
+        }
 
         // 保留现有配置中的has_key标记
         if (this.visionAllProviders[provider] && this.visionAllProviders[provider].has_key) {
@@ -864,6 +1159,351 @@ class APIConfigManager {
         this.visionAllProviders[provider] = providerConfig;
 
         logger.debug(`已保存 ${provider} 提供商的视觉模型配置`);
+    }
+
+    /**
+     * 为输入框附加自动完成功能
+     * @param {HTMLInputElement} input 输入框元素
+     * @param {string} modelType 模型类型 ('llm' 或 'vision')
+     * @param {Function} getProvider 获取当前提供商的函数
+     */
+    _attachAutocomplete(input, modelType, getProvider) {
+        let autocompletePanel = null;
+        let modelsList = [];
+        let isOpen = false;
+        let selectedIndex = -1;
+        let showRecommended = false; // 当前显示模式：false=所有模型，true=推荐模型
+        
+        // 创建自动完成下拉面板
+        const createAutocompletePanel = () => {
+            const panel = document.createElement('div');
+            panel.className = 'pa-dropdown-panel p-dropdown-panel p-component settings-modal-dropdown-panel p-hidden';
+            panel.style.position = 'fixed';
+            panel.style.zIndex = '10001';
+            
+            const itemsWrapper = document.createElement('div');
+            itemsWrapper.className = 'p-dropdown-items-wrapper';
+            
+            const itemsList = document.createElement('ul');
+            itemsList.className = 'p-dropdown-items';
+            itemsList.setAttribute('role', 'listbox');
+            
+            itemsWrapper.appendChild(itemsList);
+            panel.appendChild(itemsWrapper);
+            
+            return panel;
+        };
+        
+        // 创建切换按钮（用于智谱、硅基流动、302）
+        const createToggleButton = () => {
+            const toggleWrapper = document.createElement('div');
+            toggleWrapper.className = 'model-list-toggle-wrapper';
+            toggleWrapper.style.cssText = `
+                padding: 8px 12px;
+                border-bottom: 1px solid var(--p-divider-color);
+                background: var(--p-panel-header-background);
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            `;
+            
+            const label = document.createElement('span');
+            label.textContent = '筛选：';
+            label.style.cssText = `
+                font-size: 12px;
+                color: var(--p-text-color);
+            `;
+            
+            // 创建按钮容器
+            const buttonsContainer = document.createElement('div');
+            buttonsContainer.style.cssText = `
+                display: flex;
+                gap: 4px;
+            `;
+            
+            // 创建"所有模型"按钮
+            const allModelsButton = document.createElement('button');
+            allModelsButton.className = 'p-button p-button-sm p-button-text';
+            allModelsButton.textContent = '所有模型';
+            allModelsButton.style.cssText = `
+                padding: 4px 8px;
+                font-size: 12px;
+                height: auto;
+                min-width: auto;
+                color: var(--p-primary-color);
+            `;
+            
+            // 创建"推荐模型"按钮
+            const recommendedButton = document.createElement('button');
+            recommendedButton.className = 'p-button p-button-sm p-button-text';
+            recommendedButton.textContent = '推荐模型';
+            recommendedButton.style.cssText = `
+                padding: 4px 8px;
+                font-size: 12px;
+                height: auto;
+                min-width: auto;
+                color: var(--p-text-muted-color);
+            `;
+            
+            // 更新按钮状态
+            const updateButtonStates = () => {
+                if (showRecommended) {
+                    // 推荐模型激活
+                    allModelsButton.style.color = 'var(--p-text-muted-color)';
+                    recommendedButton.style.color = 'var(--p-primary-color)';
+                } else {
+                    // 所有模型激活
+                    allModelsButton.style.color = 'var(--p-primary-color)';
+                    recommendedButton.style.color = 'var(--p-text-muted-color)';
+                }
+            };
+            
+            // "所有模型"按钮点击事件
+            allModelsButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (showRecommended) {
+                    showRecommended = false;
+                    updateButtonStates();
+                    loadModels();
+                }
+            });
+            
+            // "推荐模型"按钮点击事件
+            recommendedButton.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (!showRecommended) {
+                    showRecommended = true;
+                    updateButtonStates();
+                    loadModels();
+                }
+            });
+            
+            buttonsContainer.appendChild(allModelsButton);
+            buttonsContainer.appendChild(recommendedButton);
+            
+            toggleWrapper.appendChild(label);
+            toggleWrapper.appendChild(buttonsContainer);
+            
+            return toggleWrapper;
+        };
+        
+        // 更新面板位置
+        const updatePanelPosition = () => {
+            if (!isOpen || !autocompletePanel) return;
+            
+            const rect = input.getBoundingClientRect();
+            autocompletePanel.style.top = rect.bottom + 'px';
+            autocompletePanel.style.left = rect.left + 'px';
+            autocompletePanel.style.width = rect.width + 'px';
+        };
+        
+        // 关闭面板
+        const closePanel = () => {
+            if (!isOpen || !autocompletePanel) return;
+            isOpen = false;
+            selectedIndex = -1;
+            
+            autocompletePanel.classList.add('p-hidden');
+            autocompletePanel.classList.remove('p-enter-active');
+            
+            window.removeEventListener('resize', updatePanelPosition);
+            window.removeEventListener('scroll', updatePanelPosition, true);
+            
+            setTimeout(() => {
+                if (autocompletePanel && autocompletePanel.parentNode === document.body) {
+                    document.body.removeChild(autocompletePanel);
+                }
+                // 清空面板引用，下次打开时重新创建（以便根据提供商决定是否显示切换按钮）
+                autocompletePanel = null;
+                showRecommended = false; // 重置为默认状态
+                document.removeEventListener('click', handleOutsideClick, true);
+            }, 120);
+        };
+        
+        // 加载模型列表（独立函数，用于初次加载和切换时重载）
+        const loadModels = async () => {
+            const provider = getProvider();
+            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
+            
+            // 显示加载状态
+            itemsList.innerHTML = '<li class="p-dropdown-item" style="color: var(--p-text-muted-color);">正在加载模型列表...</li>';
+            
+            // 获取模型列表
+            try {
+                const response = await fetch('/prompt_assistant/api/models/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider: provider,
+                        model_type: modelType,
+                        recommended: showRecommended
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && result.models && result.models.length > 0) {
+                    modelsList = result.models;
+                    renderModelsList(modelsList);
+                } else {
+                    const errorMsg = result.error || '未找到可用的模型';
+                    itemsList.innerHTML = `<li class="p-dropdown-item" style="color: var(--p-message-error-color);">${errorMsg}</li>`;
+                    modelsList = [];
+                }
+            } catch (error) {
+                logger.error(`获取模型列表失败: ${error.message}`);
+                itemsList.innerHTML = `<li class="p-dropdown-item" style="color: var(--p-message-error-color);">获取模型列表失败: ${error.message}</li>`;
+                modelsList = [];
+            }
+        };
+        
+        // 打开面板并显示模型列表
+        const openPanel = async () => {
+            const provider = getProvider();
+            
+            // 创建面板（如果不存在）
+            if (!autocompletePanel) {
+                autocompletePanel = createAutocompletePanel();
+                
+                // 如果是智谱、硅基流动或302，添加切换按钮
+                if (provider === 'zhipu' || provider === 'siliconflow' || provider === '302ai') {
+                    const toggleButton = createToggleButton();
+                    autocompletePanel.insertBefore(toggleButton, autocompletePanel.firstChild);
+                }
+            }
+            
+            // 添加到body
+            document.body.appendChild(autocompletePanel);
+            
+            // 计算位置
+            const rect = input.getBoundingClientRect();
+            autocompletePanel.style.top = rect.bottom + 'px';
+            autocompletePanel.style.left = rect.left + 'px';
+            autocompletePanel.style.width = rect.width + 'px';
+            
+            // 显示面板
+            autocompletePanel.classList.remove('p-hidden');
+            autocompletePanel.offsetHeight; // 强制重排
+            autocompletePanel.classList.add('p-enter-active');
+            
+            isOpen = true;
+            
+            // 添加事件监听
+            document.addEventListener('click', handleOutsideClick, true);
+            window.addEventListener('resize', updatePanelPosition);
+            window.addEventListener('scroll', updatePanelPosition, true);
+            
+            // 加载模型列表
+            await loadModels();
+        };
+        
+        // 渲染模型列表
+        const renderModelsList = (models, filterText = '') => {
+            if (!autocompletePanel) return;
+            
+            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
+            itemsList.innerHTML = '';
+            
+            // 过滤模型
+            const filteredModels = filterText
+                ? models.filter(model => model.id.toLowerCase().includes(filterText.toLowerCase()))
+                : models;
+            
+            if (filteredModels.length === 0) {
+                itemsList.innerHTML = '<li class="p-dropdown-item" style="color: var(--p-text-muted-color);">未找到匹配的模型</li>';
+                return;
+            }
+            
+            filteredModels.forEach((model, index) => {
+                const item = document.createElement('li');
+                item.className = 'p-dropdown-item';
+                item.textContent = model.name;
+                item.dataset.value = model.id;
+                item.dataset.index = index;
+                item.setAttribute('role', 'option');
+                
+                item.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    input.value = model.id;
+                    closePanel();
+                });
+                
+                itemsList.appendChild(item);
+            });
+        };
+        
+        // 处理键盘导航
+        const handleKeyDown = (e) => {
+            if (!isOpen || !autocompletePanel) return;
+            
+            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
+            const items = Array.from(itemsList.querySelectorAll('.p-dropdown-item[data-value]'));
+            
+            if (items.length === 0) return;
+            
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    selectedIndex = (selectedIndex + 1) % items.length;
+                    updateSelection(items);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    selectedIndex = selectedIndex <= 0 ? items.length - 1 : selectedIndex - 1;
+                    updateSelection(items);
+                    break;
+                case 'Enter':
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && selectedIndex < items.length) {
+                        const selectedItem = items[selectedIndex];
+                        input.value = selectedItem.dataset.value;
+                        closePanel();
+                    }
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    closePanel();
+                    break;
+            }
+        };
+        
+        // 更新选中状态
+        const updateSelection = (items) => {
+            items.forEach((item, index) => {
+                if (index === selectedIndex) {
+                    item.classList.add('p-highlight');
+                    item.scrollIntoView({ block: 'nearest' });
+                } else {
+                    item.classList.remove('p-highlight');
+                }
+            });
+        };
+        
+        // 处理外部点击
+        const handleOutsideClick = (e) => {
+            if (input.contains(e.target)) {
+                return;
+            }
+            if (autocompletePanel && autocompletePanel.contains(e.target)) {
+                return;
+            }
+            closePanel();
+        };
+        
+        // 添加事件监听器
+        input.addEventListener('focus', () => {
+            // 所有提供商都支持自动完成
+            openPanel();
+        });
+        
+        input.addEventListener('input', () => {
+            if (isOpen && modelsList.length > 0) {
+                renderModelsList(modelsList, input.value);
+                selectedIndex = -1;
+            }
+        });
+        
+        input.addEventListener('keydown', handleKeyDown);
     }
 }
 

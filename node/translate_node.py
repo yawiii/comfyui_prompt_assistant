@@ -32,7 +32,7 @@ class PromptTranslate:
             "required": {
                 "原文": ("STRING", {"forceInput": True, "default": "", "multiline": True, "placeholder": "输入要翻译的文本..."}),
                 "目标语言": (["英文", "中文"], {"default": "英文"}),
-                "翻译服务": (["百度翻译", "智谱翻译", "硅基流动翻译", "自定义翻译"], {"default": "百度翻译"}),
+                "翻译服务": (["百度翻译", "智谱翻译", "硅基流动翻译", "302.AI翻译", "Ollama翻译", "自定义翻译"], {"default": "百度翻译"}),
             },
         }
 
@@ -128,6 +128,10 @@ class PromptTranslate:
                 result = self._translate_with_llm(原文, detected_lang, to_lang, "zhipu")
             elif 翻译服务 == "硅基流动翻译":
                 result = self._translate_with_llm(原文, detected_lang, to_lang, "siliconflow")
+            elif 翻译服务 == "302.AI翻译":
+                result = self._translate_with_llm(原文, detected_lang, to_lang, "302ai")
+            elif 翻译服务 == "Ollama翻译":
+                result = self._translate_with_llm(原文, detected_lang, to_lang, "ollama")
             elif 翻译服务 == "自定义翻译":
                 result = self._translate_with_llm(原文, detected_lang, to_lang, "custom")
             else:
@@ -204,6 +208,8 @@ class PromptTranslate:
                 provider_display_map = {
                     "zhipu": "智谱翻译",
                     "siliconflow": "硅基流动翻译",
+                    "302ai": "302.AI翻译",
+                    "ollama": "Ollama翻译",
                     "custom": "自定义翻译"
                 }
                 provider_display_name = provider_display_map.get(provider, provider)
@@ -380,6 +386,8 @@ class PromptTranslate:
             provider_display_map = {
                 "zhipu": "智谱翻译",
                 "siliconflow": "硅基流动翻译",
+                "302ai": "302.AI翻译",
+                "ollama": "Ollama翻译",
                 "custom": "自定义翻译"
             }
             provider_display_name = provider_display_map.get(provider, provider)

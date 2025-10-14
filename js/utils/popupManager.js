@@ -395,6 +395,17 @@ class PopupManager {
             document.removeEventListener('mousemove', handleResizeMove, { capture: true });
             document.removeEventListener('mouseup', handleResizeEnd, { capture: true });
 
+            // 保存标签弹窗的尺寸
+            if (popup.classList.contains('tag_popup')) {
+                const rect = popup.getBoundingClientRect();
+                // 动态导入 TagManager 并保存尺寸
+                import('../modules/tag.js').then(({ TagManager }) => {
+                    TagManager.setPopupSize(rect.width, rect.height);
+                }).catch(err => {
+                    logger.error(`保存窗口大小失败: ${err.message}`);
+                });
+            }
+
             logger.debug('完成调节窗口大小');
         };
 
