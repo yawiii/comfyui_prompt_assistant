@@ -17,7 +17,9 @@ from ..services.vlm import VisionService
 from ..services.error_util import format_api_error
 
 # 定义ANSI颜色代码常量
-GREEN = "\033[92m"
+GREEN = "\033[32m"
+BLUE = "\033[34m"
+YELLOW = "\033[33m"
 RESET = "\033[0m"
 
 
@@ -26,8 +28,19 @@ class ImageCaptionNode:
     图像反推提示词节点
     分析输入图像并生成描述性提示词
     """
-    # 定义日志前缀（带绿色）
-    LOG_PREFIX = f"{GREEN}[PromptAssistant]{RESET}"
+    # 定义日志前缀
+    LOG_PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"  # 绿色：结果阶段
+    REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"  # 蓝色：准备阶段
+    PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"  # 黄色：API调用阶段
+    
+    # 提供商显示名称映射
+    PROVIDER_DISPLAY_MAP = {
+        "zhipu": "智谱",
+        "siliconflow": "硅基流动",
+        "302ai": "302.AI",
+        "ollama": "Ollama",
+        "custom": "自定义"
+    }
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -57,6 +70,8 @@ class ImageCaptionNode:
                 "临时规则": ("BOOLEAN", {"default": False, "label_on": "启用", "label_off": "禁用"}),
                 "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用'临时规则'时生效"}),
                 "视觉服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
+                # Ollama自动释放：仅对Ollama视觉服务生效
+                "Ollama自动释放": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "⚠️ 该选项仅在选择了Ollama服务时生效"}),
             },
         }
 
@@ -67,7 +82,7 @@ class ImageCaptionNode:
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务):
+    def IS_CHANGED(cls, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务, Ollama自动释放):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -99,12 +114,13 @@ class ImageCaptionNode:
             规则模板,
             bool(临时规则),
             临时规则内容,
-            视觉服务
+            视觉服务,
+            bool(Ollama自动释放)
         ))
 
         return input_hash
     
-    def analyze_image(self, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务):
+    def analyze_image(self, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务, Ollama自动释放):
         """
         分析图像并生成提示词
 
@@ -129,9 +145,11 @@ class ImageCaptionNode:
             # 获取提示词模板内容
             prompt_template = None
 
+            # 确定使用的规则
+            rule_name = "临时规则" if (临时规则 and 临时规则内容) else 规则模板
+            
             if 临时规则 and 临时规则内容:
                 prompt_template = 临时规则内容
-                print(f"{self.LOG_PREFIX} 图像反推: 使用临时规则")
             else:
                 # 从config_manager获取系统提示词配置
                 from ..config_manager import config_manager
@@ -148,26 +166,20 @@ class ImageCaptionNode:
                     if value.get('name') == 规则模板:
                         prompt_template = value.get('content')
                         template_found = True
-                        print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{规则模板}'")
                         break
 
                 if not template_found:
-                    print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{规则模板}'，尝试直接匹配键名")
                     # 尝试直接匹配键名
                     for key, value in vision_prompts.items():
                         if key == 规则模板:
                             prompt_template = value.get('content')
                             template_found = True
-                            print(f"{self.LOG_PREFIX} 图像反推: 使用模板 '{规则模板}'")
                             break
 
-            # 如果没有找到提示词模板，使用默认值
-            if not prompt_template:
-                prompt_template = "请详细描述这张图片的内容，包括主体、场景、风格、色彩等要素。"
-                print(f"{self.LOG_PREFIX} 图像反推: 未找到模板 '{规则模板}'，使用默认提示词")
-
-            # 执行图像分析
-            print(f"{self.LOG_PREFIX} 开始图像反推分析: {视觉服务}")
+                # 如果没有找到提示词模板，使用默认值
+                if not template_found or not prompt_template:
+                    prompt_template = "请详细描述这张图片的内容，包括主体、场景、风格、色彩等要素。"
+                    rule_name = "默认规则"
 
             # 映射视觉服务选项到provider
             provider_map = {
@@ -189,19 +201,23 @@ class ImageCaptionNode:
             if not provider_config:
                 raise ValueError(f"未找到{视觉服务}的配置，请先完成API配置")
 
-            print(f"{self.LOG_PREFIX} 图像反推: 使用{视觉服务}服务, API: {provider_config.get('model')}")
+            # 创建请求ID
+            request_id = f"image_caption_{int(time.time())}_{random.randint(1000, 9999)}"
+            
+            # 准备阶段日志（合并为一条）
+            print(f"{self.REQUEST_PREFIX} 图像反推准备 | 服务:{视觉服务} | 模型:{provider_config.get('model')} | 规则:{rule_name} | 请求ID:{request_id}")
 
             # 执行图像分析
-            result = self._analyze_with_vision_service(image_data, prompt_template, selected_provider, provider_config)
+            result = self._analyze_with_vision_service(image_data, prompt_template, selected_provider, provider_config, request_id, Ollama自动释放)
 
             if result and result.get('success'):
                 description = result.get('data', {}).get('description', '').strip()
                 if not description:
                     error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
-                    print(f"{self.LOG_PREFIX} 图像反推分析失败: {error_msg}")
+                    print(f"{self.LOG_PREFIX} 图像反推失败 | 错误:{error_msg}")
                     raise RuntimeError(f"分析失败: {error_msg}")
 
-                print(f"{self.LOG_PREFIX} 图像反推分析完成，结果长度: {len(description)}")
+                # 服务层已经打印了完成日志，这里不再重复
                 return (description,)
             else:
                 error_msg = result.get('error', '分析失败，未知错误') if result else '分析服务未返回结果'
@@ -216,17 +232,15 @@ class ImageCaptionNode:
             print(f"{self.LOG_PREFIX} 图像反推节点异常: {error_msg}")
             raise RuntimeError(f"分析异常: {error_msg}")
 
-    def _analyze_with_vision_service(self, image_data, prompt_template, provider, provider_config):
+    def _analyze_with_vision_service(self, image_data, prompt_template, provider, provider_config, request_id, auto_unload):
         """使用视觉服务分析图像"""
         try:
-            # 创建请求ID
-            request_id = f"image_caption_{int(time.time())}_{random.randint(1000, 9999)}"
             result_container = {}
 
             # 在独立线程中运行图像分析
             thread = threading.Thread(
                 target=self._run_async_vision_analysis,
-                args=(image_data, prompt_template, request_id, result_container, provider, provider_config)
+                args=(image_data, prompt_template, request_id, result_container, provider, provider_config, auto_unload)
             )
             thread.start()
 
@@ -254,7 +268,7 @@ class ImageCaptionNode:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    def _run_async_vision_analysis(self, image_data, prompt_template, request_id, result_container, provider, provider_config):
+    def _run_async_vision_analysis(self, image_data, prompt_template, request_id, result_container, provider, provider_config, auto_unload):
         """在独立线程中运行异步图像分析任务"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -264,21 +278,107 @@ class ImageCaptionNode:
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            result = loop.run_until_complete(
-                VisionService.analyze_image(image_data, request_id, None, prompt_template, provider, provider_config)
-            )
+            # 获取API密钥和模型
+            api_key = provider_config.get('api_key', '')
+            model = provider_config.get('model', '')
+            temperature = provider_config.get('temperature', 0.7)
+            top_p = provider_config.get('top_p', 0.9)
+            max_tokens = provider_config.get('max_tokens', 500)
+
+            if not api_key or not model:
+                result_container['result'] = {
+                    "success": False,
+                    "error": f"请先配置{provider}的API密钥和模型"
+                }
+                return
+
+            # 检查是否启用直连模式
+            bypass_proxy = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+            except Exception:
+                pass
+            
+            direct_mode_tag = "(直连)" if bypass_proxy else ""
+
+            # 获取提供商显示名称
+            provider_display_name = ImageCaptionNode.PROVIDER_DISPLAY_MAP.get(provider, provider)
+
+            # 创建客户端（复用VisionService的工具方法）
+            client = VisionService.get_openai_client(api_key, provider)
+
+            # 预处理图像（复用VisionService的工具方法）
+            image_data = VisionService.preprocess_image(image_data, request_id)
+
+            # 构建消息
+            messages = [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_template},
+                    {"type": "image_url", "image_url": {"url": image_data}}
+                ]
+            }]
+
+            print(f"{ImageCaptionNode.PROCESS_PREFIX} 调用{provider_display_name}视觉API{direct_mode_tag} | 模型:{model}")
+
+            # 调用API
+            stream = loop.run_until_complete(client.chat.completions.create(
+                model=model,
+                messages=messages,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                stream=True
+            ))
+
+            # 处理流式响应
+            full_content = ""
+            
+            async def process_stream():
+                nonlocal full_content
+                async for chunk in stream:
+                    if result_container.get('interrupted'):
+                        break
+                    # 兼容部分第三方网关返回空 choices 的异常片段
+                    choices = getattr(chunk, "choices", None) or []
+                    for ch in choices:
+                        delta = getattr(ch, "delta", None)
+                        if not delta:
+                            continue
+                        content = getattr(delta, "content", None)
+                        if content:
+                            full_content += content
+
+            loop.run_until_complete(process_stream())
 
             # 检查是否在执行过程中被中断了
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            result_container['result'] = result
+            result_container['result'] = {
+                "success": True,
+                "data": {
+                    "description": full_content
+                }
+            }
+            
+            # Ollama自动释放显存
+            if provider == 'ollama':
+                try:
+                    loop.run_until_complete(self._unload_ollama_model(model, provider_config, auto_unload))
+                except Exception as e:
+                    # 释放失败不影响结果
+                    pass
+
         except Exception as e:
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
             else:
-                result_container['result'] = {"success": False, "error": str(e)}
+                error_message = format_api_error(e, provider_display_name if 'provider_display_name' in locals() else provider)
+                result_container['result'] = {"success": False, "error": error_message}
         finally:
             loop.close()
     
@@ -288,6 +388,43 @@ class ImageCaptionNode:
         if 'providers' in vision_config and provider in vision_config['providers']:
             return vision_config['providers'][provider]
         return None
+    
+    async def _unload_ollama_model(self, model: str, provider_config: dict, auto_unload: bool):
+        """
+        卸载Ollama模型以释放显存和内存
+        
+        参数:
+            model: 模型名称
+            provider_config: 提供商配置字典
+            auto_unload: 是否启用自动释放（来自节点参数）
+        """
+        try:
+            # 检查是否启用自动释放（使用节点参数，不从provider_config读取）
+            if not auto_unload:
+                return
+            
+            # 获取base_url
+            base_url = provider_config.get('base_url', 'http://localhost:11434')
+            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
+            if base_url.endswith('/v1'):
+                base_url = base_url[:-3]
+            
+            # 调用Ollama API卸载模型
+            url = f"{base_url}/api/generate"
+            payload = {
+                "model": model,
+                "keep_alive": 0  # 立即卸载模型
+            }
+            
+            print(f"{self.PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
+            
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(url, json=payload)
+                
+        except Exception as e:
+            # 释放失败不影响主流程，只记录警告
+            print(f"{self.LOG_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
     
     def _image_to_base64(self, image_tensor):
         """将图像张量转换为base64编码"""

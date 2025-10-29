@@ -20,6 +20,16 @@ class LLMService:
         'ollama': 'http://localhost:11434/v1',
         'custom': None  # 使用配置中的自定义URL
     }
+    
+    # 提供商显示名称映射
+    _provider_display_names = {
+        'zhipu': '智谱',
+        'siliconflow': '硅基流动',
+        'openai': 'OpenAI',
+        '302ai': '302.AI',
+        'ollama': 'Ollama',
+        'custom': '自定义'
+    }
 
     @classmethod
     def get_openai_client(cls, api_key: str, provider: str) -> AsyncOpenAI:
@@ -53,6 +63,15 @@ class LLMService:
         else:
             base_url = cls._provider_base_urls.get(provider)
 
+        # 检查是否启用"跳过代理直连"
+        bypass_proxy = False
+        try:
+            from ..config_manager import config_manager
+            settings = config_manager.get_settings()
+            bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+        except Exception:
+            pass
+
         # 创建简化的httpx客户端，明确禁用HTTP/2以提高国内服务商兼容性
         # 仅在"发起请求"阶段打印一条请求日志，避免重复
         from ..server import PROCESS_PREFIX
@@ -68,18 +87,23 @@ class LLMService:
         # read: 等待服务器响应的超时时间
         # write: 发送请求数据的超时时间
         # pool: 从连接池获取连接的超时时间
-        http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
+        http_client_kwargs = {
+            'timeout': httpx.Timeout(
                 connect=10.0,  # 连接超时：10秒
                 read=60.0,     # 读取超时：60秒（流式响应需要较长时间）
                 write=10.0,    # 写入超时：10秒
                 pool=5.0       # 连接池超时：5秒
             ),
-            event_hooks={'request': [_on_request]},
-            http2=False,       # 明确禁用HTTP/2，提高国内服务商兼容性
-            proxy=None,        # 明确禁用代理，避免连接问题
-            verify=True        # 启用SSL验证，但使用系统证书
-        )
+            'event_hooks': {'request': [_on_request]},
+            'http2': False,    # 明确禁用HTTP/2，提高国内服务商兼容性
+            'verify': True     # 启用SSL验证，但使用系统证书
+        }
+        
+        # 如果启用"跳过代理直连"，则设置 proxy=None
+        if bypass_proxy:
+            http_client_kwargs['proxy'] = None
+        
+        http_client = httpx.AsyncClient(**http_client_kwargs)
 
         kwargs = {
             "api_key": api_key,
@@ -194,15 +218,21 @@ class LLMService:
             from ..server import PREFIX, ERROR_PREFIX
 
             # 获取提供商显示名称
-            provider_display_name = {
-                'zhipu': '智谱',
-                'siliconflow': '硅基流动',
-                'openai': 'OpenAI',
-                'custom': '自定义'
-            }.get(provider, provider)
+            provider_display_name = LLMService._provider_display_names.get(provider, provider)
+
+            # 检查是否启用直连模式
+            bypass_proxy = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+            except Exception:
+                pass
+            
+            direct_mode_tag = "(直连)" if bypass_proxy else ""
 
             from ..server import REQUEST_PREFIX
-            print(f"{REQUEST_PREFIX} LLM扩写请求 | 服务:{provider_display_name} | ID:{request_id} | 内容:{prompt[:30]}...")
+            print(f"{REQUEST_PREFIX} LLM扩写请求{direct_mode_tag} | 服务:{provider_display_name} | ID:{request_id} | 内容:{prompt[:30]}...")
 
             # 加载系统提示词
             from ..config_manager import config_manager
@@ -258,9 +288,9 @@ class LLMService:
                     _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
                     from ..server import PROCESS_PREFIX
                     if attempt > 0:
-                        print(f"{PROCESS_PREFIX} 重试LLM API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 重试LLM API调用{direct_mode_tag} | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     else:
-                        print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 调用LLM API{direct_mode_tag} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     start_time = time.perf_counter()
 
                     # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body
@@ -406,17 +436,23 @@ class LLMService:
             from ..server import PREFIX, AUTO_TRANSLATE_PREFIX
 
             # 获取提供商显示名称
-            provider_display_name = {
-                'zhipu': '智谱',
-                'siliconflow': '硅基流动',
-                'openai': 'OpenAI',
-                'custom': '自定义'
-            }.get(provider, provider)
+            provider_display_name = LLMService._provider_display_names.get(provider, provider)
+
+            # 检查是否启用直连模式
+            bypass_proxy = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+            except Exception:
+                pass
+            
+            direct_mode_tag = "(直连)" if bypass_proxy else ""
 
             # 使用统一的前缀（请求阶段使用蓝色）
             from ..server import AUTO_TRANSLATE_REQUEST_PREFIX, REQUEST_PREFIX
             prefix = AUTO_TRANSLATE_REQUEST_PREFIX if is_auto else REQUEST_PREFIX
-            print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'} | 服务:{provider_display_name}翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
+            print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'}{direct_mode_tag} | 服务:{provider_display_name}翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
 
             # 加载系统提示词
             from ..config_manager import config_manager
@@ -461,9 +497,9 @@ class LLMService:
                     _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
                     from ..server import PROCESS_PREFIX
                     if attempt > 0:
-                        print(f"{PROCESS_PREFIX} 重试LLM API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 重试LLM API调用{direct_mode_tag} | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     else:
-                        print(f"{PROCESS_PREFIX} 调用LLM API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 调用LLM API{direct_mode_tag} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     start_time = time.perf_counter()
 
                     # 兼容不同提供商：将 reasoning_effort 放到顶层，其它参数放入 extra_body

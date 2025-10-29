@@ -21,6 +21,16 @@ class VisionService:
         'ollama': 'http://localhost:11434/v1',
         'custom': None  # 使用配置中的自定义URL
     }
+    
+    # 提供商显示名称映射
+    _provider_display_names = {
+        'zhipu': '智谱',
+        'siliconflow': '硅基流动',
+        'openai': 'OpenAI',
+        '302ai': '302.AI',
+        'ollama': 'Ollama',
+        'custom': '自定义'
+    }
 
     @classmethod
     def get_openai_client(cls, api_key: str, provider: str) -> AsyncOpenAI:
@@ -52,6 +62,15 @@ class VisionService:
         else:
             base_url = cls._provider_base_urls.get(provider)
 
+        # 检查是否启用"跳过代理直连"
+        bypass_proxy = False
+        try:
+            from ..config_manager import config_manager
+            settings = config_manager.get_settings()
+            bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+        except Exception:
+            pass
+
         # 创建简化的httpx客户端，明确禁用HTTP/2以提高国内服务商兼容性
         # 视觉模型需要较长的超时时间
         # 仅在"发起请求"阶段打印一条请求日志，避免重复
@@ -65,18 +84,23 @@ class VisionService:
 
         # 使用细粒度的超时配置，提高网络波动下的稳定性
         # 视觉模型处理需要较长时间，因此读取超时设置更长
-        http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
+        http_client_kwargs = {
+            'timeout': httpx.Timeout(
                 connect=15.0,   # 连接超时：15秒
                 read=120.0,     # 读取超时：120秒（视觉模型分析需要更长时间）
                 write=15.0,     # 写入超时：15秒
                 pool=10.0       # 连接池超时：10秒
             ),
-            event_hooks={'request': [_on_request]},
-            http2=False,       # 明确禁用HTTP/2，提高国内服务商兼容性
-            proxy=None,        # 明确禁用代理，避免连接问题
-            verify=True        # 启用SSL验证，但使用系统证书
-        )
+            'event_hooks': {'request': [_on_request]},
+            'http2': False,    # 明确禁用HTTP/2，提高国内服务商兼容性
+            'verify': True     # 启用SSL验证，但使用系统证书
+        }
+        
+        # 如果启用"跳过代理直连"，则设置 proxy=None
+        if bypass_proxy:
+            http_client_kwargs['proxy'] = None
+        
+        http_client = httpx.AsyncClient(**http_client_kwargs)
 
         kwargs = {
             "api_key": api_key,
@@ -290,12 +314,7 @@ class VisionService:
             image_data = VisionService.preprocess_image(image_data, request_id)
 
             # 获取提供商显示名称
-            provider_display_name = {
-                'zhipu': '智谱',
-                'siliconflow': '硅基流动',
-                'openai': 'OpenAI',
-                'custom': '自定义'
-            }.get(provider, provider)
+            provider_display_name = VisionService._provider_display_names.get(provider, provider)
 
             # 直接使用传入的提示词内容
             system_prompt = prompt_content
@@ -308,14 +327,8 @@ class VisionService:
                 from ..config_manager import config_manager
                 system_prompts_all = config_manager.get_system_prompts()
                 vision_prompts = (system_prompts_all or {}).get('vision_prompts', {})
-                matched_name = None
-                for pid, pdata in vision_prompts.items():
-                    if isinstance(pdata, dict) and pdata.get('content') == system_prompt:
-                        matched_name = pdata.get('name', pid)
-                        break
-                if matched_name:
-                    from ..server import REQUEST_PREFIX
-                    print(f"{REQUEST_PREFIX} 使用视觉反推规则：{matched_name}")
+                # 规则匹配不再打印，准备阶段已经显示过规则信息
+                pass
             except Exception:
                 pass
 
@@ -336,14 +349,25 @@ class VisionService:
             max_retries = 3
             retry_delay = 1.0  # 初始重试延迟（秒）
             
+            # 检查是否启用直连模式
+            bypass_proxy = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+            except Exception:
+                pass
+            
+            direct_mode_tag = "(直连)" if bypass_proxy else ""
+            
             for attempt in range(max_retries):
                 try:
                     # 添加调试信息
                     from ..server import PROCESS_PREFIX
                     if attempt > 0:
-                        print(f"{PROCESS_PREFIX} 重试视觉模型API调用 | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 重试视觉模型API调用{direct_mode_tag} | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     else:
-                        print(f"{PROCESS_PREFIX} 调用视觉模型API | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
+                        print(f"{PROCESS_PREFIX} 调用视觉模型API{direct_mode_tag} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
                     start_time = time.perf_counter()
 
                     # 使用配置中的参数
@@ -434,7 +458,14 @@ class VisionService:
 
                 # 输出结构化成功日志
                 elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                print(f"{PREFIX} 视觉模型分析成功 | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+                # 根据request_id前缀判断节点类型
+                if request_id.startswith('image_caption_'):
+                    success_msg = "图像反推完成"
+                elif request_id.startswith('kontext_preset_'):
+                    success_msg = "Kontext预设完成"
+                else:
+                    success_msg = "图像反推成功"
+                print(f"{PREFIX} {success_msg} | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
 
                 # Ollama自动释放显存
                 if provider == 'ollama':

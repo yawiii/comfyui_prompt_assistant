@@ -971,6 +971,19 @@ export function registerSettings() {
                     }
                 },
 
+                // 跳过代理直连开关
+                {
+                    id: "PromptAssistant.Settings.BypassProxy",
+                    name: "跳过代理直连",
+                    category: ["✨提示词小助手", " 配置", "网络设置"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "当使用硅基和智谱时，推荐打开，使用外国服务时推荐关闭",
+                    onChange: (value) => {
+                        logger.log(`跳过代理直连 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
                 // 历史功能（包含历史、撤销、重做按钮）
                 {
                     id: "PromptAssistant.Features.History",

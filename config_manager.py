@@ -405,6 +405,47 @@ class ConfigManager:
             "providers": vision_config.get("providers", {})
         }
 
+    def get_settings(self):
+        """获取ComfyUI用户设置（从设置文件读取）"""
+        try:
+            # ComfyUI的设置文件通常位于 user/default/comfy.settings.json
+            # 需要找到ComfyUI的根目录
+            import sys
+            
+            # 尝试从多个可能的路径查找设置文件
+            possible_paths = []
+            
+            # 方法1: 通过当前文件路径向上查找
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            # custom_nodes/comfyui_prompt_assistant -> custom_nodes -> ComfyUI
+            comfyui_root = os.path.dirname(os.path.dirname(current_dir))
+            possible_paths.append(os.path.join(comfyui_root, "user", "default", "comfy.settings.json"))
+            
+            # 方法2: 通过sys.path查找
+            for path in sys.path:
+                if 'ComfyUI' in path:
+                    possible_paths.append(os.path.join(path, "user", "default", "comfy.settings.json"))
+            
+            # 尝试读取设置文件
+            for settings_path in possible_paths:
+                if os.path.exists(settings_path):
+                    try:
+                        with open(settings_path, 'r', encoding='utf-8') as f:
+                            settings_data = json.load(f)
+                            # 返回设置数据
+                            return settings_data
+                    except Exception as e:
+                        self._log(f"读取设置文件失败: {settings_path}, 错误: {str(e)}")
+                        continue
+            
+            # 如果都找不到，返回空字典
+            return {}
+            
+        except Exception as e:
+            # 如果无法获取，返回空字典
+            self._log(f"获取用户设置失败: {str(e)}")
+            return {}
+
     def update_baidu_translate_config(self, app_id=None, secret_key=None):
         """更新百度翻译配置"""
         config = self.load_config()

@@ -149,9 +149,10 @@ class BaiduTranslateService:
             from ..server import PREFIX, AUTO_TRANSLATE_PREFIX
 
             # 请求阶段：蓝色
+            # 百度翻译始终使用直连模式（trust_env=False）
             from ..server import AUTO_TRANSLATE_REQUEST_PREFIX, REQUEST_PREFIX
             prefix = AUTO_TRANSLATE_REQUEST_PREFIX if is_auto else REQUEST_PREFIX
-            print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'} | 服务:百度翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
+            print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'}(直连) | 服务:百度翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
 
             text_chunks = BaiduTranslateService.split_text_by_paragraphs(text)
             if not text_chunks:
