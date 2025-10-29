@@ -7,12 +7,19 @@
 
 > 使用教程请查看：👉<a href="https://space.bilibili.com/520680644"><img src="https://img.shields.io/badge/B%E7%AB%99-%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E-blue?logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF"></a> &ensp;👈
 > 
-交流及bug反馈
-![交流群](https://data.xflow.cc/wechat.png "wechat")
+交流及群
 
-🎀特别感谢以下朋友提出的宝贵方案！
+<img src="https://data.xflow.cc/wechat.png" alt="微信交流群" width="300" height="300">
 
-Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
+Bug反馈
+
+https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy
+
+
+
+
+
+
 
 
 ## ✨插件介绍
@@ -23,8 +30,21 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 ## 📣更新
 <details open>
- <summary>[2025-10-14]  V1.2.1 </summary>
+ <summary>[2025-10-14]  V1.2.2 </summary>
   
+- 移除兼容代码，不再支持comfyUI0.3.27以下的版本。避免小助手UI出现问题；
+  
+- 修复扩写、翻译使用302.ai服务时报错问题，ollama无法自动释放问题；
+  
+- 所有节点添加独立的ollama释放选项；
+  
+- 移除llm和vlm的强制直连参数，避免偶发请求报错问题，在设置界面中添加是否直连选项；
+  
+- 优化控制台日志输出格式，显示更加清晰直观；
+
+</details>
+<details>
+ <summary>[2025-10-14]V1.2.1 </summary>
 - 优化小助手UI的反应灵敏度；
   
 - 增强api请求重试机制；
@@ -38,7 +58,6 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 - Ollama新增自动释放显存选项；
   
 - 修复预览任意节点在列表情况无法为每个文本框创建小助手的bug。
-
 </details>
 <details>
  <summary>[2025-9-16]V1.2.0 </summary>
@@ -207,6 +226,9 @@ Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 ![设置](https://github.com/user-attachments/assets/d30d7c34-b6c6-4627-a554-ef7eee2f9cfb)
 
 
+## 🎀特别感谢以下朋友提出的宝贵方案！
+
+Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
 
 
 
