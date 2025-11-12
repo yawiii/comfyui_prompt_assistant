@@ -1,6 +1,6 @@
 [project]
 name = "prompt-assistant"
-version = "1.2.2"
+version = "1.2.3"
 description = "提示词小助手可以一键调用智谱、硅基流动、gemini、本地ollama、百度等大语言模型服务，实现提示词翻译、润色扩写、图片反推。支持提示词预设实现一键插入、历史提示词查找等功能。是一个全能型提示词插件。The Prompt Assistant enables one-click access to LLMs/VLMs for prompt translation, expansion, and image captioning. It also supports one-click preset insertion and historical prompt search."
 readme = "README.md"
 license = {text = "GNU General Public License v3"}
