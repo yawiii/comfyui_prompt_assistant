@@ -30,6 +30,14 @@ https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy
 
 ## 📣更新
 <details open>
+ <summary>[2025-11-12]  V1.2.3 </summary>
+  
+- 修复ollama和自定义服务时，返回为空的问题；
+- Ollama改用原生接口，更好支持qwen3vl；
+- 新增http api作为保底，避免出现请求异常;
+
+</details>
+<details>
  <summary>[2025-10-14]  V1.2.2 </summary>
   
 - 移除兼容代码，不再支持comfyUI0.3.27以下的版本。避免小助手UI出现问题；
@@ -229,6 +237,7 @@ https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy
 ## 🎀特别感谢以下朋友提出的宝贵方案！
 
 Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
+
 
 
 
