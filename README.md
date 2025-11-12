@@ -9,7 +9,11 @@
 > 
 欢迎加入交流群
 
+
 <img src="https://data.xflow.cc/wechat.png" alt="微信交流群" width="300" height="300">
+
+[如果二维码过期，请点击这里](https://data.xflow.cc/wechat.png)
+
 
 Bug反馈
 
@@ -237,6 +241,7 @@ https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy
 ## 🎀特别感谢以下朋友提出的宝贵方案！
 
 Cereza69、LAOGOU-666、H、小海、foryoung365、xu...
+
 
 
 
