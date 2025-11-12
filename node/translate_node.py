@@ -58,7 +58,7 @@ class PromptTranslate:
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 原文, 目标语言, 翻译服务, Ollama自动释放):
+    def IS_CHANGED(cls, 原文=None, 目标语言=None, 翻译服务=None, Ollama自动释放=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -163,10 +163,7 @@ class PromptTranslate:
                     print(f"{self.LOG_PREFIX} 翻译失败 | 错误:{error_msg}")
                     raise RuntimeError(f"翻译失败: {error_msg}")
 
-                # 结果阶段日志（合并为一条）
-                # 获取request_id（从result或重新生成时间戳）
-                request_id = result.get('request_id', 'unknown')
-                print(f"{self.LOG_PREFIX} 翻译完成 | 服务:{翻译服务} | 结果字符数:{len(translated_text)}")
+                # 结果阶段日志由服务层统一输出，节点层不再重复打印
                 return (translated_text,)
             else:
                 error_msg = result.get('error', '翻译失败，未知错误') if result else '翻译服务未返回结果'
@@ -380,93 +377,26 @@ class PromptTranslate:
             # 获取提供商显示名称
             provider_display_name = PromptTranslate.PROVIDER_DISPLAY_MAP.get(provider, provider)
 
-            # 创建临时客户端
-            client = LLMService.get_openai_client(api_key, provider)
-
-            # 加载系统提示词
-            from ..config_manager import config_manager
-            system_prompts = config_manager.get_system_prompts()
-
-            if not system_prompts or 'translate_prompts' not in system_prompts or 'ZH' not in system_prompts['translate_prompts']:
-                result_container['result'] = {
-                    "success": False,
-                    "error": "翻译系统提示词加载失败"
-                }
-                return
-
-            system_message = system_prompts['translate_prompts']['ZH']
-
-            # 动态替换提示词
-            lang_map = {'zh': '中文', 'en': '英文', 'auto': '原文'}
-            src_lang = lang_map.get(from_lang, from_lang)
-            dst_lang = lang_map.get(to_lang, to_lang)
-            sys_msg_content = system_message['content'].replace('{src_lang}', src_lang).replace('{dst_lang}', dst_lang)
-            sys_msg = {"role": "system", "content": sys_msg_content}
-
-            # 设置输出语言
-            lang_message = {"role": "system", "content": "Please answer in English."} if to_lang == 'en' else {"role": "system", "content": "请用中文回答"}
-
-            # 构建消息
-            messages = [
-                lang_message,
-                sys_msg,
-                {"role": "user", "content": text}
-            ]
-
-            print(f"{PromptTranslate.PROCESS_PREFIX} 调用{provider_display_name}翻译API{direct_mode_tag} | 模型:{model}")
-
-            # 调用API
-            stream = loop.run_until_complete(client.chat.completions.create(
-                model=model,
-                messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                temperature=0.5,
-                top_p=0.5,
-                max_tokens=1500,
-                stream=True,
-                response_format={"type": "text"}
-            ))
-
-            full_content = ""
-            async def process_stream():
-                nonlocal full_content
-                async for chunk in stream:
-                    # 检查是否被中断
-                    if result_container.get('interrupted'):
-                        break
-                    # 兼容部分第三方网关返回空 choices 的异常片段，做健壮性判断
-                    choices = getattr(chunk, "choices", None) or []
-                    for ch in choices:
-                        delta = getattr(ch, "delta", None)
-                        if not delta:
-                            continue
-                        content = getattr(delta, "content", None)
-                        if content:
-                            full_content += content
-
-            loop.run_until_complete(process_stream())
+            # 统一走服务层（含兼容/降级处理）
+            service_result = loop.run_until_complete(
+                LLMService.translate(
+                    text,
+                    from_lang,
+                    to_lang,
+                    request_id,
+                    False,
+                    None,
+                    custom_provider=provider,
+                    custom_provider_config=provider_config
+                )
+            )
 
             # 检查是否在执行过程中被中断了
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            result_container['result'] = {
-                "success": True,
-                "data": {
-                    "from": from_lang,
-                    "to": to_lang,
-                    "original": text,
-                    "translated": full_content
-                }
-            }
-            
-            # Ollama自动释放显存
-            if provider == 'ollama':
-                try:
-                    loop.run_until_complete(self._unload_ollama_model(model, provider_config, auto_unload))
-                except Exception as e:
-                    # 释放失败不影响结果
-                    pass
+            result_container['result'] = service_result
             
             # 结果日志已在translate方法中统一打印，这里不再重复
 

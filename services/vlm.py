@@ -78,7 +78,7 @@ class VisionService:
 
         async def _on_request(request: httpx.Request):
             try:
-                print(f"{PROCESS_PREFIX} HTTP Request: {request.method} {request.url}")
+                print(f"{PROCESS_PREFIX} OpenAI Request: {request.method} {request.url}")
             except Exception:
                 pass
 
@@ -182,6 +182,151 @@ class VisionService:
             # 释放失败不影响主流程，只记录警告
             from ..server import WARN_PREFIX
             print(f"{WARN_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
+
+    @staticmethod
+    async def _http_request_chat_completions(
+        base_url: str,
+        api_key: str,
+        model: str,
+        messages: List[Dict[str, Any]],
+        temperature: float,
+        top_p: float,
+        max_tokens: int,
+        thinking_extra: Optional[Dict[str, Any]] = None,
+        stream_callback: Optional[Callable[[str], None]] = None,
+        request_id: Optional[str] = None,
+        provider_display_name: str = "未知服务",
+        direct_mode_tag: str = ""
+    ) -> Dict[str, Any]:
+        """
+        使用HTTP直接调用chat/completions接口（保底方案，支持视觉模型）
+        
+        参数:
+            base_url: API基础URL
+            api_key: API密钥
+            model: 模型名称
+            messages: 消息列表（支持图像）
+            temperature: 温度参数
+            top_p: top_p参数
+            max_tokens: 最大token数
+            thinking_extra: 思维链控制参数
+            stream_callback: 流式输出回调
+            request_id: 请求ID
+            provider_display_name: 提供商显示名称
+            direct_mode_tag: 直连模式标签
+            
+        返回:
+            包含结果的字典
+        """
+        from ..server import PROCESS_PREFIX, PREFIX, ERROR_PREFIX
+        
+        try:
+            # 确保base_url不以/结尾
+            base_url = base_url.rstrip('/')
+            # 构建完整URL
+            url = f"{base_url}/chat/completions"
+            
+            # 构建请求体
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": max_tokens,
+                "stream": True
+            }
+            
+            # 添加思维链控制参数
+            if thinking_extra:
+                # 将思维链参数合并到payload中
+                if "reasoning_effort" in thinking_extra:
+                    payload["reasoning_effort"] = thinking_extra["reasoning_effort"]
+                if "enable_thinking" in thinking_extra:
+                    payload["enable_thinking"] = thinking_extra["enable_thinking"]
+                if "thinking" in thinking_extra:
+                    payload["thinking"] = thinking_extra["thinking"]
+                # 其他参数通过extra_body传递（在HTTP请求中直接合并）
+                for key, value in thinking_extra.items():
+                    if key not in ["reasoning_effort", "enable_thinking", "thinking"]:
+                        payload[key] = value
+            
+            # 构建请求头
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}"
+            }
+            
+            # 检查是否启用直连模式
+            bypass_proxy = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
+            except Exception:
+                pass
+            
+            # 创建HTTP客户端
+            http_client_kwargs = {
+                'timeout': httpx.Timeout(
+                    connect=15.0,
+                    read=120.0,
+                    write=15.0,
+                    pool=10.0
+                ),
+                'http2': False,
+                'verify': True
+            }
+            
+            if bypass_proxy:
+                http_client_kwargs['proxy'] = None
+            
+            print(f"{PROCESS_PREFIX} 使用HTTP方式请求{direct_mode_tag} | 服务:{provider_display_name} | 模型:{model}")
+            start_time = time.perf_counter()
+            
+            async with httpx.AsyncClient(**http_client_kwargs) as client:
+                async with client.stream('POST', url, headers=headers, json=payload) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        try:
+                            error_data = json.loads(error_text)
+                            error_msg = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
+                        except:
+                            error_msg = f'HTTP {response.status_code}: {error_text.decode("utf-8", errors="ignore")[:100]}'
+                        return {"success": False, "error": error_msg}
+                    
+                    full_content = ""
+                    async for line in response.aiter_lines():
+                        if not line or line == "data: [DONE]":
+                            continue
+                        
+                        if line.startswith("data: "):
+                            line = line[6:]  # 移除 "data: " 前缀
+                        
+                        try:
+                            chunk_data = json.loads(line)
+                            choices = chunk_data.get('choices', [])
+                            for choice in choices:
+                                delta = choice.get('delta', {})
+                                content = delta.get('content', '')
+                                if content:
+                                    full_content += content
+                                    if stream_callback:
+                                        stream_callback(content)
+                        except json.JSONDecodeError:
+                            continue
+                    
+                    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                    print(f"{PREFIX} HTTP请求成功 | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+                    
+                    return {
+                        "success": True,
+                        "content": full_content
+                    }
+                    
+        except Exception as e:
+            from ..server import ERROR_PREFIX
+            print(f"{ERROR_PREFIX} HTTP请求失败 | 服务:{provider_display_name} | 错误:{str(e)[:100]}")
+            return {"success": False, "error": format_api_error(e, provider_display_name)}
 
     @staticmethod
     def preprocess_image(image_data: str, request_id: Optional[str] = None) -> str:
@@ -300,6 +445,7 @@ class VisionService:
                 temperature = config.get('temperature', 0.7)
                 top_p = config.get('top_p', 0.9)
                 max_tokens = config.get('max_tokens', 2000)
+                base_url = config.get('base_url', '')
 
             if not api_key:
                 return {"success": False, "error": "请先配置视觉模型API密钥"}
@@ -342,12 +488,96 @@ class VisionService:
             _thinking_extra = build_thinking_suppression(provider, model)
             _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
 
-            # 使用OpenAI SDK
-            client = VisionService.get_openai_client(api_key, provider)
+            # Ollama 的 OpenAI 兼容接口对图像输入支持不完整，统一走原生 API
+            if provider == 'ollama':
+                try:
+                    t0_native = time.perf_counter()
+                    # 提取纯base64
+                    b64 = image_data
+                    if b64.startswith('data:image'):
+                        try:
+                            _, b64 = b64.split(',', 1)
+                        except Exception:
+                            pass
+
+                    # 计算原生base_url
+                    native_base = base_url[:-3] if base_url and base_url.endswith('/v1') else (base_url or 'http://localhost:11434')
+
+                    # 优先使用 /api/chat
+                    import httpx as _httpx
+                    payload = {
+                        "model": model,
+                        "messages": [{"role": "user", "content": system_prompt, "images": [b64]}],
+                        "options": {"temperature": temperature, "top_p": top_p},
+                        "stream": False
+                    }
+                    # 如果支持关闭思维链，添加 think 参数（Ollama 原生 API 支持）
+                    if _thinking_extra and "think" in _thinking_extra:
+                        payload["think"] = _thinking_extra["think"]
+                    async with _httpx.AsyncClient(timeout=_httpx.Timeout(30.0, read=120.0)) as _client:
+                        resp = await _client.post(f"{native_base}/api/chat", json=payload)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            # 优先解析 message.content
+                            content = ''
+                            try:
+                                content = ((data or {}).get('message') or {}).get('content', '')
+                            except Exception:
+                                content = ''
+                            if not content:
+                                # 兼容 generate 响应字段
+                                content = (data or {}).get('response', '')
+                            if content:
+                                elapsed_ms = int((time.perf_counter() - t0_native) * 1000)
+                                print(f"{PREFIX} 图像反推完成 | 服务:Ollama | 请求ID:{request_id} | 结果字符数:{len(content)} | 耗时:{elapsed_ms}ms")
+                                # 卸载模型
+                                provider_config = {
+                                    'auto_unload': (custom_provider_config or config).get('auto_unload', True) if 'config' in locals() or custom_provider_config else True,
+                                    'base_url': native_base
+                                }
+                                await VisionService._unload_ollama_model(model, provider_config)
+                                return {"success": True, "data": {"description": content}}
+                        # 回退到 /api/generate
+                        t0_native = time.perf_counter()
+                        gen_payload = {
+                            "model": model,
+                            "prompt": system_prompt,
+                            "images": [b64],
+                            "options": {"temperature": temperature, "top_p": top_p},
+                            "stream": False
+                        }
+                        # 如果支持关闭思维链，添加 think 参数（Ollama 原生 API 支持）
+                        if _thinking_extra and "think" in _thinking_extra:
+                            gen_payload["think"] = _thinking_extra["think"]
+                        resp2 = await _client.post(f"{native_base}/api/generate", json=gen_payload)
+                        if resp2.status_code == 200:
+                            data = resp2.json()
+                            content = (data or {}).get('response', '')
+                            if content:
+                                provider_config = {
+                                    'auto_unload': (custom_provider_config or config).get('auto_unload', True) if 'config' in locals() or custom_provider_config else True,
+                                    'base_url': native_base
+                                }
+                                await VisionService._unload_ollama_model(model, provider_config)
+                                elapsed_ms = int((time.perf_counter() - t0_native) * 1000)
+                                print(f"{PREFIX} 图像反推完成 | 服务:Ollama | 请求ID:{request_id} | 结果字符数:{len(content)} | 耗时:{elapsed_ms}ms")
+                                return {"success": True, "data": {"description": content}}
+                    # 若仍无结果
+                    return {"success": False, "error": "Ollama原生API未返回内容，请检查模型是否支持多模态或更新至最新Ollama"}
+                except Exception as e:
+                    return {"success": False, "error": format_api_error(e, 'Ollama')}
+
+            # 检查是否强制使用HTTP方式
+            force_http = False
+            try:
+                from ..config_manager import config_manager as cm
+                settings = cm.get_settings()
+                force_http = settings.get('PromptAssistant.Settings.ForceHTTP', False)
+            except Exception:
+                pass
             
-            # 添加手动重试机制，处理连接错误
-            max_retries = 3
-            retry_delay = 1.0  # 初始重试延迟（秒）
+            # 检查是否支持HTTP回退（zhipu, siliconflow, 302ai, custom）
+            supports_http_fallback = provider in ['zhipu', 'siliconflow', '302ai', 'custom']
             
             # 检查是否启用直连模式
             bypass_proxy = False
@@ -360,9 +590,63 @@ class VisionService:
             
             direct_mode_tag = "(直连)" if bypass_proxy else ""
             
+            # 如果强制使用HTTP且支持HTTP，直接使用HTTP方式
+            if force_http and supports_http_fallback:
+                _thinking_extra = build_thinking_suppression(provider, model)
+                base_url_local = None
+                if custom_provider and custom_provider_config:
+                    base_url_local = custom_provider_config.get('base_url', '')
+                else:
+                    base_url_local = config.get('base_url', '')
+                
+                # 构建消息（包含图像）
+                http_messages = [{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": system_prompt},
+                        {"type": "image_url", "image_url": {"url": image_data}}
+                    ]
+                }]
+                
+                http_result = await VisionService._http_request_chat_completions(
+                    base_url=base_url_local,
+                    api_key=api_key,
+                    model=model,
+                    messages=http_messages,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    thinking_extra=_thinking_extra,
+                    stream_callback=stream_callback,
+                    request_id=request_id,
+                    provider_display_name=provider_display_name,
+                    direct_mode_tag=direct_mode_tag
+                )
+                
+                if http_result.get("success"):
+                    return {
+                        "success": True,
+                        "data": {
+                            "description": http_result.get("content", "")
+                        }
+                    }
+                else:
+                    return {"success": False, "error": http_result.get("error", "HTTP请求失败")}
+            
+            # 其余 provider 走 OpenAI 兼容 SDK
+            client = VisionService.get_openai_client(api_key, provider)
+            
+            # 添加手动重试机制，处理连接错误
+            # 修改为重试1次后回退到HTTP（如果支持）
+            max_retries = 2  # 重试1次（总共2次尝试）
+            retry_delay = 1.0  # 初始重试延迟（秒）
+            last_error = None
+            
             for attempt in range(max_retries):
                 try:
                     # 添加调试信息
+                    _thinking_extra = build_thinking_suppression(provider, model)
+                    _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
                     from ..server import PROCESS_PREFIX
                     if attempt > 0:
                         print(f"{PROCESS_PREFIX} 重试视觉模型API调用{direct_mode_tag} | 尝试:{attempt + 1}/{max_retries} | 服务:{provider_display_name} | 模型:{model}{_thinking_tag}")
@@ -371,7 +655,6 @@ class VisionService:
                     start_time = time.perf_counter()
 
                     # 使用配置中的参数
-                    _thinking_extra = build_thinking_suppression(provider, model)
                     try:
                         # 构建基础参数（保守：不带 response_format，默认流式）
                         create_kwargs = dict(
@@ -418,10 +701,53 @@ class VisionService:
                         else:
                             raise
                     
-                    # 请求成功，跳出重试循环
-                    break
+                    # 请求成功，处理流式响应
+                    full_content = ""
+                    async for chunk in response:
+                        # 兼容部分第三方网关返回空 choices 的异常片段，做健壮性判断
+                        choices = getattr(chunk, "choices", None) or []
+                        for ch in choices:
+                            delta = getattr(ch, "delta", None)
+                            if not delta:
+                                continue
+                            content = getattr(delta, "content", None)
+                            if content:
+                                full_content += content
+                                if stream_callback:
+                                    stream_callback(content)
+
+                    # 输出结构化成功日志
+                    elapsed_ms = int((time.perf_counter() - start_time) * 1000)
+                    # 根据request_id前缀判断节点类型
+                    if request_id.startswith('image_caption_'):
+                        success_msg = "图像反推完成"
+                    elif request_id.startswith('kontext_preset_'):
+                        success_msg = "Kontext预设完成"
+                    else:
+                        success_msg = "图像反推成功"
+                    print(f"{PREFIX} {success_msg} | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
+
+                    # Ollama自动释放显存
+                    if provider == 'ollama':
+                        # 构建配置字典用于释放
+                        provider_config = {
+                            'auto_unload': custom_provider_config.get('auto_unload', True) if custom_provider_config else config.get('auto_unload', True),
+                            'base_url': base_url if custom_provider_config else config.get('base_url', 'http://localhost:11434')
+                        }
+                        await VisionService._unload_ollama_model(model, provider_config)
+
+                    return {
+                        "success": True,
+                        "data": {
+                            "description": full_content
+                        }
+                    }
                     
+                except asyncio.CancelledError:
+                    print(f"{PREFIX} 视觉模型分析任务在服务层被取消 | ID:{request_id}")
+                    return {"success": False, "error": "请求已取消", "cancelled": True}
                 except Exception as e:
+                    last_error = e
                     # 检查是否为连接错误
                     error_msg = str(e).lower()
                     is_connection_error = any(keyword in error_msg for keyword in [
@@ -429,64 +755,72 @@ class VisionService:
                         'network', 'unreachable', 'refused'
                     ])
                     
-                    # 如果是最后一次尝试，或者不是连接错误，则抛出异常
-                    if attempt == max_retries - 1 or not is_connection_error:
-                        raise
+                    # 如果是最后一次尝试，检查是否需要回退到HTTP
+                    if attempt == max_retries - 1:
+                        # 如果支持HTTP回退，尝试使用HTTP方式
+                        if supports_http_fallback:
+                            from ..server import PROCESS_PREFIX
+                            print(f"{PROCESS_PREFIX} OpenAI SDK请求失败，使用HTTP方式重试{direct_mode_tag} | 服务:{provider_display_name} | 模型:{model}")
+                            
+                            base_url_local = None
+                            if custom_provider and custom_provider_config:
+                                base_url_local = custom_provider_config.get('base_url', '')
+                            else:
+                                base_url_local = config.get('base_url', '')
+                            
+                            # 构建消息（包含图像）
+                            http_messages = [{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": system_prompt},
+                                    {"type": "image_url", "image_url": {"url": image_data}}
+                                ]
+                            }]
+                            
+                            http_result = await VisionService._http_request_chat_completions(
+                                base_url=base_url_local,
+                                api_key=api_key,
+                                model=model,
+                                messages=http_messages,
+                                temperature=temperature,
+                                top_p=top_p,
+                                max_tokens=max_tokens,
+                                thinking_extra=_thinking_extra,
+                                stream_callback=stream_callback,
+                                request_id=request_id,
+                                provider_display_name=provider_display_name,
+                                direct_mode_tag=direct_mode_tag
+                            )
+                            
+                            if http_result.get("success"):
+                                return {
+                                    "success": True,
+                                    "data": {
+                                        "description": http_result.get("content", "")
+                                    }
+                                }
+                            else:
+                                return {"success": False, "error": http_result.get("error", "HTTP请求失败")}
+                        else:
+                            # 不支持HTTP回退，直接返回错误
+                            return {"success": False, "error": format_api_error(e, provider_display_name)}
                     
-                    # 否则等待后重试（使用指数退避策略）
-                    wait_time = retry_delay * (2 ** attempt)
-                    from ..server import WARN_PREFIX
-                    print(f"{WARN_PREFIX} 视觉模型API连接失败 | 尝试:{attempt + 1}/{max_retries} | 错误:{str(e)[:100]} | {wait_time:.1f}秒后重试")
-                    await asyncio.sleep(wait_time)
-                    continue
+                    # 如果不是最后一次尝试，且是连接错误，等待后重试
+                    if is_connection_error:
+                        wait_time = retry_delay * (2 ** attempt)
+                        from ..server import WARN_PREFIX
+                        print(f"{WARN_PREFIX} 视觉模型API连接失败 | 尝试:{attempt + 1}/{max_retries} | 错误:{str(e)[:100]} | {wait_time:.1f}秒后重试")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        # 不是连接错误，直接抛出
+                        raise
             
-            try:
-
-                full_content = ""
-                async for chunk in response:
-                    # 兼容部分第三方网关返回空 choices 的异常片段，做健壮性判断
-                    choices = getattr(chunk, "choices", None) or []
-                    for ch in choices:
-                        delta = getattr(ch, "delta", None)
-                        if not delta:
-                            continue
-                        content = getattr(delta, "content", None)
-                        if content:
-                            full_content += content
-                            if stream_callback:
-                                stream_callback(content)
-
-                # 输出结构化成功日志
-                elapsed_ms = int((time.perf_counter() - start_time) * 1000)
-                # 根据request_id前缀判断节点类型
-                if request_id.startswith('image_caption_'):
-                    success_msg = "图像反推完成"
-                elif request_id.startswith('kontext_preset_'):
-                    success_msg = "Kontext预设完成"
-                else:
-                    success_msg = "图像反推成功"
-                print(f"{PREFIX} {success_msg} | 服务:{provider_display_name} | 请求ID:{request_id} | 结果字符数:{len(full_content)} | 耗时:{elapsed_ms}ms")
-
-                # Ollama自动释放显存
-                if provider == 'ollama':
-                    # 构建配置字典用于释放
-                    provider_config = {
-                        'auto_unload': custom_provider_config.get('auto_unload', True) if custom_provider_config else config.get('auto_unload', True),
-                        'base_url': base_url if custom_provider_config else config.get('base_url', 'http://localhost:11434')
-                    }
-                    await VisionService._unload_ollama_model(model, provider_config)
-
-                return {
-                    "success": True,
-                    "data": {
-                        "description": full_content
-                    }
-                }
-            except asyncio.CancelledError:
-                print(f"{PREFIX} 视觉模型分析任务在服务层被取消 | ID:{request_id}")
-                return {"success": False, "error": "请求已取消", "cancelled": True}
-            except Exception as e:
-                return {"success": False, "error": format_api_error(e, provider_display_name)}
+            # 如果所有尝试都失败且没有回退到HTTP，返回错误
+            if last_error:
+                return {"success": False, "error": format_api_error(last_error, provider_display_name)}
+            else:
+                return {"success": False, "error": "未知错误"}
 
         except asyncio.CancelledError:
             print(f"{PREFIX} 视觉分析任务在服务层被取消 | ID:{request_id}")

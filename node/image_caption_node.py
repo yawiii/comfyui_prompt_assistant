@@ -82,7 +82,7 @@ class ImageCaptionNode:
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 图像, 规则模板, 临时规则, 临时规则内容, 视觉服务, Ollama自动释放):
+    def IS_CHANGED(cls, 图像=None, 规则模板=None, 临时规则=None, 临时规则内容=None, 视觉服务=None, Ollama自动释放=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -269,116 +269,36 @@ class ImageCaptionNode:
             return {"success": False, "error": str(e)}
 
     def _run_async_vision_analysis(self, image_data, prompt_template, request_id, result_container, provider, provider_config, auto_unload):
-        """在独立线程中运行异步图像分析任务"""
+        """在独立线程中运行异步图像分析任务（改为复用服务层以获得Gemini兼容与降级能力）"""
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            # 检查是否在开始前就被中断了
+            # 开始前的中断检测
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            # 获取API密钥和模型
-            api_key = provider_config.get('api_key', '')
-            model = provider_config.get('model', '')
-            temperature = provider_config.get('temperature', 0.7)
-            top_p = provider_config.get('top_p', 0.9)
-            max_tokens = provider_config.get('max_tokens', 500)
+            # 直接复用服务层：包括图像预处理、流式/非流式降级、max_tokens 兼容与思维链抑制
+            service_call = VisionService.analyze_image(
+                image_data=image_data,
+                request_id=request_id,
+                stream_callback=None,
+                prompt_content=prompt_template,
+                custom_provider=provider,
+                custom_provider_config=provider_config
+            )
+            result = loop.run_until_complete(service_call)
 
-            if not api_key or not model:
-                result_container['result'] = {
-                    "success": False,
-                    "error": f"请先配置{provider}的API密钥和模型"
-                }
-                return
-
-            # 检查是否启用直连模式
-            bypass_proxy = False
-            try:
-                from ..config_manager import config_manager as cm
-                settings = cm.get_settings()
-                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
-            except Exception:
-                pass
-            
-            direct_mode_tag = "(直连)" if bypass_proxy else ""
-
-            # 获取提供商显示名称
-            provider_display_name = ImageCaptionNode.PROVIDER_DISPLAY_MAP.get(provider, provider)
-
-            # 创建客户端（复用VisionService的工具方法）
-            client = VisionService.get_openai_client(api_key, provider)
-
-            # 预处理图像（复用VisionService的工具方法）
-            image_data = VisionService.preprocess_image(image_data, request_id)
-
-            # 构建消息
-            messages = [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_template},
-                    {"type": "image_url", "image_url": {"url": image_data}}
-                ]
-            }]
-
-            print(f"{ImageCaptionNode.PROCESS_PREFIX} 调用{provider_display_name}视觉API{direct_mode_tag} | 模型:{model}")
-
-            # 调用API
-            stream = loop.run_until_complete(client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stream=True
-            ))
-
-            # 处理流式响应
-            full_content = ""
-            
-            async def process_stream():
-                nonlocal full_content
-                async for chunk in stream:
-                    if result_container.get('interrupted'):
-                        break
-                    # 兼容部分第三方网关返回空 choices 的异常片段
-                    choices = getattr(chunk, "choices", None) or []
-                    for ch in choices:
-                        delta = getattr(ch, "delta", None)
-                        if not delta:
-                            continue
-                        content = getattr(delta, "content", None)
-                        if content:
-                            full_content += content
-
-            loop.run_until_complete(process_stream())
-
-            # 检查是否在执行过程中被中断了
+            # 中断检测
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            result_container['result'] = {
-                "success": True,
-                "data": {
-                    "description": full_content
-                }
-            }
-            
-            # Ollama自动释放显存
-            if provider == 'ollama':
-                try:
-                    loop.run_until_complete(self._unload_ollama_model(model, provider_config, auto_unload))
-                except Exception as e:
-                    # 释放失败不影响结果
-                    pass
+            result_container['result'] = result
 
         except Exception as e:
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-            else:
-                error_message = format_api_error(e, provider_display_name if 'provider_display_name' in locals() else provider)
-                result_container['result'] = {"success": False, "error": error_message}
+            error_message = format_api_error(e, provider)
+            result_container['result'] = {"success": False, "error": error_message}
         finally:
             loop.close()
     

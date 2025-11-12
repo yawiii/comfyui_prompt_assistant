@@ -26,7 +26,8 @@ _SILICONFLOW_PATTERNS = [
     # 文档：https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions
     # enable_thinking 适用以下模型（列举核心关键词以适配大小写和路径差异）：
     # 注意：排除显式的 "thinking" 变体（这些通常固定为思考模型，不支持该参数）
-    r"qwen3(?!.*thinking)",          # Qwen/Qwen3-* 非 Thinking 变体
+    r"qwen3(?!.*thinking)",          # Qwen/Qwen3-* 非 Thinking 变体（包含 qwen3-vl）
+    r"qwen.*vl",                      # Qwen-VL 系列（明确匹配视觉模型）
     r"deepseek-v3\.1|deepseek-v3",  # deepseek-ai/DeepSeek-V3.1 等
     r"hunyuan-a13b-instruct",        # tencent/Hunyuan-A13B-Instruct
     r"glm-4\.5v"                     # zai-org/GLM-4.5V
@@ -43,18 +44,30 @@ _GEMINI_25_PRO_CANNOT_DISABLE = [
     r"gemini[-_/. ]?2\.5[-_/. ]?pro"
 ]
 
-# 自定义（custom）提供商下，常见“推理/思维链模型”识别规则
+# 自定义（custom）提供商下，常见"推理/思维链模型"识别规则
 # 三级注释（流程/逻辑）：这些多为 OpenAI 兼容网关汇聚的模型，通常接受
 # extra_body={"reasoning":{"effort":"none"}} 来抑制思维链。
-# 为避免误伤，仅针对明确包含以下关键词的“推理模型”生效。
+# 为避免误伤，仅针对明确包含以下关键词的"推理模型"生效。
 _ALI_REASONING_PATTERNS = [
     r"qwen[-_/. ]?r1",                 # 如 qwen2.5-r1, qwen-r1
-    r"qwen.*thinking"                  # Qwen Thinking 变体
+    r"qwen.*thinking",                 # Qwen Thinking 变体
+    r"qwen3.*vl|qwen.*vl",             # Qwen3-VL 系列（视觉理解模型，支持关闭思维链）
+    r"qwen[-_/. ]?vl"                  # Qwen-VL 通用匹配（兼容各种命名格式）
 ]
 
 _DEEPSEEK_REASONING_PATTERNS = [
     r"deepseek[-_/. ]?r1",             # deepseek-r1 / r1-distill 等
     r"deepseek.*reason"                # 其它显式带 reason 的变体
+]
+
+# Ollama 服务支持的模型模式
+# 文档：Ollama 支持通过 think: false 参数关闭思维链
+# 参考：https://www.53ai.com/news/LargeLanguageModel/2025070537250.html
+_OLLAMA_PATTERNS = [
+    r"qwen3",                          # Qwen3 系列（包含 qwen3-vl）
+    r"qwen.*vl",                       # Qwen-VL 系列（明确匹配视觉模型）
+    r"deepseek.*r1",                   # DeepSeek R1 系列
+    r".*thinking"                      # 任何包含 thinking 的模型
 ]
 
 
@@ -121,9 +134,17 @@ def build_thinking_suppression(provider: str, model: str) -> Dict[str, Any]:
         if _match_any(_DEEPSEEK_REASONING_PATTERNS, mdl_lower):
             return {"reasoning": {"effort": "none"}}
 
+        # 注意：Qwen3-VL 系列已通过 _ALI_REASONING_PATTERNS 在第 2 步匹配，无需重复处理
 
         # 默认：未知模型不返回以避免误伤
         return {}
+
+    # --- Ollama 服务 ---
+    # 支持通过 think: false 关闭思维链
+    # 注意：Ollama 的 OpenAI 兼容接口可能不支持 extra_body，需要在原生 API 中处理
+    if prov == "ollama":
+        if _match_any(_OLLAMA_PATTERNS, mdl_lower):
+            return {"think": False}
 
     # 其它服务商默认逻辑
     return {}

@@ -978,9 +978,22 @@ export function registerSettings() {
                     category: ["✨提示词小助手", " 配置", "网络设置"],
                     type: "boolean",
                     defaultValue: false,
-                    tooltip: "当使用硅基和智谱时，推荐打开，使用外国服务时推荐关闭",
+                    tooltip: "仅当开启代理时，智谱和硅基流动等国内服务使用报错时，再尝试打开。",
                     onChange: (value) => {
                         logger.log(`跳过代理直连 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
+                // 强制使用HTTP方式请求开关
+                {
+                    id: "PromptAssistant.Settings.ForceHTTP",
+                    name: " HTTP API 接口",
+                    category: ["✨提示词小助手", " 配置", "HTTP-API"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "打开后，制使用HTTP API接口请求。绕过OpenAI SDK的请求。",
+                    onChange: (value) => {
+                        logger.log(`强制使用HTTP方式请求 - 已${value ? "启用" : "禁用"}`);
                     }
                 },
 

@@ -92,7 +92,7 @@ class PromptExpand:
     OUTPUT_NODE = False
 
     @classmethod
-    def IS_CHANGED(cls, 规则模板, 临时规则, 临时规则内容, 用户提示词, 扩写服务, Ollama自动释放, 原文=None):
+    def IS_CHANGED(cls, 规则模板=None, 临时规则=None, 临时规则内容=None, 用户提示词=None, 扩写服务=None, Ollama自动释放=None, 原文=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
@@ -225,8 +225,7 @@ class PromptExpand:
                     error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
                     print(f"{self.LOG_PREFIX} 扩写失败 | 错误:{error_msg}")
                     raise RuntimeError(f"扩写失败: {error_msg}")
-                # 结果阶段日志（合并为一条）
-                print(f"{self.LOG_PREFIX} 扩写完成 | 服务:{扩写服务} | 请求ID:{request_id} | 结果字符数:{len(expanded_text)}")
+                # 结果阶段日志由服务层统一输出，节点层不再重复打印
                 return (expanded_text,)
             else:
                 error_msg = result.get('error', '扩写失败，未知错误') if result else '扩写服务未返回结果'
@@ -322,73 +321,25 @@ class PromptExpand:
             # 获取提供商显示名称
             provider_display_name = PromptExpand.PROVIDER_DISPLAY_MAP.get(provider, provider)
 
-            # 创建客户端
-            client = LLMService.get_openai_client(api_key, provider)
-
-            # 判断输入语言，设置输出语言
-            def is_chinese(text):
-                return any('\u4e00' <= ch <= '\u9fff' for ch in text)
-            lang_message = {"role": "system", "content": "请用中文回答"} if is_chinese(text) else {"role": "system", "content": "Please answer in English."}
-
-            messages = [
-                lang_message,
-                system_message,
-                {"role": "user", "content": text},
-            ]
-
-            # API调用阶段日志（由LLMService打印，这里不重复）
-            print(f"{PromptExpand.PROCESS_PREFIX} 调用{provider_display_name}扩写API{direct_mode_tag} | 模型:{model}")
-
-            stream = loop.run_until_complete(client.chat.completions.create(
-                model=model,
-                messages=[{"role": m["role"], "content": m["content"]} for m in messages],
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stream=True,
-                response_format={"type": "text"}
-            ))
-
-            full_content = ""
-
-            async def process_stream():
-                nonlocal full_content
-                async for chunk in stream:
-                    if result_container.get('interrupted'):
-                        break
-                    # 兼容部分第三方网关返回空 choices 的异常片段，做健壮性判断
-                    choices = getattr(chunk, "choices", None) or []
-                    for ch in choices:
-                        delta = getattr(ch, "delta", None)
-                        if not delta:
-                            continue
-                        content = getattr(delta, "content", None)
-                        if content:
-                            full_content += content
-
-            loop.run_until_complete(process_stream())
+            # 统一走服务层（含Gemini/网关兼容、思维链抑制、降级与重试）
+            service_result = loop.run_until_complete(
+                LLMService.expand_prompt(
+                    prompt=text,
+                    request_id=request_id,
+                    stream_callback=None,
+                    custom_provider=provider,
+                    custom_provider_config=provider_config,
+                    system_message_override=system_message
+                )
+            )
 
             if result_container.get('interrupted'):
                 result_container['result'] = {"success": False, "error": "任务被中断"}
                 return
 
-            result_container['result'] = {
-                "success": True,
-                "data": {
-                    "original": text,
-                    "expanded": full_content,
-                },
-            }
-            
-            # Ollama自动释放显存
-            if provider == 'ollama':
-                try:
-                    loop.run_until_complete(self._unload_ollama_model(model, provider_config, auto_unload))
-                except Exception as e:
-                    # 释放失败不影响结果
-                    pass
-            
-            # 结果日志已在expand方法中统一打印，这里不再重复
+            result_container['result'] = service_result
+
+            # 结果日志由服务层统一打印
 
         except Exception as e:
             result_container['result'] = {
