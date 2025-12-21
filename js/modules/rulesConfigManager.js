@@ -1,6 +1,6 @@
 /**
  * 规则配置管理器
- * 负责管理提示词规则配置弹窗和相关功能
+ * 负责管理规则规则配置弹窗和相关功能
  */
 
 import { app } from "../../../../scripts/app.js";
@@ -10,22 +10,28 @@ import {
     createSettingsDialog,
     createFormGroup,
     createInputGroup,
-    createSelectGroup
-} from "./settings.js";
+    createSelectGroup,
+    createTextareaGroup,
+    createComboBoxGroup,
+    createSelectButtonGroup
+} from "./uiComponents.js";
+import { APIService } from "../services/api.js";
 
 
 
 class RulesConfigManager {
     constructor() {
         this.systemPrompts = null;
-        // ---存储提示词列表数据---
+        // ---存储规则列表数据---
         this.expandPrompts = [];
         this.zhVisionPrompts = [];
         this.enVisionPrompts = [];
-        // ---当前激活的提示词ID---
+        this.videoPrompts = [];
+        // ---当前激活的规则ID---
         this.activeExpandPromptId = null;
         this.activeZhVisionPromptId = null;
         this.activeEnVisionPromptId = null;
+        this.activeVideoPromptId = null;
 
         this.isDirty = false;
         this.initialState = null; // 用于存储状态备份
@@ -37,11 +43,14 @@ class RulesConfigManager {
     _backupState() {
         this.initialState = {
             expandPrompts: JSON.parse(JSON.stringify(this.expandPrompts)),
+            translatePrompts: JSON.parse(JSON.stringify(this.translatePrompts || [])),
             zhVisionPrompts: JSON.parse(JSON.stringify(this.zhVisionPrompts)),
             enVisionPrompts: JSON.parse(JSON.stringify(this.enVisionPrompts)),
+            videoPrompts: JSON.parse(JSON.stringify(this.videoPrompts || [])),
             activeExpandPromptId: this.activeExpandPromptId,
             activeZhVisionPromptId: this.activeZhVisionPromptId,
             activeEnVisionPromptId: this.activeEnVisionPromptId,
+            activeVideoPromptId: this.activeVideoPromptId,
         };
         this.isDirty = false;
         // 标记表单未修改
@@ -57,14 +66,18 @@ class RulesConfigManager {
     _restoreState() {
         if (this.initialState) {
             this.expandPrompts = JSON.parse(JSON.stringify(this.initialState.expandPrompts));
+            this.translatePrompts = JSON.parse(JSON.stringify(this.initialState.translatePrompts || []));
             this.zhVisionPrompts = JSON.parse(JSON.stringify(this.initialState.zhVisionPrompts));
             this.enVisionPrompts = JSON.parse(JSON.stringify(this.initialState.enVisionPrompts));
+            this.videoPrompts = JSON.parse(JSON.stringify(this.initialState.videoPrompts || []));
             this.activeExpandPromptId = this.initialState.activeExpandPromptId;
             this.activeZhVisionPromptId = this.initialState.activeZhVisionPromptId;
             this.activeEnVisionPromptId = this.initialState.activeEnVisionPromptId;
+            this.activeVideoPromptId = this.initialState.activeVideoPromptId;
         }
         this.isDirty = false;
     }
+
 
     /**
      * 标记配置已修改
@@ -87,7 +100,7 @@ class RulesConfigManager {
             logger.debug('打开规则配置弹窗');
 
             createSettingsDialog({
-                title: '规则管理器',
+                title: '<i class="pi pi-list" style="margin-right: 8px;"></i>规则管理器',
                 dialogClassName: 'rules-config-dialog',
                 disableBackdropAndCloseOnClickOutside: true,
                 renderContent: (container) => {
@@ -155,241 +168,341 @@ class RulesConfigManager {
         hiddenInput.value = 'initial';
         form.appendChild(hiddenInput);
 
-        // 1. 扩写规则配置
-        const expandSection = this._createExpandSection();
+        // ---创建标签页容器---
+        const tabContainer = document.createElement('div');
+        tabContainer.className = 'rules-config-tabs';
 
-        // 2. 反推规则配置
-        const visionSection = this._createVisionSection();
+        // ---创建标签页头部包装容器（包含标签按钮和添加按钮）---
+        const tabHeaderWrapper = document.createElement('div');
+        tabHeaderWrapper.className = 'tab-header-wrapper';
 
-        form.appendChild(expandSection);
-        form.appendChild(visionSection);
+        // ---创建标签页头部---
+        const tabHeader = document.createElement('div');
+        tabHeader.className = 'tab-header';
+
+        // ---创建添加按钮容器---
+        const addButtonContainer = document.createElement('div');
+        addButtonContainer.className = 'tab-header-actions';
+
+        // 定义标签页配置（包含是否有添加按钮）
+        const tabs = [
+            { id: 'expand', title: '提示词优化规则', subtitle: '提示词优化润色提示词', addLabel: '添加提示词优化规则' },
+            { id: 'zhVision', title: '中文反推', subtitle: '图像反推中文提示词', addLabel: '添加中文反推规则' },
+            { id: 'enVision', title: '英文反推', subtitle: '图像反推英文提示词', addLabel: '添加英文反推规则' },
+            { id: 'video', title: '视频反推', subtitle: '将视频反推提示词', addLabel: '添加视频反推规则' },
+            { id: 'translate', title: '翻译规则', subtitle: '大模型翻译规则', addLabel: null }
+        ];
+
+        // 创建标签按钮
+        tabs.forEach((tab, index) => {
+            const button = this._createRuleTabButton(tab.id, tab.title, tab.subtitle);
+            if (index === 0) {
+                button.classList.add('active');
+            }
+            tabHeader.appendChild(button);
+        });
+
+        // 创建各标签页对应的添加按钮（初始只显示第一个）
+        tabs.forEach((tab, index) => {
+            if (tab.addLabel) {
+                const addButton = document.createElement('button');
+                addButton.className = 'p-button p-component p-button-sm tab-add-button';
+                addButton.type = 'button';
+                addButton.dataset.tab = tab.id;
+                addButton.innerHTML = `<span class="p-button-icon-left pi pi-plus"></span><span class="p-button-label">${tab.addLabel}</span>`;
+                addButton.onclick = () => {
+                    this._showPromptEditDialog(tab.id, null);
+                };
+                // 只显示第一个标签页的按钮
+                addButton.style.display = index === 0 ? 'inline-flex' : 'none';
+                addButtonContainer.appendChild(addButton);
+            }
+        });
+
+        tabHeaderWrapper.appendChild(tabHeader);
+        tabHeaderWrapper.appendChild(addButtonContainer);
+        tabContainer.appendChild(tabHeaderWrapper);
+
+        // ---创建标签页内容容器---
+        const tabContent = document.createElement('div');
+        tabContent.className = 'tab-content';
+
+        // 创建各个标签页内容
+        const expandPane = this._createExpandTabPane();
+        const zhVisionPane = this._createVisionTabPane('zhVision', '中文反推规则');
+        const enVisionPane = this._createVisionTabPane('enVision', '英文反推规则');
+        const videoPane = this._createVideoTabPane();
+        const translatePane = this._createTranslateTabPane();
+
+        tabContent.appendChild(expandPane);
+        tabContent.appendChild(zhVisionPane);
+        tabContent.appendChild(enVisionPane);
+        tabContent.appendChild(videoPane);
+        tabContent.appendChild(translatePane);
+
+        tabContainer.appendChild(tabContent);
+        form.appendChild(tabContainer);
         container.appendChild(form);
 
-        // 加载系统提示词配置
+        // 默认显示第一个标签页
+        this._switchRuleTab('expand', tabHeader, tabContent);
+
+        // 加载系统规则配置
         this._loadSystemPrompts();
     }
 
     /**
-     * 创建扩写规则配置部分
-     * @returns {HTMLElement} 扩写规则配置部分的DOM元素
+     * 创建规则标签按钮
+     * @param {string} tabId 标签ID
+     * @param {string} title 标签标题
+     * @param {string} subtitle 标签副标题
+     * @returns {HTMLElement} 标签按钮元素
      */
-    _createExpandSection() {
-        // 扩写规则配置
-        const expandSection = createFormGroup('扩写规则配置');
-        const expandHeader = expandSection.querySelector('.settings-form-section-header');
+    _createRuleTabButton(tabId, title, subtitle) {
+        const button = document.createElement('button');
+        button.className = 'tab-button';
+        button.dataset.tab = tabId;
+        button.type = 'button';
 
-        // 创建添加按钮
-        const addButton = document.createElement('div');
-        addButton.className = 'settings-refresh-button';
-        addButton.title = '添加新提示词';
+        const titleEl = document.createElement('div');
+        titleEl.className = 'tab-title';
+        titleEl.textContent = title;
+        button.appendChild(titleEl);
 
-        const addIcon = document.createElement('span');
-        addIcon.className = 'pi pi-plus refresh-icon';
-        addButton.appendChild(addIcon);
+        if (subtitle) {
+            const subtitleEl = document.createElement('div');
+            subtitleEl.className = 'tab-subtitle';
+            subtitleEl.textContent = subtitle;
+            button.appendChild(subtitleEl);
+        }
 
-        const addText = document.createElement('span');
-        addText.textContent = '添加提示词';
-        addButton.appendChild(addText);
-        expandHeader.appendChild(addButton);
+        // 点击切换标签
+        button.addEventListener('click', () => {
+            const tabHeader = button.parentElement;
+            // tabHeader 在 tab-header-wrapper 内，tabContent 是 wrapper 的下一个兄弟元素
+            const tabHeaderWrapper = tabHeader.parentElement;
+            const tabContent = tabHeaderWrapper.nextElementSibling;
+            this._switchRuleTab(tabId, tabHeader, tabContent);
+        });
 
-        // 创建提示词列表容器
+        return button;
+    }
+
+    /**
+     * 切换规则标签页
+     * @param {string} tabId 标签ID
+     * @param {HTMLElement} header 标签头部容器
+     * @param {HTMLElement} contentContainer 内容容器
+     */
+    _switchRuleTab(tabId, header, contentContainer) {
+        // 更新标签按钮状态
+        header.querySelectorAll('.tab-button').forEach(btn => {
+            if (btn.dataset.tab === tabId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        // 显示对应内容
+        contentContainer.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.style.display = pane.dataset.tab === tabId ? 'block' : 'none';
+        });
+
+        // 切换添加按钮的显示状态
+        const actionsContainer = header.parentElement?.querySelector('.tab-header-actions');
+        if (actionsContainer) {
+            actionsContainer.querySelectorAll('.tab-add-button').forEach(btn => {
+                btn.style.display = btn.dataset.tab === tabId ? 'inline-flex' : 'none';
+            });
+        }
+    }
+
+    /**
+     * 创建扩写规则标签页内容
+     * @returns {HTMLElement} 标签页内容元素
+     */
+    _createExpandTabPane() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = 'expand';
+        pane.style.display = 'none';
+        pane.style.padding = '16px';
+
+        // 创建规则列表容器
         const listContainer = document.createElement('div');
         listContainer.className = 'prompt-list-container';
 
-        // 创建列表头部
         const listHeader = document.createElement('div');
         listHeader.className = 'prompt-list-header';
         listHeader.innerHTML = `
             <div class="prompt-list-cell status-cell">状态</div>
-            <div class="prompt-list-cell name-cell">提示词名称</div>
-            <div class="prompt-list-cell content-cell">提示词内容</div>
+            <div class="prompt-list-cell name-cell">规则名称</div>
+            <div class="prompt-list-cell content-cell">规则内容</div>
             <div class="prompt-list-cell action-cell">操作</div>
         `;
-
-        // 为头部单元格添加列宽调整手柄
         this._addHeaderResizers(listHeader);
 
-        // 创建滚动列表
         const scrollList = document.createElement('div');
         scrollList.className = 'prompt-scroll-list';
 
         listContainer.appendChild(listHeader);
         listContainer.appendChild(scrollList);
-        expandSection.appendChild(listContainer);
+        pane.appendChild(listContainer);
 
         // 存储列表引用
         this.expandScrollList = scrollList;
 
-        // 添加调试信息
-        logger.debug('扩写提示词列表容器已创建');
-
-        // 处理添加按钮点击
-        addButton.onclick = () => {
-            this._showPromptEditDialog('expand', null);
-        };
-
-        return expandSection;
+        return pane;
     }
 
     /**
-     * 创建反推规则配置部分
-     * @returns {HTMLElement} 反推规则配置部分的DOM元素
+     * 创建翻译规则标签页内容（只读编辑模式）
+     * @returns {HTMLElement} 标签页内容元素
      */
-    _createVisionSection() {
-        // 反推规则配置
-        const visionSection = createFormGroup('反推规则配置');
-        const visionHeader = visionSection.querySelector('.settings-form-section-header');
+    _createTranslateTabPane() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = 'translate';
+        pane.style.display = 'none';
+        pane.style.padding = '16px';
 
-        // 创建添加按钮并添加到标题栏
-        const addButton = document.createElement('div');
-        addButton.className = 'settings-refresh-button';
-        addButton.title = '添加提示词';
 
-        const addIcon = document.createElement('span');
-        addIcon.className = 'pi pi-plus refresh-icon';
-        addButton.appendChild(addIcon);
 
-        const addText = document.createElement('span');
-        addText.textContent = '添加提示词';
-        addButton.appendChild(addText);
-        visionHeader.appendChild(addButton);
+        // 创建翻译规则列表容器
+        const listContainer = document.createElement('div');
+        listContainer.className = 'prompt-list-container';
 
-        // Tab容器
-        const tabContainer = document.createElement('div');
-        tabContainer.className = 'popup_tabs_container';
-        const tabsScroll = document.createElement('div');
-        tabsScroll.className = 'popup_tabs_scroll';
-        const tabs = document.createElement('div');
-        tabs.className = 'popup_tabs';
-        const tabZH = document.createElement('div');
-        tabZH.className = 'popup_tab active';
-        tabZH.textContent = '中文反推规则';
-        const tabEN = document.createElement('div');
-        tabEN.className = 'popup_tab';
-        tabEN.textContent = '英文反推规则';
-        tabs.appendChild(tabZH);
-        tabs.appendChild(tabEN);
-        tabsScroll.appendChild(tabs);
-        tabContainer.appendChild(tabsScroll);
-
-        // 中文反推规则内容
-        const tabContentZH = document.createElement('div');
-        tabContentZH.className = 'popup_tab_content active';
-
-        // 中文列表容器
-        const zhListContainer = document.createElement('div');
-        zhListContainer.className = 'prompt-list-container vision-prompt-list-container';
-
-        const zhListHeader = document.createElement('div');
-        zhListHeader.className = 'prompt-list-header';
-        zhListHeader.innerHTML = `
-            <div class="prompt-list-cell status-cell">状态</div>
-            <div class="prompt-list-cell name-cell">提示词名称</div>
-            <div class="prompt-list-cell content-cell">提示词内容</div>
+        const listHeader = document.createElement('div');
+        listHeader.className = 'prompt-list-header';
+        listHeader.innerHTML = `
+            <div class="prompt-list-cell name-cell">规则名称</div>
+            <div class="prompt-list-cell content-cell">规则内容</div>
             <div class="prompt-list-cell action-cell">操作</div>
         `;
+        this._addHeaderResizers(listHeader);
 
-        // 为头部单元格添加列宽调整手柄
-        this._addHeaderResizers(zhListHeader);
+        const scrollList = document.createElement('div');
+        scrollList.className = 'prompt-scroll-list';
 
-        const zhScrollList = document.createElement('div');
-        zhScrollList.className = 'prompt-scroll-list';
+        listContainer.appendChild(listHeader);
+        listContainer.appendChild(scrollList);
+        pane.appendChild(listContainer);
+        // 创建提示信息
+        const notice = document.createElement('div');
+        notice.className = 'rule-pane-notice';
+        notice.innerHTML = '<i class="pi pi-info-circle"></i> 翻译规则仅支持编辑，不支持新增和删除';
+        pane.appendChild(notice);
 
-        zhListContainer.appendChild(zhListHeader);
-        zhListContainer.appendChild(zhScrollList);
+        // 存储列表引用
+        this.translateScrollList = scrollList;
 
-        tabContentZH.appendChild(zhListContainer);
-
-        // 存储中文列表引用
-        this.zhVisionScrollList = zhScrollList;
-
-        // 添加调试信息
-        logger.debug('中文反推提示词列表容器已创建');
-
-        // 英文反推规则内容
-        const tabContentEN = document.createElement('div');
-        tabContentEN.className = 'popup_tab_content';
-
-        // 英文列表容器
-        const enListContainer = document.createElement('div');
-        enListContainer.className = 'prompt-list-container vision-prompt-list-container';
-
-        const enListHeader = document.createElement('div');
-        enListHeader.className = 'prompt-list-header';
-        enListHeader.innerHTML = `
-            <div class="prompt-list-cell status-cell">状态</div>
-            <div class="prompt-list-cell name-cell">提示词名称</div>
-            <div class="prompt-list-cell content-cell">提示词内容</div>
-            <div class="prompt-list-cell action-cell">操作</div>
-        `;
-
-        // 为头部单元格添加列宽调整手柄
-        this._addHeaderResizers(enListHeader);
-
-        const enScrollList = document.createElement('div');
-        enScrollList.className = 'prompt-scroll-list';
-
-        enListContainer.appendChild(enListHeader);
-        enListContainer.appendChild(enScrollList);
-
-        tabContentEN.appendChild(enListContainer);
-
-        // 存储英文列表引用
-        this.enVisionScrollList = enScrollList;
-
-        // 添加调试信息
-        logger.debug('英文反推提示词列表容器已创建');
-
-        // 设置Tab切换逻辑
-        tabZH.onclick = () => {
-            tabZH.classList.add('active');
-            tabEN.classList.remove('active');
-            tabContentZH.classList.add('active');
-            tabContentEN.classList.remove('active');
-        };
-
-        tabEN.onclick = () => {
-            tabEN.classList.add('active');
-            tabZH.classList.remove('active');
-            tabContentEN.classList.add('active');
-            tabContentZH.classList.remove('active');
-        };
-
-        visionSection.appendChild(tabContainer);
-        visionSection.appendChild(tabContentZH);
-        visionSection.appendChild(tabContentEN);
-
-        // 处理添加按钮点击 - 根据当前激活的tab决定类型
-        addButton.onclick = () => {
-            const activeTab = tabs.querySelector('.popup_tab.active');
-            const isZhActive = activeTab && activeTab.textContent === '中文反推规则';
-            this._showPromptEditDialog(isZhActive ? 'zhVision' : 'enVision', null);
-        };
-
-        return visionSection;
+        return pane;
     }
 
     /**
-     * 加载系统提示词配置
+     * 创建反推规则标签页内容
+     * @param {string} type 类型 (zhVision/enVision)
+     * @param {string} title 标题
+     * @returns {HTMLElement} 标签页内容元素
+     */
+    _createVisionTabPane(type, title) {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = type;
+        pane.style.display = 'none';
+        pane.style.padding = '16px';
+
+        // 创建规则列表容器
+        const listContainer = document.createElement('div');
+        listContainer.className = 'prompt-list-container vision-prompt-list-container';
+
+        const listHeader = document.createElement('div');
+        listHeader.className = 'prompt-list-header';
+        listHeader.innerHTML = `
+            <div class="prompt-list-cell status-cell">状态</div>
+            <div class="prompt-list-cell name-cell">规则名称</div>
+            <div class="prompt-list-cell content-cell">规则内容</div>
+            <div class="prompt-list-cell action-cell">操作</div>
+        `;
+        this._addHeaderResizers(listHeader);
+
+        const scrollList = document.createElement('div');
+        scrollList.className = 'prompt-scroll-list';
+
+        listContainer.appendChild(listHeader);
+        listContainer.appendChild(scrollList);
+        pane.appendChild(listContainer);
+
+        // 存储列表引用
+        if (type === 'zhVision') {
+            this.zhVisionScrollList = scrollList;
+        } else {
+            this.enVisionScrollList = scrollList;
+        }
+
+        return pane;
+    }
+
+    /**
+     * 创建视频反推规则标签页内容
+     * @returns {HTMLElement} 标签页内容元素
+     */
+    _createVideoTabPane() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = 'video';
+        pane.style.display = 'none';
+        pane.style.padding = '16px';
+
+        // 创建规则列表容器
+        const listContainer = document.createElement('div');
+        listContainer.className = 'prompt-list-container video-prompt-list-container';
+
+        const listHeader = document.createElement('div');
+        listHeader.className = 'prompt-list-header';
+        listHeader.innerHTML = `
+            <div class="prompt-list-cell status-cell">状态</div>
+            <div class="prompt-list-cell name-cell">规则名称</div>
+            <div class="prompt-list-cell content-cell">规则内容</div>
+            <div class="prompt-list-cell action-cell">操作</div>
+        `;
+        this._addHeaderResizers(listHeader);
+
+        const scrollList = document.createElement('div');
+        scrollList.className = 'prompt-scroll-list';
+
+        listContainer.appendChild(listHeader);
+        listContainer.appendChild(scrollList);
+        pane.appendChild(listContainer);
+
+        // 存储列表引用
+        this.videoScrollList = scrollList;
+
+        return pane;
+    }
+
+    /**
+     * 加载系统规则配置
      */
     async _loadSystemPrompts() {
         try {
-            const response = await fetch('/prompt_assistant/api/config/system_prompts');
+            const response = await fetch(APIService.getApiUrl('/config/system_prompts'));
             if (!response.ok) {
-                throw new Error(`加载系统提示词配置失败: ${response.status} ${response.statusText}`);
+                throw new Error(`加载系统规则配置失败: ${response.status} ${response.statusText}`);
             }
 
             const data = await response.json();
             this.systemPrompts = data;
 
-            // 获取激活的提示词ID
+            // 获取激活的规则ID
             const activePrompts = data.active_prompts || {};
             const activeExpandId = activePrompts.expand;
             const activeZhVisionId = activePrompts.vision_zh;
             const activeEnVisionId = activePrompts.vision_en;
 
             // 输出加载的激活ID
-            logger.debug(`加载的激活提示词ID | expand:${activeExpandId || '无'} | vision_zh:${activeZhVisionId || '无'} | vision_en:${activeEnVisionId || '无'}`);
+            logger.debug(`加载的激活规则ID | expand:${activeExpandId || '无'} | vision_zh:${activeZhVisionId || '无'} | vision_en:${activeEnVisionId || '无'}`);
 
             // 转换扩写规则数据
             this.expandPrompts = [];
@@ -404,13 +517,16 @@ class RulesConfigManager {
                     this.expandPrompts.push({
                         id: key,
                         name: prompt.name || key, // 如果没有名称，使用键作为名称
+                        tags: prompt.tags || [],
+                        category: prompt.category || '',
+                        showIn: prompt.showIn || ['frontend', 'node'],
                         content: prompt.content,
                         isActive: key === activeExpandId, // 根据active_prompts判断是否激活
                         order: this.originalExpandOrder.indexOf(key) // 保存原始顺序
                     });
                 });
 
-                // 如果没有找到激活的提示词，则激活第一个
+                // 如果没有找到激活的规则，则激活第一个
                 if (!activeExpandId && this.expandPrompts.length > 0) {
                     this.expandPrompts[0].isActive = true;
                     this.activeExpandPromptId = this.expandPrompts[0].id;
@@ -429,7 +545,7 @@ class RulesConfigManager {
                 // 保存原始顺序
                 this.originalVisionOrder = Object.keys(data.vision_prompts);
 
-                // 分别存储中文和英文提示词的键
+                // 分别存储中文和英文规则的键
                 const zhKeys = [];
                 const enKeys = [];
 
@@ -446,24 +562,30 @@ class RulesConfigManager {
                     }
                 });
 
-                // 处理中文提示词
+                // 处理中文规则
                 zhKeys.forEach((key, index) => {
                     const prompt = data.vision_prompts[key];
                     this.zhVisionPrompts.push({
                         id: key,
                         name: prompt.name || key,
+                        tags: prompt.tags || [],
+                        category: prompt.category || '',
+                        showIn: prompt.showIn || ['frontend', 'node'],
                         content: prompt.content,
                         isActive: key === activeZhVisionId,
                         order: this.originalVisionOrder.indexOf(key) // 保存原始顺序
                     });
                 });
 
-                // 处理英文提示词
+                // 处理英文规则
                 enKeys.forEach((key, index) => {
                     const prompt = data.vision_prompts[key];
                     this.enVisionPrompts.push({
                         id: key,
                         name: prompt.name || key,
+                        tags: prompt.tags || [],
+                        category: prompt.category || '',
+                        showIn: prompt.showIn || ['frontend', 'node'],
                         content: prompt.content,
                         isActive: key === activeEnVisionId,
                         order: this.originalVisionOrder.indexOf(key) // 保存原始顺序
@@ -474,7 +596,7 @@ class RulesConfigManager {
                 this.zhVisionPrompts.sort((a, b) => a.order - b.order);
                 this.enVisionPrompts.sort((a, b) => a.order - b.order);
 
-                // 如果没有找到激活的中文提示词，则激活第一个
+                // 如果没有找到激活的中文规则，则激活第一个
                 if (!activeZhVisionId && this.zhVisionPrompts.length > 0) {
                     this.zhVisionPrompts[0].isActive = true;
                     this.activeZhVisionPromptId = this.zhVisionPrompts[0].id;
@@ -482,7 +604,7 @@ class RulesConfigManager {
                     this.activeZhVisionPromptId = activeZhVisionId;
                 }
 
-                // 如果没有找到激活的英文提示词，则激活第一个
+                // 如果没有找到激活的英文规则，则激活第一个
                 if (!activeEnVisionId && this.enVisionPrompts.length > 0) {
                     this.enVisionPrompts[0].isActive = true;
                     this.activeEnVisionPromptId = this.enVisionPrompts[0].id;
@@ -491,57 +613,235 @@ class RulesConfigManager {
                 }
             }
 
+            // 转换翻译规则数据（只读编辑模式）
+            this.translatePrompts = [];
+            if (data.translate_prompts) {
+                Object.keys(data.translate_prompts).forEach(key => {
+                    const prompt = data.translate_prompts[key];
+                    this.translatePrompts.push({
+                        id: key,
+                        name: key, // 使用键作为名称
+                        content: prompt.content,
+                        role: prompt.role || 'system',
+                        isReadOnly: true // 标记为只读（不可增删）
+                    });
+                });
+            }
+
+            // 转换视频反推规则数据
+            this.videoPrompts = [];
+            const activeVideoId = activePrompts.video;
+            if (data.video_prompts) {
+                const videoKeys = Object.keys(data.video_prompts);
+                videoKeys.forEach((key, index) => {
+                    const prompt = data.video_prompts[key];
+                    this.videoPrompts.push({
+                        id: key,
+                        name: prompt.name || key,
+                        tags: prompt.tags || [],
+                        category: prompt.category || '',
+                        showIn: prompt.showIn || ['frontend', 'node'],
+                        content: prompt.content,
+                        isActive: key === activeVideoId,
+                        order: index
+                    });
+                });
+
+                // 如果没有找到激活的视频反推规则，则激活第一个
+                if (!activeVideoId && this.videoPrompts.length > 0) {
+                    this.videoPrompts[0].isActive = true;
+                    this.activeVideoPromptId = this.videoPrompts[0].id;
+                } else {
+                    this.activeVideoPromptId = activeVideoId;
+                }
+            }
+
             // 备份初始状态
             this._backupState();
 
             // 渲染列表
             this._renderPromptLists();
+
         } catch (error) {
-            logger.error("加载系统提示词配置失败:", error);
+            logger.error("加载系统规则配置失败:", error);
             app.extensionManager.toast.add({
                 severity: "error",
                 summary: "加载失败",
-                detail: error.message || "加载系统提示词配置过程中发生错误",
+                detail: error.message || "加载系统规则配置过程中发生错误",
                 life: 3000
             });
         }
     }
 
     /**
-     * 渲染提示词列表
+     * 渲染规则列表
      */
     _renderPromptLists() {
-        logger.debug(`开始渲染提示词列表 | 扩写提示词:${this.expandPrompts.length}个 | 中文反推:${this.zhVisionPrompts.length}个 | 英文反推:${this.enVisionPrompts.length}个`);
+        logger.debug(`开始渲染规则列表 | 提示词优化规则:${this.expandPrompts.length}个 | 翻译规则:${this.translatePrompts?.length || 0}个 | 中文反推:${this.zhVisionPrompts.length}个 | 英文反推:${this.enVisionPrompts.length}个`);
 
         // 渲染扩写规则列表
         if (this.expandScrollList) {
             this._renderPromptList(this.expandScrollList, this.expandPrompts, 'expand');
-            logger.debug(`渲染扩写提示词列表完成`);
+            logger.debug(`渲染提示词优化规则列表完成`);
         } else {
-            logger.error(`扩写提示词列表容器不存在`);
+            logger.error(`提示词优化规则列表容器不存在`);
+        }
+
+        // 渲染翻译规则列表（只读编辑模式）
+        if (this.translateScrollList) {
+            this._renderTranslateList(this.translateScrollList, this.translatePrompts || []);
+            logger.debug(`渲染翻译规则列表完成`);
         }
 
         // 渲染中文反推规则列表
         if (this.zhVisionScrollList) {
             this._renderPromptList(this.zhVisionScrollList, this.zhVisionPrompts, 'zhVision');
-            logger.debug(`渲染中文反推提示词列表完成`);
+            logger.debug(`渲染中文反推规则列表完成`);
         } else {
-            logger.error(`中文反推提示词列表容器不存在`);
+            logger.error(`中文反推规则列表容器不存在`);
         }
 
         // 渲染英文反推规则列表
         if (this.enVisionScrollList) {
             this._renderPromptList(this.enVisionScrollList, this.enVisionPrompts, 'enVision');
-            logger.debug(`渲染英文反推提示词列表完成`);
+            logger.debug(`渲染英文反推规则列表完成`);
         } else {
-            logger.error(`英文反推提示词列表容器不存在`);
+            logger.error(`英文反推规则列表容器不存在`);
+        }
+
+        // 渲染视频反推规则列表
+        if (this.videoScrollList) {
+            this._renderPromptList(this.videoScrollList, this.videoPrompts || [], 'video');
+            logger.debug(`渲染视频反推规则列表完成`);
         }
     }
 
+
     /**
-     * 渲染单个提示词列表
+     * 渲染翻译规则列表（只读编辑模式）
      * @param {HTMLElement} container 列表容器
-     * @param {Array} prompts 提示词数组
+     * @param {Array} prompts 翻译规则数组
+     */
+    _renderTranslateList(container, prompts) {
+        container.innerHTML = '';
+
+        prompts.forEach(prompt => {
+            const row = document.createElement('div');
+            row.className = 'prompt-list-row translate-row';
+            row.dataset.promptId = prompt.id;
+            row.dataset.type = 'translate';
+
+            // 名称列
+            const nameCell = document.createElement('div');
+            nameCell.className = 'prompt-list-cell name-cell';
+            nameCell.textContent = prompt.name;
+            nameCell.title = prompt.name;
+
+            // 内容列
+            const contentCell = document.createElement('div');
+            contentCell.className = 'prompt-list-cell content-cell';
+            contentCell.textContent = prompt.content;
+            contentCell.title = prompt.content;
+
+            // 操作列（只有编辑按钮）
+            const actionCell = document.createElement('div');
+            actionCell.className = 'prompt-list-cell action-cell';
+
+            const editBtn = document.createElement('button');
+            editBtn.className = 'prompt-action-btn edit-btn';
+            editBtn.innerHTML = '<span class="pi pi-pencil"></span>';
+            editBtn.title = '编辑翻译规则';
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                this._showTranslateEditDialog(prompt.id);
+            };
+
+            actionCell.appendChild(editBtn);
+
+            row.appendChild(nameCell);
+            row.appendChild(contentCell);
+            row.appendChild(actionCell);
+
+            container.appendChild(row);
+        });
+    }
+
+    /**
+     * 显示翻译规则编辑对话框
+     * @param {string} promptId 翻译规则ID
+     */
+    _showTranslateEditDialog(promptId) {
+        const prompt = (this.translatePrompts || []).find(p => p.id === promptId);
+        if (!prompt) {
+            logger.error(`找不到翻译规则: ${promptId}`);
+            return;
+        }
+
+        createSettingsDialog({
+            title: '<i class="pi pi-pencil" style="margin-right: 8px;"></i>编辑翻译规则',
+            isConfirmDialog: true,
+            dialogClassName: 'translate-edit-dialog',
+            renderContent: (content) => {
+                content.className += ' dialog-form-content';
+                content.style.padding = '1rem';
+                content.style.display = 'flex';
+                content.style.flexDirection = 'column';
+                content.style.flex = '1';
+
+                // 显示规则名称（只读）
+                const nameGroup = document.createElement('div');
+                nameGroup.className = 'settings-form-group-item';
+                nameGroup.innerHTML = `
+                    <label class="settings-form-label">规则名称</label>
+                    <div class="settings-input-wrapper">
+                        <input type="text" class="settings-input" value="${prompt.name}" disabled style="opacity: 0.7;" />
+                    </div>
+                `;
+                nameGroup.style.marginBottom = '10px';
+
+                // 创建内容编辑区
+                const contentTextarea = createTextareaGroup('规则内容', '请输入翻译规则内容', 10);
+                contentTextarea.group.style.flex = '1';
+                contentTextarea.group.style.display = 'flex';
+                contentTextarea.group.style.flexDirection = 'column';
+                contentTextarea.textarea.value = prompt.content || '';
+
+                content.appendChild(nameGroup);
+                content.appendChild(contentTextarea.group);
+
+                content.contentTextarea = contentTextarea.textarea;
+            },
+            onSave: (content) => {
+                const newContent = content.contentTextarea.value.trim();
+
+                if (!newContent) {
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "编辑失败",
+                        detail: "规则内容不能为空",
+                        life: 3000
+                    });
+                    return false;
+                }
+
+                // 更新翻译规则内容
+                prompt.content = newContent;
+
+                // 标记为已修改
+                this._setDirty();
+
+                // 重新渲染列表
+                this._renderPromptLists();
+
+                return true;
+            }
+        });
+    }
+
+    /**
+     * 渲染单个规则列表
+     * @param {HTMLElement} container 列表容器
+     * @param {Array} prompts 规则数组
      * @param {string} type 类型
      */
     _renderPromptList(container, prompts, type) {
@@ -633,46 +933,48 @@ class RulesConfigManager {
     }
 
     /**
-     * 显示提示词编辑对话框
+     * 获取已存在的分类列表
+     * 从所有规则类型中提取已使用的分类
+     * @returns {Array<{value: string, text: string}>} 分类选项列表
+     */
+    _getExistingCategories() {
+        const categories = new Set();
+
+        // 从所有规则类型中提取分类
+        const allPrompts = [
+            ...this.expandPrompts,
+            ...this.zhVisionPrompts,
+            ...this.enVisionPrompts,
+            ...this.videoPrompts
+        ];
+
+        allPrompts.forEach(prompt => {
+            if (prompt.category && typeof prompt.category === 'string') {
+                categories.add(prompt.category);
+            }
+        });
+
+        // 转换为下拉选项格式
+        return Array.from(categories)
+            .sort() // 按字母顺序排序
+            .map(cat => ({ value: cat, text: cat }));
+    }
+
+    /**
+     * 显示规则编辑对话框
      * @param {string} type 类型
-     * @param {string|null} promptId 提示词ID，null表示新建
+     * @param {string|null} promptId 规则ID，null表示新建
      */
     _showPromptEditDialog(type, promptId) {
         this._showPromptConfigDialog(type, promptId);
     }
 
-    /**
-     * 创建多行文本输入框组
-     * @param {string} label 标签文本
-     * @param {string} placeholder 占位符文本
-     * @returns {Object} 包含 group 和 textarea 的对象
-     */
-    _createTextareaGroup(label, placeholder) {
-        const group = document.createElement('div');
-        group.className = 'settings-form-group';
 
-        const labelElem = document.createElement('label');
-        labelElem.className = 'settings-form-label';
-        labelElem.textContent = label;
-
-        const textarea = document.createElement('textarea');
-        textarea.className = 'p-inputtext p-component settings-form-textarea';
-        textarea.placeholder = placeholder;
-        textarea.rows = 8;
-        textarea.style.resize = 'vertical';
-        textarea.style.minHeight = '150px';
-        textarea.style.height = 'calc(100% - 30px)';
-
-        group.appendChild(labelElem);
-        group.appendChild(textarea);
-
-        return { group, textarea };
-    }
 
     /**
-     * 显示通用的提示词配置弹窗
+     * 显示通用的规则配置弹窗
      * @param {string} defaultType 默认类型
-     * @param {string|null} promptId 提示词ID，null表示新建
+     * @param {string|null} promptId 规则ID，null表示新建
      */
     _showPromptConfigDialog(defaultType = 'expand', promptId = null) {
         const isEdit = !!promptId;
@@ -686,11 +988,13 @@ class RulesConfigManager {
                 editData = this.zhVisionPrompts.find(p => p.id === promptId);
             } else if (defaultType === 'enVision') {
                 editData = this.enVisionPrompts.find(p => p.id === promptId);
+            } else if (defaultType === 'video') {
+                editData = this.videoPrompts.find(p => p.id === promptId);
             }
         }
 
         createSettingsDialog({
-            title: isEdit ? '编辑提示词' : '添加提示词',
+            title: isEdit ? '编辑规则' : '添加规则',
             isConfirmDialog: true,
             dialogClassName: 'prompt-edit-dialog',
             disableBackdropAndCloseOnClickOutside: true,
@@ -698,43 +1002,94 @@ class RulesConfigManager {
             cancelButtonText: '取消',
             renderContent: (content) => {
                 content.className += ' dialog-form-content';
-                content.style.padding = '1rem';
+                content.style.padding = '10px 40px'; // 增加两侧留白
                 content.style.display = 'flex';
                 content.style.flexDirection = 'column';
                 content.style.flex = '1';
+                content.style.overflow = 'hidden'; // 整体不滚动，内部 textarea 滚动
 
-                // 创建提示词名称输入框
-                const nameInput = createInputGroup('提示词名称', '请输入提示词名称');
+                // 创建规则名称输入框
+                const nameInput = createInputGroup('规则名称', '请输入规则名称');
                 nameInput.group.style.marginBottom = '10px';
                 if (isEdit && editData) {
                     nameInput.input.value = editData.name || '';
                 }
 
-                // 创建提示词类型下拉框
+                // 创建规则类型下拉框
                 const typeOptions = [
-                    { value: 'expand', text: '扩写' },
+                    { value: 'expand', text: '提示词优化' },
                     { value: 'zhVision', text: '反推（中文）' },
-                    { value: 'enVision', text: '反推（英文）' }
+                    { value: 'enVision', text: '反推（英文）' },
+                    { value: 'video', text: '视频反推' }
                 ];
-                const typeSelect = createSelectGroup('提示词类型', typeOptions, defaultType);
+                const typeSelect = createSelectGroup('规则类型', typeOptions, defaultType);
                 typeSelect.group.style.marginBottom = '10px';
 
-                // 创建提示词内容多行输入框
-                const contentTextarea = this._createTextareaGroup('提示词内容', '请输入提示词内容');
+                // 创建分类选择框（可输入）
+                const categoryOptions = this._getExistingCategories();
+                const initialCategory = (isEdit && editData) ? (editData.category || '') : '';
+                const categoryComboBox = createComboBoxGroup('分类', categoryOptions, initialCategory, {
+                    placeholder: '输入或选择分类（可留空）',
+                    emptyText: '暂无分类'
+                });
+                categoryComboBox.group.style.flex = '1';
+                categoryComboBox.group.style.marginBottom = '0';
+
+                // 创建显示位置选择组件
+                const showInOptions = [
+                    { value: 'frontend', label: '小助手上显示' },
+                    { value: 'node', label: '节点上显示' }
+                ];
+                // 获取初始值：编辑时从规则数据读取，新建时默认都选中
+                const initialShowIn = (isEdit && editData && editData.showIn)
+                    ? editData.showIn
+                    : ['frontend', 'node'];
+                const showInSelectButton = createSelectButtonGroup('', showInOptions, initialShowIn, {
+                    mode: 'multiple',
+                    size: 'small',
+                    allowEmpty: true
+                });
+                showInSelectButton.group.style.marginBottom = '0';
+
+                // 创建行容器放置分类和显示位置组件
+                const categoryRow = document.createElement('div');
+                categoryRow.style.display = 'flex';
+                categoryRow.style.flexDirection = 'row';
+                categoryRow.style.alignItems = 'flex-end';
+                categoryRow.style.gap = '1rem';
+                categoryRow.style.marginBottom = '10px';
+                categoryRow.appendChild(categoryComboBox.group);
+                categoryRow.appendChild(showInSelectButton.group);
+
+                // 创建规则内容多行输入框
+                const contentTextarea = createTextareaGroup('规则内容', '请输入规则内容');
                 contentTextarea.group.style.marginBottom = '0';
                 contentTextarea.group.style.flex = '1';
                 contentTextarea.group.style.display = 'flex';
                 contentTextarea.group.style.flexDirection = 'column';
+
+                // 确保 textarea 填充容器
+                const textareaContainer = contentTextarea.group.querySelector('.float-label-container');
+                if (textareaContainer) {
+                    textareaContainer.style.flex = '1';
+                    textareaContainer.style.display = 'flex';
+                    textareaContainer.style.flexDirection = 'column';
+                    contentTextarea.textarea.style.flex = '1';
+                }
+
                 if (isEdit && editData) {
                     contentTextarea.textarea.value = editData.content || '';
                 }
 
                 content.appendChild(nameInput.group);
                 content.appendChild(typeSelect.group);
+                content.appendChild(categoryRow);
                 content.appendChild(contentTextarea.group);
 
                 content.nameInput = nameInput.input;
                 content.typeSelect = typeSelect.select;
+                content.categoryInput = categoryComboBox.input;
+                content.showInSelectButton = showInSelectButton;
                 content.contentTextarea = contentTextarea.textarea;
 
                 // 聚焦名称输入框
@@ -745,13 +1100,15 @@ class RulesConfigManager {
             onSave: (content) => {
                 const name = content.nameInput.value.trim();
                 const type = content.typeSelect.value;
+                const category = content.categoryInput.value.trim();
+                const showIn = content.showInSelectButton.getValue();
                 const promptContent = content.contentTextarea.value.trim();
 
                 if (!name || !promptContent) {
                     app.extensionManager.toast.add({
                         severity: "error",
                         summary: isEdit ? "编辑失败" : "添加失败",
-                        detail: "提示词名称和内容不能为空",
+                        detail: "规则名称和内容不能为空",
                         life: 3000
                     });
                     return;
@@ -765,8 +1122,10 @@ class RulesConfigManager {
                     targetArray = this.zhVisionPrompts;
                 } else if (type === 'enVision') {
                     targetArray = this.enVisionPrompts;
+                } else if (type === 'video') {
+                    targetArray = this.videoPrompts;
                 } else {
-                    logger.error(`未知的提示词类型: ${type}`);
+                    logger.error(`未知的规则类型: ${type}`);
                     return;
                 }
 
@@ -779,7 +1138,7 @@ class RulesConfigManager {
                     app.extensionManager.toast.add({
                         severity: "error",
                         summary: isEdit ? "编辑失败" : "添加失败",
-                        detail: `提示词名称"${name}"已存在`,
+                        detail: `规则名称"${name}"已存在`,
                         life: 3000
                     });
                     return;
@@ -805,7 +1164,7 @@ class RulesConfigManager {
                             }
 
                             // 添加到新数组
-                            // 为不同类型的提示词设置不同的ID前缀
+                            // 为不同类型的规则设置不同的ID前缀
                             let newId;
                             if (type === 'expand') {
                                 newId = 'expand_' + name.replace(/\s+/g, '_');
@@ -820,16 +1179,20 @@ class RulesConfigManager {
                             const newPrompt = {
                                 id: newId,
                                 name: name,
+                                category: category,
+                                showIn: showIn,
                                 content: promptContent,
                                 isActive: false,
                                 order: targetArray.length // 设置顺序为当前数组长度
                             };
                             targetArray.push(newPrompt);
-                            logger.debug(`跨类型编辑提示词 | 原类型:${defaultType} | 新类型:${type} | 新ID:${newId}`);
+                            logger.debug(`跨类型编辑规则 | 原类型:${defaultType} | 新类型:${type} | 新ID:${newId}`);
                         } else {
                             // 同类型编辑，直接更新
                             const oldName = editData.name;
                             editData.name = name;
+                            editData.category = category;
+                            editData.showIn = showIn;
                             editData.content = promptContent;
 
                             // 如果名称发生了变化，则更新ID
@@ -844,12 +1207,14 @@ class RulesConfigManager {
                                     newId = 'vision_zh_' + name.replace(/\s+/g, '_');
                                 } else if (type === 'enVision') {
                                     newId = 'vision_en_' + name.replace(/\s+/g, '_');
+                                } else if (type === 'video') {
+                                    newId = 'video_' + name.replace(/\s+/g, '_');
                                 } else {
                                     newId = name;
                                 }
 
                                 editData.id = newId;
-                                logger.debug(`更新提示词ID | 类型:${type} | 旧ID:${oldId} | 新ID:${newId}`);
+                                logger.debug(`更新规则ID | 类型:${type} | 旧ID:${oldId} | 新ID:${newId}`);
                             }
                         }
                     }
@@ -863,6 +1228,8 @@ class RulesConfigManager {
                         newId = 'vision_zh_' + name.replace(/\s+/g, '_');
                     } else if (type === 'enVision') {
                         newId = 'vision_en_' + name.replace(/\s+/g, '_');
+                    } else if (type === 'video') {
+                        newId = 'video_' + name.replace(/\s+/g, '_');
                     } else {
                         newId = name;
                     }
@@ -870,6 +1237,8 @@ class RulesConfigManager {
                     const newPrompt = {
                         id: newId,
                         name: name,
+                        category: category,
+                        showIn: showIn,
                         content: promptContent,
                         isActive: false, // 默认不激活
                         order: targetArray.length // 设置顺序为当前数组长度，确保添加到末尾
@@ -877,7 +1246,7 @@ class RulesConfigManager {
                     targetArray.push(newPrompt);
 
                     // 输出调试信息
-                    logger.debug(`添加新提示词 | 类型:${type} | ID:${newId} | 顺序:${newPrompt.order} | 数组长度:${targetArray.length}`);
+                    logger.debug(`添加新规则 | 类型:${type} | ID:${newId} | 顺序:${newPrompt.order} | 数组长度:${targetArray.length}`);
                 }
 
                 // 标记为已修改
@@ -900,7 +1269,7 @@ class RulesConfigManager {
     }
 
     /**
-     * 刷新所有提示词列表
+     * 刷新所有规则列表
      * 注意：为了保持一致性，建议直接使用_renderPromptLists方法
      */
     _refreshPromptLists() {
@@ -909,9 +1278,9 @@ class RulesConfigManager {
     }
 
     /**
-     * 切换提示词激活状态
+     * 切换规则激活状态
      * @param {string} type 类型
-     * @param {string} promptId 提示词ID
+     * @param {string} promptId 规则ID
      */
     _togglePromptActive(type, promptId) {
         // 获取对应的数据数组
@@ -935,11 +1304,17 @@ class RulesConfigManager {
                 activeIdProperty = 'activeEnVisionPromptId';
                 configKey = 'vision_en';
                 break;
+            case 'video':
+                dataArray = this.videoPrompts;
+                activeIdProperty = 'activeVideoPromptId';
+                configKey = 'video';
+                break;
             default:
                 return;
         }
 
-        // 找到目标提示词
+
+        // 找到目标规则
         const targetPrompt = dataArray.find(p => p.id === promptId);
         if (!targetPrompt) return;
 
@@ -947,18 +1322,18 @@ class RulesConfigManager {
         const oldActiveId = this[activeIdProperty];
         const wasActive = targetPrompt.isActive;
 
-        // 如果当前提示词已激活，则取消激活
+        // 如果当前规则已激活，则取消激活
         if (targetPrompt.isActive) {
             targetPrompt.isActive = false;
             this[activeIdProperty] = null;
-            logger.debug(`取消激活提示词 | 类型:${type} | ID:${promptId} | 配置键:${configKey}`);
+            logger.debug(`取消激活规则 | 类型:${type} | ID:${promptId} | 配置键:${configKey}`);
         } else {
-            // 取消其他提示词的激活状态
+            // 取消其他规则的激活状态
             dataArray.forEach(p => p.isActive = false);
-            // 激活当前提示词
+            // 激活当前规则
             targetPrompt.isActive = true;
             this[activeIdProperty] = promptId;
-            logger.debug(`激活提示词 | 类型:${type} | ID:${promptId} | 配置键:${configKey} | 旧ID:${oldActiveId}`);
+            logger.debug(`激活规则 | 类型:${type} | ID:${promptId} | 配置键:${configKey} | 旧ID:${oldActiveId}`);
         }
 
         // 标记为已修改
@@ -968,22 +1343,22 @@ class RulesConfigManager {
         this._renderPromptLists();
 
         // 输出激活状态变化
-        logger.debug(`激活状态变化 | 类型:${type} | 提示词:${targetPrompt.name} | ID:${promptId} | 旧状态:${wasActive} | 新状态:${targetPrompt.isActive} | 实例属性:${this[activeIdProperty]}`);
+        logger.debug(`激活状态变化 | 类型:${type} | 规则:${targetPrompt.name} | ID:${promptId} | 旧状态:${wasActive} | 新状态:${targetPrompt.isActive} | 实例属性:${this[activeIdProperty]}`);
 
-        // 如果系统提示词对象存在，直接更新其中的active_prompts
+        // 如果系统规则对象存在，直接更新其中的active_prompts
         if (this.systemPrompts && this.systemPrompts.active_prompts) {
             const oldValue = this.systemPrompts.active_prompts[configKey];
             this.systemPrompts.active_prompts[configKey] = targetPrompt.isActive ? promptId : null;
-            logger.debug(`更新系统提示词对象 | 配置键:${configKey} | 旧值:${oldValue} | 新值:${this.systemPrompts.active_prompts[configKey]}`);
+            logger.debug(`更新系统规则对象 | 配置键:${configKey} | 旧值:${oldValue} | 新值:${this.systemPrompts.active_prompts[configKey]}`);
         }
 
-        logger.debug(`${type} 提示词状态切换: ${promptId} -> ${targetPrompt.isActive ? '激活' : '取消激活'}`);
+        logger.debug(`${type} 规则状态切换: ${promptId} -> ${targetPrompt.isActive ? '激活' : '取消激活'}`);
     }
 
     /**
-     * 删除提示词
+     * 删除规则
      * @param {string} type 类型
-     * @param {string} promptId 提示词ID
+     * @param {string} promptId 规则ID
      */
     _deletePrompt(type, promptId) {
         // 获取对应的数据数组
@@ -998,37 +1373,43 @@ class RulesConfigManager {
             case 'enVision':
                 dataArray = this.enVisionPrompts;
                 break;
+            case 'video':
+                dataArray = this.videoPrompts;
+                break;
             default:
                 return;
         }
 
-        // 找到要删除的提示词索引
+        // 找到要删除的规则索引
         const index = dataArray.findIndex(p => p.id === promptId);
         if (index === -1) return;
 
-        // 获取提示词名称用于提示
+        // 获取规则名称用于提示
         const promptName = dataArray[index].name;
 
-        // 创建确认对话框
+        // 创建确认对话框（使用危险按钮样式）
         createSettingsDialog({
-            title: '确认删除',
+            title: '<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>确认删除',
             isConfirmDialog: true,
+            dialogClassName: 'confirm-dialog',
             disableBackdropAndCloseOnClickOutside: true,
-            saveButtonText: '确认',
+            saveButtonText: '删除',
+            saveButtonIcon: 'pi-trash',
+            isDangerButton: true,
             cancelButtonText: '取消',
             renderContent: (content) => {
                 content.style.textAlign = 'center';
                 content.style.padding = '1rem';
 
                 const confirmMessage = document.createElement('p');
-                confirmMessage.textContent = `确定要删除提示词"${promptName}"吗？`;
+                confirmMessage.textContent = `确定要删除规则"${promptName}"吗？`;
                 confirmMessage.style.margin = '0';
                 confirmMessage.style.fontSize = '1rem';
 
                 content.appendChild(confirmMessage);
             },
             onSave: () => {
-                // 从数组中删除提示词
+                // 从数组中删除规则
                 dataArray.splice(index, 1);
 
                 // 标记为已修改
@@ -1042,104 +1423,149 @@ class RulesConfigManager {
         });
     }
 
+
     /**
      * 将当前配置保存到服务器
      * @returns {Promise} 保存操作的Promise
      */
     async _saveConfigToServer() {
         try {
-            // 构建系统提示词配置
+            // 获取原始版本号（从加载时保存的 systemPrompts 获取）
+            const configVersion = this.systemPrompts?.__config_version || '2.0';
+
+            // 构建系统规则配置（保留版本号）
             const systemPrompts = {
+                __config_version: configVersion,
                 expand_prompts: {},
-                translate_prompts: {
-                    ZH: {
-                        role: "system",
-                        content: "你是一名AI绘画领域的提示词翻译专家，负责将用户提供的文本内容由{src_lang}准确地翻译成{dst_lang}。要求：1.完整翻译用户提供的所有文本，不要遗漏；2.保持格式，不要改变原文的书写结构、标点符号、权重标记格式【如(文本内容:1.2)】等；2.准确原文，使用准确、地道的{dst_lang}表达词汇和AI绘画领域的专业的术语；5.直接输出翻译结果，无需注释、说明。"
-                    }
-                },
+                translate_prompts: {},
                 vision_prompts: {},
+                video_prompts: {},
                 active_prompts: {
                     expand: null,
                     vision_zh: null,
-                    vision_en: null
+                    vision_en: null,
+                    video: null
                 }
             };
 
-            // 创建一个有序的提示词列表
+            // 添加翻译规则（从 this.translatePrompts 动态构建）
+            (this.translatePrompts || []).forEach(prompt => {
+                systemPrompts.translate_prompts[prompt.id] = {
+                    role: prompt.role || 'system',
+                    content: prompt.content
+                };
+            });
+
+
+            // 创建一个有序的规则列表
             const orderedExpandPrompts = [...this.expandPrompts].sort((a, b) => a.order - b.order);
 
-            // 添加扩写提示词，并记录激活的提示词ID
+            // 添加扩写规则，并记录激活的规则ID
             orderedExpandPrompts.forEach(prompt => {
-                // 使用提示词ID作为键，而不是名称
                 systemPrompts.expand_prompts[prompt.id] = {
                     name: prompt.name,
+                    tags: prompt.tags || [],
+                    category: prompt.category || '',
+                    showIn: prompt.showIn || ['frontend', 'node'],
                     role: "system",
                     content: prompt.content
                 };
 
-                // 记录激活的提示词ID
+                // 记录激活的规则ID
                 if (prompt.isActive) {
                     systemPrompts.active_prompts.expand = prompt.id;
-                    logger.debug(`保存激活的扩写提示词ID: ${prompt.id}`);
+                    logger.debug(`保存激活的提示词优化规则ID: ${prompt.id}`);
                 }
             });
 
-            // 如果没有找到激活的扩写提示词，使用实例属性中保存的ID
+            // 如果没有找到激活的扩写规则，使用实例属性中保存的ID
             if (!systemPrompts.active_prompts.expand && this.activeExpandPromptId) {
                 systemPrompts.active_prompts.expand = this.activeExpandPromptId;
-                logger.debug(`使用实例属性中的扩写提示词ID: ${this.activeExpandPromptId}`);
+                logger.debug(`使用实例属性中的提示词优化规则ID: ${this.activeExpandPromptId}`);
             }
 
-            // 创建有序的中文和英文反推提示词列表
+            // 创建有序的中文和英文反推规则列表
             const orderedZhVisionPrompts = [...this.zhVisionPrompts].sort((a, b) => a.order - b.order);
             const orderedEnVisionPrompts = [...this.enVisionPrompts].sort((a, b) => a.order - b.order);
 
-            // 添加中文反推提示词
+            // 添加中文反推规则
             orderedZhVisionPrompts.forEach(prompt => {
                 systemPrompts.vision_prompts[prompt.id] = {
                     name: prompt.name,
+                    tags: prompt.tags || [],
+                    category: prompt.category || '',
+                    showIn: prompt.showIn || ['frontend', 'node'],
                     role: "system",
                     content: prompt.content
                 };
 
-                // 记录激活的提示词ID
+                // 记录激活的规则ID
                 if (prompt.isActive) {
                     systemPrompts.active_prompts.vision_zh = prompt.id;
-                    logger.debug(`保存激活的中文反推提示词ID: ${prompt.id}`);
+                    logger.debug(`保存激活的中文反推规则ID: ${prompt.id}`);
                 }
             });
 
-            // 如果没有找到激活的中文反推提示词，使用实例属性中保存的ID
+            // 如果没有找到激活的中文反推规则，使用实例属性中保存的ID
             if (!systemPrompts.active_prompts.vision_zh && this.activeZhVisionPromptId) {
                 systemPrompts.active_prompts.vision_zh = this.activeZhVisionPromptId;
-                logger.debug(`使用实例属性中的中文反推提示词ID: ${this.activeZhVisionPromptId}`);
+                logger.debug(`使用实例属性中的中文反推规则ID: ${this.activeZhVisionPromptId}`);
             }
 
-            // 添加英文反推提示词
+            // 添加英文反推规则
             orderedEnVisionPrompts.forEach(prompt => {
                 systemPrompts.vision_prompts[prompt.id] = {
                     name: prompt.name,
+                    tags: prompt.tags || [],
+                    category: prompt.category || '',
+                    showIn: prompt.showIn || ['frontend', 'node'],
                     role: "system",
                     content: prompt.content
                 };
 
-                // 记录激活的提示词ID
+                // 记录激活的规则ID
                 if (prompt.isActive) {
                     systemPrompts.active_prompts.vision_en = prompt.id;
-                    logger.debug(`保存激活的英文反推提示词ID: ${prompt.id}`);
+                    logger.debug(`保存激活的英文反推规则ID: ${prompt.id}`);
                 }
             });
 
-            // 如果没有找到激活的英文反推提示词，使用实例属性中保存的ID
+            // 如果没有找到激活的英文反推规则，使用实例属性中保存的ID
             if (!systemPrompts.active_prompts.vision_en && this.activeEnVisionPromptId) {
                 systemPrompts.active_prompts.vision_en = this.activeEnVisionPromptId;
-                logger.debug(`使用实例属性中的英文反推提示词ID: ${this.activeEnVisionPromptId}`);
+                logger.debug(`使用实例属性中的英文反推规则ID: ${this.activeEnVisionPromptId}`);
+            }
+
+            // 添加视频反推规则
+            const orderedVideoPrompts = [...(this.videoPrompts || [])].sort((a, b) => a.order - b.order);
+            orderedVideoPrompts.forEach(prompt => {
+                systemPrompts.video_prompts[prompt.id] = {
+                    name: prompt.name,
+                    tags: prompt.tags || [],
+                    category: prompt.category || '',
+                    showIn: prompt.showIn || ['frontend', 'node'],
+                    role: "system",
+                    content: prompt.content
+                };
+
+                // 记录激活的规则ID
+                if (prompt.isActive) {
+                    systemPrompts.active_prompts.video = prompt.id;
+                    logger.debug(`保存激活的视频反推规则ID: ${prompt.id}`);
+                }
+            });
+
+            // 如果没有找到激活的视频反推规则，使用实例属性中保存的ID
+            if (!systemPrompts.active_prompts.video && this.activeVideoPromptId) {
+                systemPrompts.active_prompts.video = this.activeVideoPromptId;
+                logger.debug(`使用实例属性中的视频反推规则ID: ${this.activeVideoPromptId}`);
             }
 
             // 输出最终的激活状态
-            logger.debug(`最终激活的提示词ID: expand=${systemPrompts.active_prompts.expand}, vision_zh=${systemPrompts.active_prompts.vision_zh}, vision_en=${systemPrompts.active_prompts.vision_en}`);
+            logger.debug(`最终激活的规则ID: expand=${systemPrompts.active_prompts.expand}, vision_zh=${systemPrompts.active_prompts.vision_zh}, vision_en=${systemPrompts.active_prompts.vision_en}, video=${systemPrompts.active_prompts.video}`);
 
-            const response = await fetch('/prompt_assistant/api/config/system_prompts', {
+
+            const response = await fetch(APIService.getApiUrl('/config/system_prompts'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(systemPrompts)
@@ -1152,7 +1578,7 @@ class RulesConfigManager {
             logger.debug('配置已成功保存到服务器');
             return true;
         } catch (error) {
-            logger.error(`保存系统提示词配置失败: ${error.message}`);
+            logger.error(`保存系统规则配置失败: ${error.message}`);
             throw error;
         }
     }
@@ -1372,6 +1798,9 @@ class RulesConfigManager {
                 break;
             case 'enVision':
                 dataArray = this.enVisionPrompts;
+                break;
+            case 'video':
+                dataArray = this.videoPrompts;
                 break;
             default:
                 return;

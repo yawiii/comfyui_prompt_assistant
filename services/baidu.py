@@ -1,12 +1,13 @@
 import random
-import aiohttp
+import httpx
 from hashlib import md5
 import json
 import time
 import re
 from typing import Optional, Dict, Any, List
 import asyncio
-from .error_util import BAIDU_ERROR_CODE_MESSAGES
+from ..utils.common import BAIDU_ERROR_CODE_MESSAGES, ProgressBar, log_complete, log_error, TASK_TRANSLATE
+from .core import HTTPClientPool
 
 class BaiduTranslateService:
     @staticmethod
@@ -56,7 +57,7 @@ class BaiduTranslateService:
         return chunks
 
     @staticmethod
-    async def translate_chunk(session, chunk, app_id, secret_key, from_lang, to_lang, retry_count=1):
+    async def translate_chunk(client, chunk, app_id, secret_key, from_lang, to_lang, retry_count=1):
         """
         异步翻译单个文本块，带重试机制
         """
@@ -78,40 +79,42 @@ class BaiduTranslateService:
                 }
                 
                 # 发送异步请求
-                async with session.post(url, data=params, timeout=10) as response:
-                    if response.status != 200:
-                        if attempt < retry_count - 1:
-                            await asyncio.sleep(1)
-                            continue
-                        raise Exception(f"百度: HTTP请求失败，状态码: {response.status}")
-
-                    result = await response.json()
+                response = await client.post(url, data=params)
                 
-                    # 检查错误
-                    if 'error_code' in result:
-                        error_code = result['error_code']
-                        error_message = BAIDU_ERROR_CODE_MESSAGES.get(
-                            error_code, 
-                            f"未知错误(错误码:{error_code})"
-                        )
-                        
-                        # 某些错误码可以重试
-                        if error_code in ['54003', '52001', '52002'] and attempt < retry_count - 1:
-                            await asyncio.sleep(1)
-                            continue
-                            
-                        raise Exception(f"百度: {error_message}")
+                if response.status_code != 200:
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(1)
+                        continue
+                    raise Exception(f"百度: HTTP请求失败，状态码: {response.status_code}")
 
-                    # 处理翻译结果
-                    if 'trans_result' in result and result['trans_result']:
-                        translated_parts = [item['dst'] for item in result['trans_result']]
-                        return '\n'.join(translated_parts)
-                    else:
-                        raise Exception("百度: 翻译结果为空")
+                result = response.json()
+            
+                # 检查错误
+                if 'error_code' in result:
+                    error_code = result['error_code']
+                    error_message = BAIDU_ERROR_CODE_MESSAGES.get(
+                        error_code, 
+                        f"未知错误(错误码:{error_code})"
+                    )
+                    
+                    # 某些错误码可以重试
+                    if error_code in ['54003', '52001', '52002'] and attempt < retry_count - 1:
+                        await asyncio.sleep(1)
+                        continue
                         
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    raise Exception(f"百度: {error_message}")
+
+                # 处理翻译结果
+                if 'trans_result' in result and result['trans_result']:
+                    translated_parts = [item['dst'] for item in result['trans_result']]
+                    return '\n'.join(translated_parts)
+                else:
+                    raise Exception("百度: 翻译结果为空")
+                    
+            except (httpx.HTTPError, asyncio.TimeoutError) as e:
                 if attempt < retry_count - 1:
-                    print(f"百度翻译请求遇到网络错误，尝试重试 ({attempt+1}/{retry_count}): {e}")
+                    from ..utils.common import WARN_PREFIX
+                    print(f"\r{WARN_PREFIX} 百度翻译请求遇到网络错误，尝试重试 ({attempt+1}/{retry_count}): {e}")
                     await asyncio.sleep(1)
                 else:
                     raise Exception(f"百度: 网络请求失败，请检查网络连接或稍后再试 ({type(e).__name__})")
@@ -127,9 +130,13 @@ class BaiduTranslateService:
         raise Exception("百度: 超过最大重试次数")
 
     @staticmethod
-    async def translate(text, from_lang='auto', to_lang='zh', request_id=None, is_auto=False):
+    async def translate(text, from_lang='auto', to_lang='zh', request_id=None, is_auto=False, cancel_event=None, task_type=None, source=None):
         """
         异步调用百度翻译API进行翻译
+        
+        参数:
+            task_type: 任务类型，用于统一日志输出
+            cancel_event: 中断事件(保持接口一致性,百度翻译暂不支持中断)
         """
         try:
             request_id = request_id or f"baidu_trans_{int(time.time())}_{random.randint(1000, 9999)}"
@@ -146,13 +153,8 @@ class BaiduTranslateService:
             if not app_id or not secret_key:
                 return {"success": False, "error": "百度: 请先配置百度翻译API的APP_ID和SECRET_KEY"}
 
-            from ..server import PREFIX, AUTO_TRANSLATE_PREFIX
-
-            # 请求阶段：蓝色
-            # 百度翻译始终使用直连模式（trust_env=False）
-            from ..server import AUTO_TRANSLATE_REQUEST_PREFIX, REQUEST_PREFIX
-            prefix = AUTO_TRANSLATE_REQUEST_PREFIX if is_auto else REQUEST_PREFIX
-            print(f"{prefix} {'工作流自动翻译' if is_auto else '翻译请求'}(直连) | 服务:百度翻译 | 请求ID:{request_id} | 原文长度:{len(text)} | 方向:{from_lang}->{to_lang}")
+            # 确定任务类型
+            task_type = task_type or TASK_TRANSLATE
 
             text_chunks = BaiduTranslateService.split_text_by_paragraphs(text)
             if not text_chunks:
@@ -160,14 +162,59 @@ class BaiduTranslateService:
 
             translated_parts = []
             
-            # 创建一个禁用SSL证书验证的连接器
-            connector = aiohttp.TCPConnector(ssl=False)
-            # 创建 aiohttp.ClientSession，并禁用代理和SSL验证
-            async with aiohttp.ClientSession(connector=connector, trust_env=False) as session:
+            # 获取HTTP客户端（复用连接池，不使用代理）
+            # 注意：百度API通常在国内直连更快，所以不配置proxy参数
+            client = HTTPClientPool.get_client(
+                provider="baidu_translate",
+                base_url="https://fanyi-api.baidu.com",
+                timeout=10.0
+            )
+            
+            # 由于HTTPClientPool.get_client返回的是AsyncClient实例，我们可以直接使用
+            # 但为了确保不使用系统代理（模拟 trust_env=False），我们需要在get_client中支持或在这里手动创建
+            # 考虑到HTTPClientPool目前的设计，我们直接手动创建一个不使用代理的客户端可能更稳妥
+            # 或者修改HTTPClientPool支持 trust_env=False。
+            # 为了保持统一，我们使用HTTPClientPool，但如果需要强制直连，我们可以传递特定的代理配置
+            
+            # 实际上，HTTPClientPool.get_client 如果没有传proxy，会使用系统代理。
+            # 百度翻译之前的实现是 trust_env=False (禁用系统代理)。
+            # 为了保持一致，我们这里手动创建一个专用的客户端，或者修改HTTPClientPool。
+            # 考虑到百度翻译的特殊性（国内直连），手动创建一个简单的客户端是最安全的迁移方式。
+            
+            # 创建统一进度条
+            from ..server import is_streaming_progress_enabled
+            pbar = ProgressBar(
+                request_id=request_id,
+                service_name="百度翻译",
+                streaming=is_streaming_progress_enabled(),
+                extra_info=f"长度:{len(text)}",
+                task_type=task_type,
+                source=source
+            )
+            
+            start_time = time.perf_counter()
+            
+            async with httpx.AsyncClient(trust_env=False, verify=False, timeout=10.0) as client:
                 for i, chunk in enumerate(text_chunks):
+                    # ---中断监控---
+                    is_interrupted = False
+                    if cancel_event is not None and cancel_event.is_set():
+                        is_interrupted = True
+                    else:
+                        try:
+                            from server import PromptServer
+                            if hasattr(PromptServer.instance, 'execution_interrupted') and PromptServer.instance.execution_interrupted:
+                                is_interrupted = True
+                        except: pass
+                    
+                    if is_interrupted:
+                        pbar.cancel(f"{WARN_PREFIX} 任务被中断 | 服务:百度翻译")
+                        return {"success": False, "error": "任务被中断", "interrupted": True}
+                    # ------------
+
                     try:
                         chunk_translation = await BaiduTranslateService.translate_chunk(
-                            session, chunk, app_id, secret_key, from_lang, to_lang
+                            client, chunk, app_id, secret_key, from_lang, to_lang
                         )
                         translated_parts.append(chunk_translation)
 
@@ -175,12 +222,14 @@ class BaiduTranslateService:
                             await asyncio.sleep(1)
 
                     except Exception as chunk_error:
+                        # 输出错误日志
+                        pbar.error(str(chunk_error))
                         return {"success": False, "error": str(chunk_error)}
             
             translated_text = '\n'.join(translated_parts)
-            # 结果阶段：绿色
-            prefix = AUTO_TRANSLATE_PREFIX if is_auto else PREFIX
-            print(f"{prefix} {'工作流翻译完成' if is_auto else '翻译完成'} | 服务:百度翻译 | 请求ID:{request_id} | 结果字符数:{len(translated_text)}")
+            # 完成阶段
+            elapsed = int((time.perf_counter() - start_time) * 1000)
+            pbar.done(char_count=len(translated_text), elapsed_ms=elapsed)
 
             return {
                 "success": True,
@@ -192,7 +241,16 @@ class BaiduTranslateService:
                 }
             }
             
+        # 关键修复：单独捕获外层 CancelledError，确保 pbar 被正确停止
+        except asyncio.CancelledError:
+            if 'pbar' in locals() and pbar:
+                pbar.cancel(f"{WARN_PREFIX} 任务被外部取消 | 服务:百度翻译")
+            return {"success": False, "error": "任务被取消", "interrupted": True}
+        
         except Exception as e:
+            # 输出错误日志
+            if 'pbar' in locals() and pbar:
+                pbar.error(str(e))
             return {"success": False, "error": str(e)}
     
     @staticmethod
@@ -201,4 +259,4 @@ class BaiduTranslateService:
         异步批量翻译文本
         """
         tasks = [BaiduTranslateService.translate(text, from_lang, to_lang) for text in texts]
-        return await asyncio.gather(*tasks) 
+        return await asyncio.gather(*tasks)

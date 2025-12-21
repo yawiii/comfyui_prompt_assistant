@@ -1,0 +1,3533 @@
+/**
+ * 设置界面样式
+ * 
+ * 样式分类说明:
+ * 1. 全局基础样式 - CSS 变量、Z-index 层级管理
+ * 2. 设置弹窗通用样式 - 所有设置模块共用的弹窗、表单、按钮等样式
+ * 3. API 配置管理器专属样式 - API 配置界面的标签页、服务卡片等组件
+ * 4. 标签管理器专属样式 - 标签管理界面的拖拽、手风琴等组件
+ * 5. 规则配置专属样式 - 提示词规则配置界面的列表、编辑器等组件
+ */
+
+/* ===================================================
+   1. 全局基础样式
+   =================================================== */
+
+/* ---Z-index 层级管理--- */
+/* 层级规划：
+ * - ComfyUI 系统弹窗：约 9000-9999
+ * - 本插件遮罩层：10199
+ * - 本插件弹窗基础层级：10200
+ * - 下拉菜单：10205
+ * - 右键菜单：10215
+ * - 多选列表框：10220
+ * - 确认气泡框：10225
+ * - Tooltip：10230（最上层）
+ */
+:root {
+    --settings-modal-z-index: 10200;
+    --settings-overlay-z-index: 10199;
+    --settings-dropdown-z-index: 10205;
+    --settings-context-menu-z-index: 10215;
+    --settings-multi-listbox-z-index: 10220;
+    --settings-confirm-popup-z-index: 10225;
+    --settings-tooltip-z-index: 10230;
+}
+
+/* ===================================================
+   2. 设置弹窗通用样式 (所有设置模块共用)
+   =================================================== */
+
+/* ---遮罩层样式--- */
+.settings-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: var(--settings-overlay-z-index);
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-modal-overlay.overlay-show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.settings-modal-overlay.overlay-hide {
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* 设置面板容器 */
+.settings-panel {
+    padding: 1rem;
+}
+
+/* 设置项组 */
+.settings-group {
+    margin-bottom: 1.5rem;
+}
+
+/* 设置项标题 */
+.settings-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--fg-color);
+}
+
+/* 服务申请链接容器样式 */
+.settings-service-links {
+    display: inline-flex;
+    align-items: center;
+    background-color: var(--p-button-secondary-background);
+    border-radius: 10px;
+    padding: 2px 8px;
+}
+
+
+/* 服务申请前缀文本样式（与链接字号一致） */
+.settings-service-prefix {
+    color: var(--p-button-text-primary-color);
+    font-size: 14px;
+    padding: 2px 4px;
+}
+
+/* 服务申请链接样式 */
+.settings-service-link {
+    display: inline-block;
+    padding: 4px 4px;
+    color: var(--p-button-text-primary-color) !important;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: normal;
+    transition: color 0.2s ease;
+}
+
+.settings-service-link:hover {
+    color: var(--p-button-text-primary-color) !important;
+    text-decoration: none !important;
+}
+
+/* 服务链接分隔符 */
+.settings-service-separator {
+    color: var(--p-button-text-primary-color);
+    opacity: 0.5;
+    padding: 0 2px;
+    user-select: none;
+}
+
+/* 设置项内容 */
+.settings-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+/* 按钮组样式 */
+.button-group {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+/* ---设置弹窗样式--- */
+.settings-modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.8);
+    /* 响应式宽度设置 */
+    width: min(90vw, 1048px);
+    min-width: 800px;
+    /* 响应式高度设置 */
+    max-height: 90vh;
+    min-height: 600px;
+    /* height: 760px; */
+    margin: 0;
+    z-index: var(--settings-modal-z-index);
+    background-color: var(--p-dialog-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: var(--p-dialog-border-radius);
+    box-shadow: var(--p-dialog-shadow);
+    color: var(--p-dialog-color);
+    /* 添加弹性布局 */
+    display: flex;
+    flex-direction: column;
+    /* 添加动画属性 */
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---二次确认对话框独立样式--- */
+/* 适用于各种需要二次确认的场景:删除、修改、更新等 */
+.settings-modal.confirm-dialog {
+    /* 使用 max-width 而不是 width,让对话框根据内容自适应宽度 */
+    width: fit-content;
+    max-width: min(90vw, 600px);
+    /* 设置合理的最小宽度,避免对话框过窄 */
+    min-width: min(400px, 80vw);
+    min-height: auto;
+    height: auto;
+}
+
+/* 确认对话框内容样式 */
+.confirm-dialog-content {
+    text-align: center;
+    padding: 2rem 1rem;
+}
+
+.confirm-dialog-content-simple {
+    text-align: center;
+    padding: 1rem;
+}
+
+.confirm-dialog-icon {
+    font-size: 48px;
+    color: var(--p-orange-500);
+    margin-bottom: 1rem;
+}
+
+.confirm-dialog-message {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.confirm-dialog-message-simple {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--p-text-color);
+}
+
+.confirm-dialog-warning {
+    margin: 0;
+    font-size: 0.9rem;
+    color: var(--p-text-muted-color);
+}
+
+/* 弹窗显示动画类 */
+.settings-modal.modal-show {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+/* 弹窗隐藏动画类 */
+.settings-modal.modal-hide {
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, -50%) scale(0.8);
+}
+
+/* 拖动时的状态 */
+.settings-modal.dragging {
+    transition: none;
+    cursor: move;
+}
+
+/* 标题栏样式 */
+.settings-modal .p-dialog-header {
+    padding: var(--p-dialog-header-padding);
+    border-bottom: 1px solid var(--p-dialog-border-color);
+
+    /* 固定头部 */
+    flex: 0 0 auto;
+    user-select: none;
+}
+
+.settings-modal .p-dialog-content {
+    padding: 10px 40px;
+    position: relative;
+    /* 作为二维码的定位参照，避免被外层裁剪 */
+    /* 内容区域自适应 */
+    flex: 1 1 auto;
+    overflow-y: auto;
+    /* 添加平滑滚动 */
+    scroll-behavior: smooth;
+    /* 优化滚动条样式 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--p-scrollpanel-bar-background) transparent;
+}
+
+/* 自定义滚动条样式 */
+.settings-modal .p-dialog-content::-webkit-scrollbar {
+    width: 10px;
+}
+
+.settings-modal .p-dialog-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.settings-modal .p-dialog-content::-webkit-scrollbar-thumb {
+    background: var(--p-scrollpanel-bar-background);
+    border-radius: 4px;
+}
+
+.settings-modal .p-dialog-content::-webkit-scrollbar-thumb:hover {
+    background: var(--p-scrollpanel-bar-background);
+}
+
+.settings-modal .p-dialog-footer {
+    padding: 10px 40px 20px 40px;
+
+
+    gap: 0.9rem;
+    /* 固定底部 */
+    flex: 0 0 auto;
+}
+
+/* 表单部分样式 */
+.settings-form-section {
+    /* margin-bottom: 2rem; */
+    /* padding-bottom: 0.5rem; */
+    /* border-bottom: 1px solid var(--p-dialog-border-color); */
+}
+
+.settings-form-section.baidu-translate-section {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+    padding: 50px 20px 80px 20px;
+    background: color-mix(in srgb, var(--secondary-background), transparent 30%);
+    border-radius: 6px;
+    /* box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.05); */
+    /* border: 1px solid var(--p-dialog-border-color); */
+}
+
+.settings-form-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    color: var(--p-text-muted-color);
+}
+
+/* 表单组样式 */
+.settings-form-group {
+    margin-bottom: 1rem;
+}
+
+/* 水平布局的表单组 */
+.settings-form-group.horizontal {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+
+.settings-form-group.horizontal>* {
+    flex: 1;
+    min-width: 0;
+    /* 防止flex项溢出 */
+}
+
+/* 调整水平布局中标签的样式 */
+.settings-form-group.horizontal .settings-form-label {
+    margin-bottom: 0.5rem;
+}
+
+/* 调整下拉选择器在水平布局中的样式 */
+.settings-form-group.horizontal .p-dropdown,
+.settings-form-group.horizontal .p-inputtext {
+    width: 100%;
+    min-width: 0;
+}
+
+/* 确保下拉选择器的容器不会被挤压 */
+.settings-form-group.horizontal .p-dropdown-container {
+    min-width: 150px;
+}
+
+/* 确保输入框容器不会被挤压 */
+.settings-form-group.horizontal .p-input-wrapper {
+    min-width: 150px;
+}
+
+.settings-form-group:last-child {
+    margin-bottom: 0;
+}
+
+.settings-form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--p-text-color);
+}
+
+/* ---浮动标签输入框样式 (PrimeVue FloatLabel variant="on")--- */
+.float-label-container {
+    position: relative;
+    width: 100%;
+}
+
+.float-label-container label {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--p-text-muted-color);
+    font-size: 1rem;
+    font-weight: 400;
+    transition: all 0.2s ease;
+    pointer-events: none;
+    background: var(--p-inputtext-background);
+    border-radius: 6px;
+    padding: 0 0.25rem;
+    z-index: 1;
+}
+
+.float-label-container input {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: var(--p-inputtext-border-radius, 6px);
+    background: var(--p-inputtext-background);
+    color: var(--p-inputtext-color);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: var(--p-inputtext-shadow);
+}
+
+.float-label-container input:focus {
+    outline: none;
+    border-color: var(--p-inputtext-focus-border-color);
+    box-shadow: var(--p-inputtext-focus-ring-shadow);
+}
+
+.float-label-container input:hover:not(:focus) {
+    border-color: var(--p-inputtext-hover-border-color);
+}
+
+/* 浮动状态 - 当输入框有值或获得焦点时 */
+.float-label-container input:focus~label,
+.float-label-container input:not(:placeholder-shown)~label {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--p-text-muted-color);
+    font-weight: 500;
+}
+
+/* 密码输入框样式 */
+.float-label-container input[type="password"] {
+    font-family: monospace;
+}
+
+/* ---浮动标签 textarea 样式--- */
+.float-label-container textarea {
+    width: 100%;
+    padding: 0.75rem;
+    font-size: 1rem;
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: var(--p-inputtext-border-radius, 6px);
+    background: var(--p-inputtext-background);
+    color: var(--p-inputtext-color);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    box-shadow: var(--p-inputtext-shadow);
+}
+
+.float-label-container textarea:focus {
+    outline: none;
+    border-color: var(--p-inputtext-focus-border-color);
+    box-shadow: var(--p-inputtext-focus-ring-shadow);
+}
+
+.float-label-container textarea:hover:not(:focus) {
+    border-color: var(--p-inputtext-hover-border-color);
+}
+
+/* textarea 的标签初始位置（因为 textarea 高度不固定，使用固定的 top 值） */
+.float-label-container textarea~label {
+    top: 1rem;
+    transform: translateY(0);
+}
+
+/* 浮动状态 - 当 textarea 有值或获得焦点时 */
+.float-label-container textarea:focus~label,
+.float-label-container textarea:not(:placeholder-shown)~label {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--p-text-muted-color);
+    font-weight: 500;
+}
+
+/* 输入框容器样式 */
+.flex-1 {
+    flex: 1;
+    width: 100%;
+}
+
+/* ---浮动标签 dropdown 样式--- */
+/* dropdown 的标签默认浮动状态（因为 dropdown 总是有值） */
+.float-label-container .pa-dropdown~label {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--p-text-muted-color);
+    font-weight: 500;
+}
+
+/* dropdown 获得焦点时的标签样式 */
+.float-label-container .pa-dropdown.p-focus~label {
+    color: var(--p-inputtext-focus-border-color);
+}
+
+/* 优化关闭按钮悬停效果 */
+.settings-modal .p-dialog-header-icon.p-dialog-header-close {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    transition: background-color 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.5rem;
+    color: var(--p-button-text-secondary-color);
+    background-color: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.settings-modal .p-dialog-header-icon.p-dialog-header-close:hover {
+    background-color: var(--p-button-text-secondary-hover-background);
+    ;
+
+}
+
+.settings-modal .p-dialog-header-icon.p-dialog-header-close .pi-times {
+    font-size: 1rem;
+
+}
+
+/* ---危险按钮样式--- */
+/* 用于删除等危险操作的按钮 */
+.p-button-danger {
+    background: var(--p-button-danger-background);
+    border-color: var(--p-button-danger-border-color);
+    color: var(--p-button-danger-color);
+}
+
+.p-button-danger:hover {
+    background: var(--p-button-danger-hover-background);
+    border-color: var(--p-button-danger-hover-border-color);
+    color: var(--p-button-danger-color);
+}
+
+.p-button-danger:active,
+.p-button-danger:focus {
+    outline: none;
+    box-shadow: 0 0 0 0.2rem var(--p-button-danger-active-border-color);
+}
+
+
+/* 独立下拉选择组件样式（不依赖 PrimeVue 全局样式） */
+/* 仅影响通过小助手创建的选择框，不改变ComfyUI内置组件 */
+.pa-dropdown {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    background: var(--p-inputtext-background);
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: 6px;
+    transition: border-color 0.2s;
+    width: 100%;
+    box-shadow: var(--p-inputtext-shadow);
+    height: 2.5rem;
+}
+
+.pa-dropdown:hover {
+    border-color: var(--p-form-field-hover-border-color);
+}
+
+.pa-dropdown.p-focus {
+    border-color: var(--p-form-field-focus-border-color);
+}
+
+.pa-dropdown .pa-dropdown-label {
+    flex: 1 1 auto;
+    border: 0 none;
+    color: var(--p-inputtext-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 1%;
+    height: 100%;
+    cursor: pointer;
+}
+
+.pa-dropdown .pa-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    color: var(--p-form-field-hover-border-color);
+    height: 100%;
+}
+
+/* 下拉面板（独立样式） */
+.pa-dropdown-panel {
+    z-index: var(--settings-dropdown-z-index);
+    background: var(--p-select-overlay-background);
+    border: 1px solid var(--p-select-overlay-border-color);
+    box-shadow: var(--p-inputtext-shadow);
+    border-radius: 6px;
+    transform-origin: center top;
+    transition: transform 0.12s cubic-bezier(0, 0, 0.2, 1),
+        opacity 0.12s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.pa-dropdown-panel.p-hidden {
+    opacity: 0;
+    transform: scaleY(0.8);
+    pointer-events: none;
+}
+
+.pa-dropdown-panel.p-enter-active {
+    opacity: 1;
+    transform: scaleY(1);
+    pointer-events: auto;
+}
+
+/* 隐藏辅助可访问性选择器（在未加载PrimeVue时也生效） */
+.p-hidden-accessible {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: -1px !important;
+}
+
+/* 面板内容滚动容器（独立样式） */
+.pa-dropdown-panel .p-dropdown-items-wrapper {
+    max-height: 240px;
+    overflow: auto;
+}
+
+
+/* 列表与选项（独立样式） */
+.pa-dropdown-panel .p-dropdown-items {
+    padding: 4px;
+    list-style: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.pa-dropdown-panel .p-dropdown-item {
+    padding: 10px 12px;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+    color: var(--p-select-option-color);
+}
+
+.pa-dropdown-panel .p-dropdown-item:hover {
+    background-color: var(--p-form-field-filled-hover-background);
+}
+
+.pa-dropdown-panel .p-dropdown-item.p-highlight {
+    background-color: var(--p-list-option-selected-focus-background);
+    color: var(--p-form-field-focus-border-color);
+}
+
+/* ---可输入下拉框（ComboBox）样式--- */
+.pa-combobox {
+    display: inline-flex;
+    align-items: center;
+}
+
+.pa-combobox-input {
+    flex: 1 1 auto;
+    border: 0 none;
+    background: transparent;
+    color: var(--p-inputtext-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 1%;
+    height: 100%;
+    padding: 0 0.75rem;
+    font-size: 1rem;
+    outline: none;
+}
+
+.pa-combobox-input::placeholder {
+    color: var(--p-text-muted-color);
+}
+
+/* ComboBox 浮动标签：输入框有值或聚焦时上浮 */
+.float-label-container .pa-combobox~label {
+    top: 0;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--p-text-muted-color);
+    font-weight: 500;
+}
+
+.float-label-container .pa-combobox.p-focus~label {
+    color: var(--p-inputtext-focus-border-color);
+}
+
+/* 水平表单布局中的宽度适配 */
+.settings-form-group.horizontal .pa-dropdown,
+.settings-form-group.horizontal .p-inputtext {
+    width: 100%;
+    min-width: 0;
+}
+
+.settings-form-group.horizontal .pa-dropdown-container {
+    min-width: 150px;
+}
+
+
+/* 选择器控件样式 */
+.settings-modal .p-dropdown:not(.pa-dropdown) {
+    display: inline-flex;
+    align-items: center;
+    position: relative;
+    cursor: pointer;
+    user-select: none;
+    background: var(--p-select-background);
+    border: 1px solid var(--p-select-border-color);
+    border-radius: var(--p-select-border-radius);
+    transition: border-color 0.2s;
+    width: 100%;
+    box-shadow: var(--p-select-shadow);
+    height: 2.5rem;
+}
+
+.settings-modal .p-dropdown:not(.pa-dropdown):hover {
+    border-color: var(--p-form-field-hover-border-color);
+}
+
+.settings-modal .p-dropdown:not(.pa-dropdown).p-focus {
+    border-color: var(--p-primary-color);
+}
+
+.settings-modal .p-dropdown-label:not(.pa-dropdown-label) {
+    flex: 1 1 auto;
+    padding: var(--p-select-padding-y) var(--p-select-padding-x);
+    padding-right: 0;
+    background: transparent;
+    border: 0 none;
+    color: var(--p-select-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 1%;
+    height: 100%;
+    cursor: pointer;
+}
+
+.settings-modal .p-dropdown-trigger:not(.pa-dropdown-trigger) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 2.5rem;
+    color: var(--p-button-text-secondary-color);
+    height: 100%;
+}
+
+/* 下拉面板动画相关样式（排除小助手下拉） */
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel),
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) {
+    z-index: var(--settings-dropdown-z-index);
+    background: var(--p-dialog-background);
+    border: 1px solid var(--p-select-overlay-border-color);
+    box-shadow: var(--p-select-overlay-shadow);
+    border-radius: var(--p-select-overlay-border-radius);
+    transform-origin: center top;
+    transition: transform 0.12s cubic-bezier(0, 0, 0.2, 1),
+        opacity 0.12s cubic-bezier(0, 0, 0.2, 1);
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel).p-hidden,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel).p-hidden {
+    opacity: 0;
+    transform: scaleY(0.8);
+    pointer-events: none;
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel).p-enter-active,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel).p-enter-active {
+    opacity: 1;
+    transform: scaleY(1);
+    pointer-events: auto;
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-items,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-items {
+    padding: var(--p-list-padding, 0.5rem 0);
+    list-style: none;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--p-select-list-gap);
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item {
+    padding: var(--p-list-item-padding, 0.75rem 1rem);
+    margin: 0;
+    cursor: pointer;
+    border-radius: var(--p-select-option-border-radius);
+    transition: background-color 0.2s;
+    color: var(--p-list-item-color);
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item:hover,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item:hover {
+    background-color: var(--p-select-option-focus-background);
+    color: var(--p-select-option-focus-color);
+}
+
+.settings-modal .p-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item.p-highlight,
+.settings-modal-dropdown-panel:not(.pa-dropdown-panel) .p-dropdown-item.p-highlight {
+    background-color: var(--p-select-option-selected-background);
+    color: var(--p-select-option-selected-color);
+}
+
+/* 响应式布局媒体查询 */
+@media screen and (max-width: 640px) {
+    .settings-modal {
+        width: 95vw;
+        min-width: 320px;
+        margin: 0.5rem;
+    }
+
+    .settings-form-group {
+        margin-bottom: 0.75rem;
+    }
+
+    .settings-form-section {
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+    }
+}
+
+/* ===================================================
+   3. API 配置管理器专属样式
+   =================================================== */
+
+/* ---标签页容器--- */
+.api-config-tabs {
+    width: 100%;
+}
+
+/* ---标签页头部--- */
+.tab-header {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--p-divider-color);
+    padding-bottom: 8px;
+    margin-bottom: 2px;
+    overflow-x: auto;
+    justify-content: flex-start;
+}
+
+/* ---标签按钮--- */
+.tab-button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    min-width: 100px;
+    /* 移除 transform 过渡，避免干扰 Sortable.js 的拖拽动画 */
+    transition: background 0.2s, color 0.2s, opacity 0.2s;
+    flex-shrink: 0;
+}
+
+.tab-button.active {
+    background: var(--p-primary-500);
+}
+
+.tab-button:hover:not(.active) {
+    background: var(--p-list-option-focus-background);
+
+}
+
+
+
+.tab-button.active .tab-title {
+    color: var(--p-button-primary-color);
+}
+
+.tab-button.active .tab-subtitle {
+    color: color-mix(in srgb, var(--p-button-primary-color), transparent 30%);
+}
+
+/* ---标签标题--- */
+.tab-title {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--p-text-color);
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* ---标签副标题--- */
+.tab-subtitle {
+    font-size: 12px;
+    color: color-mix(in srgb, var(--p-text-muted-color), transparent 30%);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+/* ---新增服务标签按钮--- */
+.service-tab-add {
+    padding: 8px 16px;
+    border: 1px dashed var(--p-divider-color);
+    background: transparent;
+    color: var(--p-text-muted-color);
+    cursor: pointer;
+    border-radius: 4px;
+    min-width: 40px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.service-tab-add:hover {
+    border-color: var(--p-primary-500);
+    color: var(--p-primary-500);
+    background: var(--p-list-option-focus-background);
+}
+
+/* ---标签内容容器--- */
+.tab-content {
+    width: 100%;
+}
+
+/* ---标签页面板--- */
+.tab-pane {
+    padding: 16px;
+    display: none;
+}
+
+.tab-pane.active {
+    display: block;
+}
+
+/* ---服务卡片--- */
+.service-card {
+    border: 1px solid var(--p-divider-color);
+    border-radius: 8px;
+    padding: 6px 20px 20px 20px;
+    background: var(--p-content-background);
+}
+
+/* 标签页容器通用样式 */
+.tab-pane {
+    padding: 16px;
+    display: none;
+}
+
+.tab-pane.active .service-sub-tabs .service-tab-button:first-child {
+    background: var(--p-primary-500);
+    color: white;
+}
+
+/* 服务商二级标签导航 */
+.service-sub-tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 2px solid var(--p-divider-color);
+    padding-bottom: 8px;
+    margin-bottom: 16px;
+    overflow-x: auto;
+}
+
+/* 服务商二级标签按钮 */
+.service-tab-button {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 8px 16px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    min-width: 120px;
+    transition: all 0.2s;
+}
+
+.service-tab-button:hover:not(.active) {
+    background: var(--p-surface-100);
+}
+
+.service-tab-button.active {
+    background: var(--p-primary-500);
+    color: white;
+}
+
+.service-tab-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--p-text-color);
+    white-space: nowrap;
+}
+
+.service-tab-button.active .service-tab-title {
+    color: white;
+}
+
+.service-tab-subtitle {
+    font-size: 12px;
+    color: var(--p-text-muted-color);
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 150px;
+}
+
+.service-tab-button.active .service-tab-subtitle {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+/* 新增服务标签按钮 */
+.service-tab-add {
+    padding: 8px 16px;
+    border: 1px dashed var(--p-divider-color);
+    background: transparent;
+    color: var(--p-text-color);
+    cursor: pointer;
+    border-radius: 4px;
+    min-width: 40px;
+    transition: all 0.2s;
+}
+
+.service-tab-add:hover {
+    border-color: var(--p-primary-500);
+    color: var(--p-primary-500);
+}
+
+/* 空状态提示 */
+.empty-state-hint {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--p-text-muted-color);
+}
+
+.empty-state-hint-small {
+    text-align: center;
+    padding: 40px;
+    color: var(--p-text-muted-color);
+}
+
+.service-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.service-card-title {
+    margin: 0;
+    color: var(--p-text-color);
+    font-size: 16px;
+}
+
+.service-card-delete-btn {
+    padding: 4px 8px;
+    border: none;
+    background: none;
+    color: var(--p-red-500);
+    cursor: pointer;
+    font-size: 12px;
+}
+
+/* ---简化版服务配置项--- */
+.service-setting-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: 16px;
+}
+
+.service-setting-item:first-child {
+    margin-left: 0;
+}
+
+.service-setting-label-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.service-setting-label {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--p-text-color);
+    white-space: nowrap;
+}
+
+.service-setting-info-icon {
+    font-size: 16px;
+    color: var(--p-text-muted-color);
+    transition: color 0.2s ease;
+}
+
+.service-setting-info-icon:hover {
+    color: var(--p-primary-500);
+}
+
+/* 配置项容器 - 右对齐 */
+.service-settings-inline {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    margin-top: 16px;
+    /* padding-top: 12px; */
+    /* border-top: 1px solid var(--p-divider-color); */
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--p-dialog-border-color);
+}
+
+/* ---开关控件（简化版）--- */
+
+.switch-wrapper {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+    margin-left: 12px;
+    flex-shrink: 0;
+}
+
+.switch-wrapper input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: 0.3s;
+    border-radius: 24px;
+}
+
+.switch-slider.checked {
+    background-color: var(--p-primary-500);
+}
+
+.switch-button {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+
+.switch-button.checked {
+    left: 23px;
+}
+
+/* ---模型配置区域--- */
+.models-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-height: 40px;
+    padding: 10px;
+    background: var(--secondary-background);
+    border-radius: 14px;
+    border: 1px dashed var(--p-divider-color);
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+/* ---模型标签--- */
+.model-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    background: var(--p-listbox-option-selected-background);
+    color: var(--p-listbox-option-selected-color);
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    user-select: none;
+    /* 移除 transform 过渡，避免干扰 Sortable.js 的拖拽动画 */
+    transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
+    border: 2px solid transparent;
+}
+
+.model-tag.default {
+    background: var(--p-primary-500);
+    color: white;
+}
+
+.model-tag.selected {
+    border-color: var(--p-primary-500);
+}
+
+.model-tag:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.model-tag-icon {
+    font-size: 12px;
+    margin-right: 6px;
+    opacity: 0.8;
+}
+
+.model-tag-name {
+    margin-right: 6px;
+}
+
+.model-tag-badge {
+    font-size: 10px;
+    padding: 2px 4px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 2px;
+    margin-right: 6px;
+}
+
+/* ---模型删除按钮--- */
+.model-delete-btn {
+    background: none;
+    border: none;
+    color: var(--p-text-muted-color);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    margin-left: 4px;
+    transition: color 0.2s;
+}
+
+.model-tag.default .model-delete-btn {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.model-delete-btn:hover {
+    color: var(--p-red-500);
+}
+
+/* ---空状态提示--- */
+.empty-hint {
+    font-size: 12px;
+    color: var(--p-text-muted-color);
+    padding: 8px;
+}
+
+/* ---高级设置--- */
+.advanced-settings {
+    margin-top: 12px;
+    padding: 12px;
+    background: #1a1a1a;
+    border-radius: 4px;
+}
+
+.advanced-settings-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+}
+
+.advanced-settings-hint {
+    font-size: 12px;
+    color: #999;
+}
+
+.settings-inputs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    opacity: 0.5;
+}
+
+.settings-inputs.enabled {
+    opacity: 1;
+}
+
+.advanced-input-group label {
+    display: block;
+    font-size: 12px;
+    color: #ccc;
+    margin-bottom: 4px;
+}
+
+.advanced-input-group input {
+    width: 100%;
+    padding: 6px 8px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 13px;
+}
+
+/* ---添加模型对话框--- */
+.model-listbox {
+    position: fixed;
+    width: 320px;
+    max-height: 400px;
+    background: var(--p-content-background);
+    border: 1px solid var(--p-divider-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 10220;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.model-listbox-search {
+    padding: 12px;
+    border-bottom: 1px solid var(--p-divider-color);
+    background: var(--p-surface-50);
+}
+
+.model-listbox-search input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--p-divider-color);
+    border-radius: 4px;
+    background: var(--p-input-background);
+    color: var(--p-text-color);
+    font-size: 14px;
+}
+
+.model-list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+.model-list-item {
+    padding: 10px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+    font-size: 14px;
+    color: var(--p-text-color);
+}
+
+.model-list-item:hover {
+    background: var(--p-primary-100);
+}
+
+.model-list-empty {
+    text-align: center;
+    padding: 24px;
+    color: var(--p-text-muted-color);
+    font-size: 13px;
+}
+
+.model-list-error {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.model-list-error-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+}
+
+.model-list-error-title {
+    font-size: 14px;
+    color: var(--p-text-color);
+    margin-bottom: 8px;
+}
+
+.model-list-error-detail {
+    font-size: 13px;
+    color: var(--p-red-500);
+}
+
+.model-listbox-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 10219;
+}
+
+/* ---新增服务对话框--- */
+.add-service-dialog {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10220;
+}
+
+.add-service-dialog-content {
+    background: var(--p-content-background);
+    border-radius: 8px;
+    padding: 24px;
+    min-width: 500px;
+    max-width: 600px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.add-service-dialog-title {
+    margin: 0 0 20px 0;
+    color: var(--p-text-color);
+}
+
+.add-service-dialog-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    margin-top: 20px;
+}
+
+.add-service-dialog-btn {
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.add-service-dialog-btn.cancel {
+    border: 1px solid var(--p-divider-color);
+    background: var(--p-content-background);
+    color: var(--p-text-color);
+}
+
+.add-service-dialog-btn.create {
+    border: none;
+    background: var(--p-primary-500);
+    color: white;
+}
+
+/* ===================================================
+   4. 标签管理器专属样式
+   =================================================== */
+
+/* ---拖拽排序相关样式--- */
+.tags-manager-container .tag_accordion.dragging,
+.tags-manager-container .tag_item.dragging {
+    opacity: 0.7;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+}
+
+.tags-manager-container .tag_accordion.drag-over-top {
+    border-top: 3px solid var(--p-primary-500) !important;
+    margin-top: -1px;
+}
+
+.tags-manager-container .tag_accordion.drag-over-bottom {
+    border-bottom: 3px solid var(--p-primary-500) !important;
+    margin-bottom: -1px;
+}
+
+.tags-manager-container .tag_item.drag-over-left {
+    border-left: 3px solid var(--p-primary-500) !important;
+    margin-left: -1px;
+}
+
+.tags-manager-container .tag_item.drag-over-right {
+    border-right: 3px solid var(--p-primary-500) !important;
+    margin-right: -1px;
+}
+
+/* 标签管理界面特有样式 */
+.tags-manager-container {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.tags-scroll-container {
+    min-height: 300px;
+}
+
+.tags-manager-container .tag_item {
+    cursor: grab;
+    user-select: none;
+}
+
+.tags-manager-container .tag_item:active {
+    cursor: grabbing;
+}
+
+.tags-manager-container .tag_accordion {
+    cursor: grab;
+    user-select: none;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.tags-manager-container .tag_accordion:active {
+    cursor: grabbing;
+}
+
+/* 标签配置管理器样式 */
+.tags-config-container {
+    width: 800px;
+    height: 600px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.tags-config-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+}
+
+/* 标签管理弹窗大小 */
+.tags-config-dialog {
+    width: 760px;
+    height: 600px;
+}
+
+.tag-management-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.tags-action-container {
+    display: flex;
+    gap: 8px;
+    background: transparent;
+}
+
+.tags-scroll-container {
+    flex: 1;
+    overflow-y: hidden;
+    overflow-x: hidden;
+    padding: 10px;
+    border: 1px solid var(--comfy-menu-secondary-bg);
+    border-radius: 8px;
+    background-color: var(--p-listbox-background);
+    margin-top: 10px;
+    margin-bottom: 10px;
+}
+
+.settings-action-btn {
+    margin: 0 4px;
+}
+
+/* 删除按钮样式 */
+
+.tag_delete_button {
+    background: none;
+    border: none;
+    color: var(--p-button-text-secondary-color);
+    cursor: pointer;
+    padding: 2px;
+    margin-left: 4px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    /* 添加最小宽度 */
+    min-height: 24px;
+    /* 添加最小高度 */
+    transition: all 0.2s;
+    opacity: 0.5;
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
+}
+
+.tag_delete_button.small {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    /* 添加最小宽度 */
+    min-height: 20px;
+    /* 添加最小高度 */
+    padding: 2px;
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
+}
+
+.tag_delete_button:hover {
+    background: rgba(255, 100, 100, 0.2);
+    color: rgba(255, 100, 100, 1);
+    opacity: 1;
+}
+
+.tag_delete_icon {
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    /* 添加最小宽度 */
+    min-height: 14px;
+    /* 添加最小高度 */
+    flex-shrink: 0;
+    /* 防止图标被压缩 */
+    display: block;
+    /* 确保图标显示为块级元素 */
+}
+
+.tag_delete_icon.small {
+    width: 12px;
+    height: 12px;
+    min-width: 12px;
+    /* 添加最小宽度 */
+    min-height: 12px;
+    /* 添加最小高度 */
+}
+
+/* 编辑按钮样式 */
+.tag_edit_button {
+    background: none;
+    border: none;
+    color: var(--p-text-muted-color);
+    cursor: pointer;
+    padding: 2px;
+    margin-left: 4px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    /* 添加最小宽度 */
+    min-height: 24px;
+    /* 添加最小高度 */
+    transition: all 0.2s;
+    opacity: 0.5;
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
+}
+
+.tag_edit_button.small {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    /* 添加最小宽度 */
+    min-height: 20px;
+    /* 添加最小高度 */
+    padding: 2px;
+    box-sizing: border-box;
+    /* 确保padding不会影响整体大小 */
+}
+
+.tag_edit_button:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: rgb(207, 215, 211);
+    opacity: 1;
+}
+
+.tag_edit_icon {
+    color: var(--p-button-text-secondary-color);
+    font-size: 12px;
+    width: 12px;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s ease;
+}
+
+.tag_edit_icon.small {
+    width: 10px;
+    height: 10px;
+}
+
+.tag_action_icon {
+    font-size: 14px;
+    width: 14px;
+    /* 添加固定宽度 */
+    height: 14px;
+    /* 添加固定高度 */
+    min-width: 14px;
+    /* 添加最小宽度 */
+    min-height: 14px;
+    /* 添加最小高度 */
+    flex-shrink: 0;
+    /* 防止图标被压缩 */
+    display: flex;
+    /* 使用flex布局确保内容居中 */
+    align-items: center;
+    justify-content: center;
+}
+
+.tag_action_icon.small {
+    font-size: 12px;
+    width: 12px;
+    /* 添加固定宽度 */
+    height: 12px;
+    /* 添加固定高度 */
+    min-width: 12px;
+    /* 添加最小宽度 */
+    min-height: 12px;
+    /* 添加最小高度 */
+}
+
+/* 确保图标在按钮中居中显示 */
+.tag_accordion_icon {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    /* 添加右对齐 */
+    gap: 4px;
+    height: 24px;
+    /* 保持固定高度 */
+    min-width: 80px;
+    /* 确保容器有足够的宽度容纳所有图标 */
+}
+
+.tag_accordion_icon .accordion_arrow_icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    min-height: 24px;
+    padding: 2px;
+    border-radius: 50%;
+    color: var(--p-button-text-secondary-color);
+    opacity: 0.5;
+    transition: all 0.2s;
+    box-sizing: border-box;
+    cursor: pointer;
+}
+
+.tag_accordion_icon .accordion_arrow_icon:hover {
+    background: rgba(255, 255, 255, 0.1);
+    opacity: 1;
+}
+
+.tag_accordion_icon .accordion_arrow_icon.rotate-180 {
+    transform: rotate(180deg);
+}
+
+/* 调整图标容器内部布局 */
+.tag_accordion_header {
+    padding: 4px 14px;
+    background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 60%);
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s ease;
+    border-radius: 6px;
+    min-height: 32px;
+    /* 确保标题栏有足够的高度 */
+}
+
+.tag_accordion_title {
+    flex: 1;
+    font-size: 12px;
+    color: var(--p-text-muted-color);
+    font-weight: 500;
+    margin-right: 8px;
+    /* 添加右边距，与图标保持距离 */
+    overflow: hidden;
+    /* 防止文本溢出 */
+    text-overflow: ellipsis;
+    /* 文本溢出时显示省略号 */
+    white-space: nowrap;
+    /* 保持单行 */
+}
+
+.tags_container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    background-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 90%);
+    border-radius: 0 0 4px 4px;
+}
+
+/* 使用popup.css中定义的标签样式，只修改cursor为grab */
+.tags-manager-container .tag_item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: grab;
+}
+
+.tags-manager-container .tag_item:active {
+    cursor: grabbing;
+}
+
+.tags-manager-container .tag_accordion {
+    position: relative;
+    margin-bottom: 8px;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    cursor: default;
+    /* 标签管理页面中使用默认指针 */
+    user-select: none;
+}
+
+.tags-manager-container .tag_accordion:hover {
+    border-color: color-mix(in srgb, var(--comfy-menu-secondary-bg), transparent 60%);
+}
+
+.tags-manager-container .tag_accordion_header {
+    cursor: grab;
+    /* 只有标题部分可拖动 */
+}
+
+.tags-manager-container .tag_accordion_header:active {
+    cursor: grabbing;
+    /* 拖动时显示抓取光标 */
+}
+
+/* 拖拽状态样式 */
+.tags-manager-container .tag_accordion.dragging,
+.tags-manager-container .tag_item.dragging {
+    opacity: 0.5;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.2);
+    z-index: 10;
+}
+
+/* 新增拖拽动画样式 */
+.tags-manager-container .tag-dragging,
+.tags-manager-container .category-dragging {
+    opacity: 0.6 !important;
+    /* 移除缩放效果 */
+    /* transform: scale(1.02); */
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2) !important;
+    z-index: 100 !important;
+}
+
+/* 拖拽过程中的目标位置指示器 */
+.tag-ghost,
+.category-ghost {
+    opacity: 0.3;
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 85%) !important;
+    border: 1px dashed var(--p-primary-500) !important;
+}
+
+/* 被选中的元素样式 */
+.tag-chosen,
+.category-chosen {
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 90%);
+    border-color: var(--p-primary-500) !important;
+}
+
+/* 拖拽时的样式 */
+.tag-drag,
+.category-drag {
+    opacity: 0.8;
+}
+
+/* 添加元素移动的过渡动画 */
+.tags-manager-container .tag_accordion,
+.tags-manager-container .tag_item {
+    /* 移除transform过渡效果 */
+    transition: opacity 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+/* 拖拽排序时的位置指示 */
+.sortable-fallback {
+    opacity: 0 !important;
+}
+
+.sortable-ghost {
+    position: relative;
+}
+
+.sortable-ghost::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: color-mix(in srgb, var(--p-primary-500), transparent 90%);
+    border: 1px dashed var(--p-primary-500);
+    z-index: -1;
+    border-radius: 4px;
+}
+
+.tags-manager-container .tag_accordion.drag-over-top {
+    border-top: 2px solid var(--p-primary-500);
+}
+
+.tags-manager-container .tag_accordion.drag-over-bottom {
+    border-bottom: 2px solid var(--p-primary-500);
+}
+
+.tags-manager-container .tag_item.drag-over-left {
+    border-left: 2px solid var(--p-primary-500);
+}
+
+.tags-manager-container .tag_item.drag-over-right {
+    border-right: 2px solid var(--p-primary-500);
+}
+
+/* tooltip处理 */
+.has-tooltip {
+    position: relative;
+}
+
+/* 标签容器布局 */
+.tags-manager-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+/* 弹窗表单内容样式 */
+.dialog-form-content {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+}
+
+.dialog-form-content .settings-form-group {
+    margin-bottom: 4rem;
+}
+
+.dialog-form-content .settings-form-group:last-child {
+    margin-bottom: 0;
+}
+
+/* 确保下拉框和输入框有合适的宽度和间距 */
+.dialog-form-content .p-dropdown,
+.dialog-form-content .p-inputtext {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* 规则配置表单样式 */
+.rules-config-form {
+    max-height: 70vh;
+    overflow: auto;
+}
+
+.settings-form-textarea {
+    width: 100%;
+    min-height: 150px;
+    height: calc(100% - 30px);
+    resize: vertical;
+    font-family: monospace;
+    padding: 8px;
+    background-color: var(--p-inputtext-background);
+    border: 1px solid var(--p-inputtext-border-color);
+    border-radius: 4px;
+    color: var(--p-inputtext-color);
+    flex-grow: 1;
+}
+
+/* API配置表单样式 */
+.api-config-form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+/* 刷新按钮样式 */
+.settings-refresh-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 14px;
+    color: var(--p-message-info-color);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.settings-refresh-button:hover {
+    background-color: color-mix(in srgb, var(--p-message-info-color), transparent 90%);
+}
+
+.refresh-icon {
+    width: 16px;
+    height: 16px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+/* 表单分组的间距 */
+.settings-form-section {
+    margin-bottom: 10px;
+}
+
+/* 表单输入组件的样式 */
+.settings-form-group {
+    margin-bottom: 26px;
+}
+
+/* 水平布局组的样式 */
+.settings-form-group.horizontal {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.settings-form-group.horizontal>div {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* 添加标签管理部分的样式 */
+.tag-management-section {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.tags-config-container {
+    width: 100%;
+    max-width: 100%;
+}
+
+.tags-config-form {
+    width: 100%;
+    max-width: 100%;
+}
+
+.tags-manager-container {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.tags-scroll-container {
+    width: 100%;
+    max-width: 100%;
+    max-height: 500px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* 确保标签手风琴适配宽度 */
+.tag_accordion {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+/* 确保标签项目不会导致容器溢出 */
+.tags_container {
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tag_item {
+    max-width: calc(100% - 16px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* 修复弹窗样式，确保内容不会溢出 */
+.settings-dialog {
+    max-width: 90vw;
+    width: 600px;
+}
+
+.settings-dialog-content {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.settings-form-section {
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+
+/* ===================================================
+   5. 规则配置专属样式
+   =================================================== */
+
+/* ---提示词列表样式--- */
+.prompt-list-container {
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    background-color: var(--p-listbox-background);
+    height: 300px;
+    min-height: 300px;
+    max-height: 300px;
+    display: flex;
+    flex-direction: column;
+}
+
+/* 反推规则配置列表特定高度 */
+.vision-prompt-list-container {
+    height: 300px;
+    min-height: 300px;
+    max-height: 300px;
+}
+
+/* 视频反推规则配置列表固定高度 */
+.video-prompt-list-container {
+    height: 300px;
+    min-height: 300px;
+    max-height: 300px;
+}
+
+.prompt-list-header {
+    display: flex;
+    background-color: var(--p-button-secondary-background);
+    border-bottom: 1px solid var(--p-dialog-border-color);
+    font-weight: 600;
+    color: var(--p-dialog-header-color);
+    flex-shrink: 0;
+    position: relative;
+}
+
+.prompt-scroll-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.prompt-list-row {
+    display: flex;
+    border-bottom: 1px solid var(--p-dialog-border-color);
+    transition: background-color 0.2s ease;
+    cursor: move;
+}
+
+.prompt-list-row:hover {
+    background-color: var(--p-select-option-focus-background);
+}
+
+.prompt-list-row:last-child {
+    border-bottom: none;
+}
+
+.prompt-list-row.sortable-ghost {
+    opacity: 0.4;
+}
+
+.prompt-list-row.sortable-chosen {
+    background-color: var(--p-select-option-selected-background);
+}
+
+.prompt-list-cell {
+    padding: 8px 12px;
+    border-right: 1px solid var(--p-dialog-border-color);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    position: relative;
+}
+
+.prompt-list-cell:last-child {
+    border-right: none;
+}
+
+.prompt-list-cell.status-cell {
+    width: 80px;
+    flex-shrink: 0;
+    text-align: center;
+    cursor: pointer;
+}
+
+.prompt-list-cell.name-cell {
+    width: 150px;
+    flex-shrink: 0;
+    min-width: 100px;
+}
+
+.prompt-list-cell.content-cell {
+    flex: 1;
+    min-width: 200px;
+}
+
+.prompt-list-cell.action-cell {
+    width: 100px;
+    flex-shrink: 0;
+    text-align: center;
+    min-width: 80px;
+}
+
+/* 列宽调整手柄 */
+.column-resizer {
+    position: absolute;
+    top: 0;
+    right: -2px;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+    z-index: 10;
+    transition: background-color 0.2s ease;
+}
+
+.column-resizer:hover {
+    background: var(--p-primary-500);
+    opacity: 0.8;
+}
+
+.column-resizer.resizing {
+    background: var(--p-primary-500);
+    opacity: 1;
+}
+
+/* 确保列单元格有相对定位以支持绝对定位的调整手柄 */
+.prompt-list-cell {
+    position: relative;
+}
+
+/* 拖拽时的全局样式 */
+body.column-resizing {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+body.column-resizing * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+/* 拖拽排序样式 */
+.sortable-drag {
+    opacity: 0.8;
+    transform: rotate(2deg);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.prompt-list-row.sortable-ghost {
+    opacity: 0.4;
+    background: var(--p-primary-100);
+}
+
+.prompt-list-row.sortable-chosen {
+    background: var(--p-select-option-selected-background);
+    border: 1px solid var(--p-primary-500);
+}
+
+/* 状态图标样式优化 */
+.status-cell .active-status {
+    color: var(--p-green-500);
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.status-cell .inactive-status {
+    color: var(--p-surface-400);
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.status-cell:hover .active-status {
+    color: var(--p-green-600);
+}
+
+.status-cell:hover .inactive-status {
+    color: var(--p-primary-500);
+}
+
+/* 状态图标样式 */
+.active-status {
+    color: var(--p-message-success-color);
+}
+
+.inactive-status {
+    color: var(--p-message-warn-color);
+}
+
+/* 操作按钮样式 */
+.prompt-action-btn {
+    background: transparent;
+    border: none;
+    padding: 4px 6px;
+    margin: 0 2px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    color: var(--p-button-text-secondary-color);
+}
+
+.prompt-action-btn:hover {
+    background-color: var(--p-button-secondary-background);
+}
+
+.prompt-action-btn.toggle-btn:hover {
+    color: var(--p-message-info-color);
+}
+
+.prompt-action-btn.edit-btn:hover {
+    color: var(--p-message-warn-color);
+}
+
+.prompt-action-btn.delete-btn:hover {
+    color: var(--p-message-error-color);
+}
+
+/* 规则配置对话框样式 */
+.rules-config-form {
+    max-height: 70vh;
+    overflow-y: auto;
+}
+
+.settings-modal.prompt-edit-dialog {
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.rules-config-content {
+    padding: 20px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.rules-section {
+    margin-bottom: 30px;
+}
+
+.rules-section h3 {
+    margin: 0 0 15px 0;
+    color: var(--p-dialog-header-color);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* 标签页样式 */
+.settings-modal .popup_tabs_container {
+    margin-bottom: 10px;
+}
+
+.settings-modal .popup_tabs_scroll {
+    overflow-x: hidden;
+    overflow-y: hidden;
+}
+
+.settings-modal .popup_tabs {
+    display: flex;
+    border-bottom: 1px solid var(--p-dialog-border-color);
+    min-width: max-content;
+}
+
+.settings-modal .popup_tab {
+    padding: 8px 16px;
+    background: var(--p-button-secondary-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-bottom: none;
+    cursor: pointer;
+    margin-right: 2px;
+    border-radius: 4px 4px 0 0;
+    white-space: nowrap;
+    font-size: 13px;
+    color: var(--p-button-text-secondary-color);
+    transition: background-color 0.2s ease;
+}
+
+.settings-modal .popup_tab.active {
+    background: var(--p-dialog-background);
+    border-bottom: 1px solid var(--p-dialog-background);
+    margin-bottom: -1px;
+    font-weight: 500;
+    color: var(--p-dialog-header-color);
+}
+
+.settings-modal .popup_tab:hover {
+    background: var(--p-select-option-focus-background);
+}
+
+.settings-modal .popup_tab.active:hover {
+    background: var(--p-dialog-background);
+}
+
+.settings-modal .popup_tab_content {
+    display: none;
+}
+
+.settings-modal .popup_tab_content.active {
+    display: block;
+}
+
+/* 对话框按钮样式 */
+.dialog-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--p-dialog-border-color);
+}
+
+.dialog-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s ease;
+}
+
+.dialog-btn.primary {
+    background: var(--p-button-primary-background);
+    color: var(--p-button-primary-color);
+}
+
+.dialog-btn.primary:hover {
+    background: var(--p-button-primary-hover-background);
+}
+
+.dialog-btn.secondary {
+    background: var(--p-button-secondary-background);
+    color: var(--p-button-secondary-color);
+}
+
+.dialog-btn.secondary:hover {
+    background: var(--p-button-secondary-hover-background);
+}
+
+
+
+/* 微信徽标悬浮二维码 */
+.pa-wechat-badge {
+    position: relative;
+    /* 作为二维码定位参照 */
+    /* 让绝对定位参照到内容容器 */
+}
+
+.pa-wechat-qr {
+    position: absolute;
+    opacity: 0;
+    visibility: hidden;
+    top: calc(100% + 6px);
+    right: 10px;
+    /* 向左偏移，避免被滚动条遮挡 */
+    transform: none;
+    background: var(--p-dialog-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: var(--p-dialog-shadow);
+    z-index: calc(var(--settings-modal-z-index) + 5);
+    /* 淡入淡出动画 */
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.pa-wechat-badge:hover .pa-wechat-qr {
+    opacity: 1;
+    visibility: visible;
+}
+
+.pa-wechat-qr-img {
+    display: block;
+    width: 256px;
+    height: auto;
+}
+
+/* ===================================================
+   7. 确认气泡框组件样式 (ConfirmPopup)
+   =================================================== */
+
+/* ---气泡框容器--- */
+.pa-confirm-popup {
+    position: fixed;
+    z-index: var(--settings-confirm-popup-z-index);
+    opacity: 0;
+    transform: scale(0.9);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    box-shadow: var(--p-dialog-shadow);
+}
+
+.pa-confirm-popup.pa-confirm-popup-show {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.pa-confirm-popup.pa-confirm-popup-hide {
+    opacity: 0;
+    transform: scale(0.9);
+}
+
+/* ---气泡框内容--- */
+.pa-confirm-popup-content {
+    background: var(--p-dialog-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    padding: 18px 30px 16px 30px;
+    min-width: 280px;
+    max-width: 600px;
+}
+
+/* 当包含模型参数表单时,使用更大的宽度 */
+.pa-confirm-popup-content:has(.model-params-form) {
+    min-width: 480px;
+}
+
+/* ---消息区域--- */
+.pa-confirm-popup-message {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 30px;
+    color: var(--p-dialog-color);
+    font-size: 16px;
+    line-height: 1.5;
+}
+
+.pa-confirm-popup-icon {
+    font-size: 18px;
+    color: var(--p-primary-500);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* ---分割线--- */
+.pa-confirm-popup-divider {
+    height: 1px;
+    background-color: var(--p-dialog-border-color);
+    margin: 0 -30px 16px -30px;
+}
+
+/* ---表单区域--- */
+.pa-confirm-popup-form {
+    margin-bottom: 16px;
+}
+
+.pa-confirm-popup-form .settings-form-group {
+    margin-bottom: 12px;
+}
+
+.pa-confirm-popup-form .settings-form-group:last-child {
+    margin-bottom: 0;
+}
+
+/* ---模型参数表单横向布局--- */
+.pa-confirm-popup-form.model-params-form {
+    display: flex;
+    gap: 20px;
+    flex-wrap: nowrap;
+}
+
+.pa-confirm-popup-form.model-params-form .settings-form-group {
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+/* ---数字输入框样式优化--- */
+.pa-confirm-popup-form input[type="number"] {
+    /* 隐藏默认的上下箭头 */
+    appearance: textfield;
+    -moz-appearance: textfield;
+}
+
+.pa-confirm-popup-form input[type="number"]::-webkit-outer-spin-button,
+.pa-confirm-popup-form input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* 自定义数字输入框的上下调整按钮容器 */
+.pa-confirm-popup-form .float-label-container {
+    position: relative;
+}
+
+/* 为数字输入框添加自定义上下按钮 */
+.pa-confirm-popup-form input[type="number"] {
+    padding-right: 20px;
+}
+
+/* 数字输入框按钮组 */
+.pa-confirm-popup-form .number-input-buttons {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    height: calc(100% - 2px);
+    width: 24px;
+    z-index: 2;
+}
+
+.pa-confirm-popup-form .number-input-button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--p-inputtext-background);
+    border: none;
+    border-left: 1px solid var(--p-inputtext-border-color);
+    color: var(--p-text-muted-color);
+    cursor: pointer;
+    font-size: 9px;
+    transition: all 0.2s;
+    user-select: none;
+    padding: 0;
+}
+
+.pa-confirm-popup-form .number-input-button:first-child {
+    border-top-right-radius: 5px;
+    border-bottom: 0.5px solid var(--p-inputtext-border-color);
+}
+
+.pa-confirm-popup-form .number-input-button:last-child {
+    border-bottom-right-radius: 5px;
+}
+
+.pa-confirm-popup-form .number-input-button:hover {
+    background: var(--p-inputtext-hover-border-color);
+    color: var(--p-inputtext-color);
+}
+
+.pa-confirm-popup-form .number-input-button:active {
+    background: var(--p-primary-500);
+    color: white;
+}
+
+.pa-confirm-popup-form .number-input-button .pi {
+    font-size: 9px;
+}
+
+
+
+/* ---底部按钮组--- */
+.pa-confirm-popup-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.pa-confirm-popup-footer .p-button-sm {
+    padding: 6px 16px;
+    font-size: 13px;
+}
+
+/* ---箭头指针--- */
+.pa-confirm-popup-arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+
+/* 箭头在顶部（气泡在下方） */
+.pa-confirm-popup-arrow.top {
+    top: -8px;
+    border-width: 0 8px 8px 8px;
+    border-color: transparent transparent var(--p-dialog-border-color) transparent;
+}
+
+.pa-confirm-popup-arrow.top::after {
+    content: '';
+    position: absolute;
+    top: 1px;
+    left: -8px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 8px 8px 8px;
+    border-color: transparent transparent var(--p-dialog-background) transparent;
+}
+
+/* 箭头在底部（气泡在上方） */
+.pa-confirm-popup-arrow.bottom {
+    bottom: -8px;
+    border-width: 8px 8px 0 8px;
+    border-color: var(--p-dialog-border-color) transparent transparent transparent;
+}
+
+.pa-confirm-popup-arrow.bottom::after {
+    content: '';
+    position: absolute;
+    top: -9px;
+    left: -8px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 8px 8px 0 8px;
+    border-color: var(--p-dialog-background) transparent transparent transparent;
+}
+
+/* 箭头在左侧（气泡在右方） */
+.pa-confirm-popup-arrow.left {
+    left: -8px;
+    border-width: 8px 8px 8px 0;
+    border-color: transparent var(--p-dialog-border-color) transparent transparent;
+}
+
+.pa-confirm-popup-arrow.left::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 1px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 8px 8px 8px 0;
+    border-color: transparent var(--p-dialog-background) transparent transparent;
+}
+
+/* 箭头在右侧（气泡在左方） */
+.pa-confirm-popup-arrow.right {
+    right: -8px;
+    border-width: 8px 0 8px 8px;
+    border-color: transparent transparent transparent var(--p-dialog-border-color);
+}
+
+.pa-confirm-popup-arrow.right::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -9px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 8px 0 8px 8px;
+    border-color: transparent transparent transparent var(--p-dialog-background);
+}
+
+/* ===================================================
+   8. 右键菜单组件样式 (ContextMenu)
+   =================================================== */
+
+/* ---菜单容器--- */
+.pa-context-menu {
+    position: fixed;
+    z-index: var(--settings-context-menu-z-index);
+    background: var(--p-dialog-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    min-width: 180px;
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.pa-context-menu.pa-context-menu-show {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.pa-context-menu.pa-context-menu-hide {
+    opacity: 0;
+    transform: scale(0.95);
+}
+
+/* ---菜单列表--- */
+.pa-context-menu-list {
+    list-style: none;
+    margin: 0;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+/* ---菜单项--- */
+.pa-context-menu-item {
+    position: relative;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.pa-context-menu-item:hover {
+    background-color: var(--p-form-field-filled-hover-background);
+}
+
+.pa-context-menu-item.disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.pa-context-menu-item.disabled:hover {
+    background-color: transparent;
+}
+
+/* ---菜单项内容--- */
+.pa-context-menu-item-content {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--p-dialog-color);
+}
+
+/* ---菜单项图标--- */
+.pa-context-menu-item-icon {
+    font-size: 16px;
+    color: var(--p-text-muted-color);
+    width: 20px;
+    text-align: center;
+}
+
+.pa-context-menu-item:hover .pa-context-menu-item-icon {
+    color: var(--p-primary-500);
+}
+
+/* ---菜单项文本--- */
+.pa-context-menu-item-label {
+    font-size: 14px;
+    white-space: nowrap;
+}
+
+/* ---分隔符--- */
+.pa-context-menu-separator {
+    height: 1px;
+    background-color: var(--p-dialog-border-color);
+    margin: 4px 8px;
+    list-style: none;
+}
+
+/* ---危险操作样式（如删除）--- */
+.pa-context-menu-item.danger .pa-context-menu-item-icon {
+    color: var(--p-red-500);
+}
+
+.pa-context-menu-item.danger:hover .pa-context-menu-item-icon {
+    color: var(--p-red-600);
+}
+
+/* ===================================================
+   9. 分体按钮组件样式 (Split Button)
+   =================================================== */
+
+/* ---分体按钮容器--- */
+.p-splitbutton-compact {
+    font-size: 0.85rem;
+}
+
+/* ---分体按钮通用样式--- */
+.p-splitbutton-compact .p-button {
+    padding: 0.25rem 0.5rem;
+    white-space: nowrap;
+}
+
+/* ---分体按钮 Primary 主题--- */
+.p-splitbutton-compact.p-splitbutton-primary .p-button {
+    background: var(--p-button-primary-background);
+    color: var(--p-button-primary-color);
+    border-color: var(--p-button-primary-border-color);
+}
+
+.p-splitbutton-compact.p-splitbutton-primary .p-button:hover:not(:disabled) {
+    background: var(--p-button-primary-hover-background);
+    color: var(--p-button-primary-hover-color);
+    border-color: var(--p-button-primary-hover-border-color);
+}
+
+/* ---下拉触发按钮--- */
+.p-splitbutton-compact .p-splitbutton-menubutton {
+    width: 23px;
+    padding: 0.25rem 0.3rem;
+}
+
+/* ---按钮文本和图标--- */
+.p-splitbutton-compact .p-button-label {
+    font-size: 0.85rem;
+}
+
+.p-splitbutton-compact .p-button-icon {
+    font-size: 10px;
+}
+
+.pa-context-menu-item.danger:hover {
+    background-color: rgba(239, 68, 68, 0.1);
+}
+
+/* ---选中状态样式（用于下拉选择器）--- */
+.pa-context-menu-item.active {
+    background-color: var(--p-form-field-filled-hover-background);
+}
+
+.pa-context-menu-item.active .pa-context-menu-item-label {
+    color: var(--p-primary-color);
+    font-weight: 500;
+}
+
+.pa-context-menu-item.active::before {
+    content: '\2713';
+    position: absolute;
+    left: 8px;
+    color: var(--p-primary-color);
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.pa-context-menu-item.active .pa-context-menu-item-content {
+    padding-left: 24px;
+}
+
+
+/* ===================================================
+   9. Tooltip 提示框组件样式
+   =================================================== */
+
+/* ---Tooltip 容器--- */
+.pa-tooltip {
+    position: fixed;
+    z-index: var(--settings-tooltip-z-index);
+    background: var(--p-surface-700);
+    /* border: 1px solid var(--p-dialog-border-color); */
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--p-surface-0);
+    max-width: 300px;
+    word-wrap: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+    pointer-events: none;
+}
+
+.pa-tooltip.pa-tooltip-show {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* ---Tooltip 箭头--- */
+.pa-tooltip-arrow {
+    position: absolute;
+    width: 0;
+    height: 0;
+    border-style: solid;
+}
+
+/* 箭头在顶部（tooltip 在下方） */
+.pa-tooltip-arrow.top {
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 0 6px 6px 6px;
+    border-color: transparent transparent var(--p-surface-700) transparent;
+}
+
+/* 箭头在底部（tooltip 在上方） */
+.pa-tooltip-arrow.bottom {
+    bottom: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-width: 6px 6px 0 6px;
+    border-color: var(--p-surface-700) transparent transparent transparent;
+}
+
+/* 箭头在左侧（tooltip 在右方） */
+.pa-tooltip-arrow.left {
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 6px 6px 0;
+    border-color: transparent var(--p-surface-700) transparent transparent;
+}
+
+/* 箭头在右侧（tooltip 在左方） */
+.pa-tooltip-arrow.right {
+    right: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    border-width: 6px 0 6px 6px;
+    border-color: transparent transparent transparent var(--p-surface-700);
+}
+
+/* ===================================================
+   多选 Listbox 组件样式
+   =================================================== */
+
+/* ---Listbox 容器--- */
+.pa-multi-listbox {
+    position: fixed;
+    width: 320px;
+    max-height: 400px;
+    background: var(--p-content-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 6px;
+    box-shadow: var(--p-dialog-shadow);
+    z-index: var(--settings-multi-listbox-z-index);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* ---搜索框容器--- */
+.pa-multi-listbox-search {
+    padding: 12px;
+    border-bottom: 1px solid var(--p-dialog-border-color);
+    background: var(--p-inputtext-background);
+}
+
+.pa-multi-listbox-search-input {
+    width: 100%;
+    padding: 8px 12px;
+    padding-right: 32px;
+    border: 1px solid var(--p-divider-color);
+    border-radius: 4px;
+    background: var(--p-input-background);
+    color: var(--p-text-color);
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.pa-multi-listbox-search-input:focus {
+    border-color: var(--p-primary-color);
+}
+
+.pa-multi-listbox-search-input::placeholder {
+    color: var(--p-text-muted-color);
+}
+
+/* 搜索图标 */
+.pa-multi-listbox-search-wrapper {
+    position: relative;
+}
+
+.pa-multi-listbox-search-icon {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--p-text-muted-color);
+    font-size: 14px;
+    pointer-events: none;
+}
+
+/* ---列表容器--- */
+.pa-multi-listbox-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px;
+}
+
+/* ---列表项--- */
+.pa-multi-listbox-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: background 0.2s;
+    font-size: 14px;
+    color: var(--p-text-color);
+    user-select: none;
+}
+
+.pa-multi-listbox-item:hover {
+    background: var(--p-list-option-focus-background);
+}
+
+.pa-multi-listbox-item.selected {
+    background: var(--p-dialog-border-color);
+}
+
+/* ---复选框样式（参考 PrimeVue Checkbox）--- */
+.pa-multi-listbox-checkbox {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border: 2px solid var(--p-checkbox-border-color, var(--p-inputtext-border-color));
+    border-radius: var(--p-checkbox-border-radius, 4px);
+    margin-right: 12px;
+    position: relative;
+    transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s;
+    background: var(--p-checkbox-background, var(--p-inputtext-background));
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 悬停状态 */
+.pa-multi-listbox-item:hover .pa-multi-listbox-checkbox {
+    border-color: var(--p-checkbox-hover-border-color, var(--p-primary-color));
+}
+
+/* 选中状态 */
+.pa-multi-listbox-item.selected .pa-multi-listbox-checkbox {
+    background: var(--p-checkbox-checked-background, var(--p-primary-color));
+    border-color: var(--p-checkbox-checked-border-color, var(--p-primary-color));
+}
+
+/* 选中状态悬停 */
+.pa-multi-listbox-item.selected:hover .pa-multi-listbox-checkbox {
+    background: var(--p-checkbox-checked-hover-background, var(--p-primary-hover-color));
+    border-color: var(--p-checkbox-checked-hover-border-color, var(--p-primary-hover-color));
+}
+
+/* 复选框勾选标记（使用 PrimeVue 的图标方式） */
+.pa-multi-listbox-checkbox::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 5px;
+    height: 9px;
+    border: solid var(--p-checkbox-icon-checked-color, #ffffff);
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -60%) rotate(45deg) scale(0);
+    transform-origin: center;
+    transition: transform 0.2s cubic-bezier(0.12, 0.4, 0.29, 1.46);
+}
+
+/* 选中时显示勾选标记，带有弹性动画 */
+.pa-multi-listbox-item.selected .pa-multi-listbox-checkbox::after {
+    transform: translate(-50%, -60%) rotate(45deg) scale(1);
+}
+
+/* ---空状态提示--- */
+.pa-multi-listbox-empty {
+    text-align: center;
+    padding: 24px;
+    color: var(--p-text-muted-color);
+    font-size: 13px;
+}
+
+/* ---底部按钮栏--- */
+.pa-multi-listbox-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-top: 1px solid var(--p-divider-color);
+    background: var(--p-dialog-border-color);
+}
+
+.pa-multi-listbox-count {
+    font-size: 13px;
+    color: var(--p-text-muted-color);
+}
+
+.pa-multi-listbox-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* ===================================================
+   6. API 配置管理器 - 底部警告信息
+   =================================================== */
+
+/* API 管理器主窗口 - 设置最小高度以适应内容 */
+.settings-modal.api-config-dialog-v2 {
+    min-height: 760px;
+}
+
+/* 调整通知区域位置到最底部 */
+.api-config-dialog-v2 .p-dialog-notice {
+    order: 10;
+    padding: 0;
+    margin-top: auto;
+    width: 100%;
+}
+
+/* 警告信息样式 */
+.api-config-warning {
+    font-size: 12px;
+    color: color-mix(in srgb, var(--p-text-muted-color), transparent 50%);
+    padding: 10px 20px;
+    line-height: 1.6;
+    text-align: center;
+    border-top: 1px solid var(--p-divider-color);
+    /* background: var(--p-dialog-background); */
+}
+
+/* ===================================================
+   7. 规则配置管理器 - 标签页样式
+   =================================================== */
+
+/* ---规则配置标签页容器--- */
+.rules-config-tabs {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* ---标签页头部包装容器--- */
+.rules-config-tabs .tab-header-wrapper {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 2px solid var(--p-divider-color);
+    padding-bottom: 8px;
+    margin-bottom: 2px;
+    padding: 1px 16px 0px 16px;
+}
+
+/* ---调整规则配置中的标签头部样式--- */
+.rules-config-tabs .tab-header {
+    border-bottom: none;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    flex: 1;
+}
+
+/* ---添加按钮容器--- */
+.tab-header-actions {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* ---标签添加按钮样式--- */
+.tab-add-button {
+    white-space: nowrap;
+}
+
+/* ---规则面板提示信息--- */
+.rule-pane-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    background: var(--p-message-info-background);
+    border: 1px solid var(--p-message-info-border-color);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--p-message-info-color);
+}
+
+.rule-pane-notice .pi {
+    font-size: 14px;
+}
+
+/* ---翻译规则行样式（无状态列）--- */
+.prompt-list-row.translate-row {
+    display: flex;
+    align-items: stretch;
+}
+
+.prompt-list-row.translate-row .name-cell {
+    flex: 0 0 120px;
+}
+
+.prompt-list-row.translate-row .content-cell {
+    flex: 1;
+}
+
+.prompt-list-row.translate-row .action-cell {
+    flex: 0 0 60px;
+    justify-content: center;
+}
+
+/* ===================================================
+   8. 标签管理器专属样式 (新版)
+   =================================================== */
+
+/* CSV 选择器 */
+.popup_csv_selector {
+    padding: 4px 8px;
+    border-radius: 4px;
+    /* border: 0px solid var(--p-inputtext-border-color); */
+    background-color: var(--p-inputtext-background);
+    color: var(--p-inputtext-color);
+    outline: none;
+    font-size: 14px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.popup_csv_selector:hover {
+    border-color: var(--p-primary-color);
+}
+
+/* 标签右键菜单 */
+.tag_context_menu {
+    background-color: var(--p-content-background);
+    border: 1px solid var(--p-dialog-border-color);
+    border-radius: 6px;
+    padding: 4px 0;
+    box-shadow: var(--p-dialog-shadow);
+    z-index: var(--settings-context-menu-z-index);
+    min-width: 140px;
+}
+
+.tag_context_menu_item {
+    padding: 8px 16px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--p-text-color);
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.tag_context_menu_item:hover {
+    background-color: var(--p-list-option-focus-background);
+}
+
+.tag_context_menu_item i {
+    font-size: 14px;
+}
+
+/* 收藏标签页空状态提示 */
+.empty_tip {
+    padding: 24px;
+    text-align: center;
+    color: var(--p-text-muted-color);
+    font-size: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ===================================================
+   9. 节点帮助翻译器样式 (Node Help Translator)
+   =================================================== */
+
+/* ---翻译文本样式--- */
+.pa-trans-text {
+    display: block;
+    margin-top: 4px;
+    padding-top: 4px;
+    color: var(--p-primary-color, #a855f7);
+    font-size: 0.9em;
+    line-height: 1.4;
+    opacity: 0.9;
+}
+
+li .pa-trans-text {
+    margin-top: 2px;
+}
+
+td .pa-trans-text,
+th .pa-trans-text {
+    font-size: 0.85em;
+    margin-top: 2px;
+}
+
+/* ---分隔符样式--- */
+.pa-trans-separator {
+    height: 4px;
+    margin-top: 2px;
+}
+
+/* ---翻译按钮容器--- */
+.pa-help-translate-btn-container {
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    margin-right: 8px;
+    gap: 12px;
+}
+
+/* ---翻译按钮图标动画--- */
+.pa-translate-btn-icon {
+    font-size: 1.1em;
+}
+
+.pa-translate-btn-icon.spinning {
+    animation: pa-spin 1s linear infinite;
+}
+
+@keyframes pa-spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ---视图模式控制--- */
+.pa-mode-bilingual .pa-original-content {
+    display: inline;
+}
+
+.pa-mode-bilingual .pa-trans-separator {
+    display: block;
+    height: 4px;
+    margin-top: 2px;
+}
+
+.pa-mode-bilingual .pa-trans-text {
+    display: block;
+}
+
+.pa-mode-translation-only .pa-original-content {
+    display: none;
+}
+
+.pa-mode-translation-only .pa-trans-separator {
+    display: none;
+}
+
+.pa-mode-translation-only .pa-trans-text {
+    display: block;
+    margin-top: 0;
+}
+
+.pa-mode-original-only .pa-original-content {
+    display: inline;
+}
+
+.pa-mode-original-only .pa-trans-separator {
+    display: none;
+}
+
+.pa-mode-original-only .pa-trans-text {
+    display: none;
+}
+
+/* ====================== SelectButton 组件样式 ====================== */
+
+/* SelectButton 组容器 */
+.pa-select-button-group {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.pa-select-button-group .pa-form-label {
+    margin-bottom: 0;
+    flex-shrink: 0;
+}
+
+/* 按钮容器 */
+.pa-select-button {
+    display: inline-flex;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    /* 深色背景 */
+    padding: 6px;
+    /* 内边距产生间距效果 */
+    gap: 6px;
+    /* 按钮项之间的间距 */
+    border: 1px solid color-mix(in srgb, var(--p-inputtext-border-color), transparent 50%);
+
+
+}
+
+/* 按钮项 */
+.pa-select-button-item {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    border: none;
+    outline: none;
+    background: #222;
+    /* 默认深色背景 */
+    color: var(--p-text-muted-color);
+    border-radius: 6px;
+    /* 独立圆角 */
+    font-size: 0.875rem;
+    font-family: inherit;
+    transition: background-color 0.2s, color 0.2s, box-shadow 0.2s;
+    position: relative;
+    box-shadow: var(--p-dialog-shadow);
+}
+
+/* 移除分隔线 */
+.pa-select-button-item:not(:last-child)::after {
+    display: none;
+}
+
+/* 悬停状态 */
+.pa-select-button-item:not(.pa-select-button-item-disabled):hover {
+    background: var(--p-button-primary-hover-background);
+    color: var(--p-button-primary-color);
+}
+
+/* 选中状态 */
+.pa-select-button-item-selected {
+    background: var(--p-primary-500) !important;
+    color: var(--p-button-primary-color);
+}
+
+.pa-select-button-item-selected::after {
+    display: none;
+}
+
+.pa-select-button-item-selected+.pa-select-button-item::after {
+    display: none;
+}
+
+/* 禁用状态 */
+.pa-select-button-item-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* 按钮图标 */
+.pa-select-button-icon {
+    font-size: 0.875rem;
+}
+
+/* 按钮标签 */
+.pa-select-button-label {
+    white-space: nowrap;
+}
+
+/* 小尺寸 */
+.pa-select-button-small .pa-select-button-item {
+    padding: 0.4rem 1.0rem;
+    font-size: 0.75rem;
+}
+
+.pa-select-button-small .pa-select-button-icon {
+    font-size: 0.75rem;
+}
+
+/* 大尺寸 */
+.pa-select-button-large .pa-select-button-item {
+    padding: 0.625rem 1rem;
+    font-size: 1rem;
+}
+
+.pa-select-button-large .pa-select-button-icon {
+    font-size: 1rem;
+}

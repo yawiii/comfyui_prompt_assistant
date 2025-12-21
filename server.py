@@ -4,39 +4,32 @@ from .config_manager import config_manager
 from .services.baidu import BaiduTranslateService
 from .services.llm import LLMService
 from .services.vlm import VisionService
-from .services.model_list import ModelListService
+from .services.model_list import get_models_from_service
 import base64
 import json
 import traceback
 import asyncio
+import folder_paths
+import imageio
+import os
+from .utils.common import (
+    # 统一日志前缀（从 common.py 导入）
+    PREFIX, ERROR_PREFIX, PROCESS_PREFIX,
+    REQUEST_PREFIX, WARN_PREFIX,
+    _ANSI_CLEAR_EOL,
+    # 统一日志函数和常量
+    log_prepare, TASK_TRANSLATE, TASK_EXPAND, TASK_IMAGE_CAPTION, SOURCE_FRONTEND
+)
+from .utils.video import extract_frame_by_index, get_video_frame_info
 
-# 定义颜色常量
-GREEN = "\033[32m"
-RED = "\033[31m"
-YELLOW = "\033[33m"
-BLUE = "\033[34m"
-RESET = "\033[0m"
+# 动态获取插件目录名作为路由前缀的基础
+# 这样即使文件夹被重命名（例如加上 comfyui- 前缀），路由也会自动适配
+NODE_DIR_NAME = os.path.basename(os.path.dirname(os.path.abspath(__file__)))
+API_PREFIX = f'/{NODE_DIR_NAME}/api'
 
-# 统一日志前缀（按阶段上色）
-# 绿色：结果阶段
-PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"
-AUTO_TRANSLATE_PREFIX = f"{GREEN}[✨PromptAssistant-自动翻译]{RESET}"
-# 红色：错误
-ERROR_PREFIX = f"{RED}[✨PromptAssistant-错误]{RESET}"
-# 黄色：过程阶段（创建客户端/调用API等）
-PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"
-# 蓝色：发起请求阶段
-REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"
-# 黄色：告警保持不变
-WARN_PREFIX = f"{YELLOW}[✨PromptAssistant-警告]{RESET}"
-# 蓝色：自动翻译的“请求阶段”前缀（仅用于请求日志着色）
-AUTO_TRANSLATE_REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant-自动翻译]{RESET}"
-
-# 定义路由前缀，确保与前端请求匹配
-API_PREFIX = '/prompt_assistant/api'
+# print(f"{PREFIX} API 路由已挂载至: {API_PREFIX}")
 
 # 在服务器初始化时验证激活提示词
-# print(f"{PREFIX} 正在验证激活提示词配置...")
 config_manager.validate_and_fix_active_prompts()
 # 新增：在启动时补全模型提供商及参数
 config_manager.validate_and_fix_model_params()
@@ -45,6 +38,13 @@ config_manager.validate_and_fix_model_params()
 
 # 用于跟踪正在进行的异步任务
 ACTIVE_TASKS = {}
+
+# ---流式进度设置（运行时状态，实时生效无需重启）---
+_streaming_progress_enabled = True
+
+def is_streaming_progress_enabled():
+    """供其他模块查询当前流式进度设置"""
+    return _streaming_progress_enabled
 
 # 不再使用RouteTableDef
 # routes = web.RouteTableDef()
@@ -69,6 +69,25 @@ def get_result_text(result):
         return result['text']
     return ''
 
+# ---流式进度设置API---
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/settings/streaming_progress')
+async def get_streaming_progress_setting(request):
+    """获取流式进度设置"""
+    return web.json_response({"enabled": _streaming_progress_enabled})
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/settings/streaming_progress')
+async def set_streaming_progress_setting(request):
+    """设置流式进度（实时生效，不需重启）"""
+    global _streaming_progress_enabled
+    try:
+        data = await request.json()
+        _streaming_progress_enabled = data.get("enabled", True)
+        return web.json_response({"success": True})
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 更新流式进度设置失败: {str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
 @PromptServer.instance.routes.get(f'{API_PREFIX}/config/baidu_translate')
 async def get_baidu_translate_config(request):
     """获取百度翻译配置"""
@@ -87,6 +106,577 @@ async def get_vision_config(request):
     config = config_manager.get_vision_config()
     return web.json_response(config)
 
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/translate')
+async def get_translate_config(request):
+    """获取翻译服务配置"""
+    config = config_manager.get_translate_config()
+    return web.json_response(config)
+
+# --- 方案A：API Key掩码接口（安全版本）---
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/llm/masked')
+async def get_llm_config_masked(request):
+    """
+    获取LLM配置（API Key掩码版本）
+    用于前端显示，不暴露完整API Key
+    """
+    config = config_manager.get_llm_config_masked()
+    return web.json_response(config)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/vision/masked')
+async def get_vision_config_masked(request):
+    """
+    获取视觉模型配置（API Key掩码版本）
+    用于前端显示，不暴露完整API Key
+    """
+    config = config_manager.get_vision_config_masked()
+    return web.json_response(config)
+
+# --- 服务商管理API接口（v2.0）---
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/services')
+async def get_services_list(request):
+    """
+    获取所有服务商列表
+    返回所有已配置的服务商（不包含敏感信息）
+    """
+    try:
+        services = config_manager.get_all_services()
+        
+        # 移除敏感信息
+        safe_services = []
+        for service in services:
+            safe_service = service.copy()
+            # 移除加密的API Key
+            if 'api_key_encrypted' in safe_service:
+                del safe_service['api_key_encrypted']
+            # 添加掩码信息
+            safe_service['has_api_key'] = bool(service.get('api_key_encrypted'))
+            safe_services.append(safe_service)
+        
+        return web.json_response({
+            "success": True,
+            "services": safe_services
+        })
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取服务商列表失败 | 错误:{str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/services/{{service_id}}/masked')
+async def get_service_masked(request):
+    """
+    获取指定服务商配置（掩码版本）
+    API Key为掩码，不暴露完整值
+    """
+    try:
+        service_id = request.match_info['service_id']
+        service = config_manager.get_service(service_id)
+        
+        if not service:
+            return web.json_response({
+                "success": False,
+                "error": f"服务商不存在: {service_id}"
+            }, status=404)
+        
+        # 掩码处理
+        safe_service = service.copy()
+        if 'api_key_encrypted' in safe_service:
+            # 解密后掩码
+            from .utils.common import SimpleEncryption
+            api_key = SimpleEncryption.decrypt(safe_service['api_key_encrypted'])
+            safe_service['api_key_masked'] = config_manager.mask_api_key(api_key)
+            safe_service['api_key_exists'] = bool(api_key)
+            del safe_service['api_key_encrypted']
+        
+        return web.json_response({
+            "success": True,
+            "service": safe_service
+        })
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取服务商配置失败 | 错误:{str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/services')
+async def create_service(request):
+    """
+    创建新的服务商
+    请求体: {type, name, base_url, api_key, description}
+    """
+    try:
+        data = await request.json()
+        
+        service_type = data.get('type')
+        name = data.get('name')
+        base_url = data.get('base_url', '')
+        api_key = data.get('api_key', '')
+        description = data.get('description', '')
+        
+        if not service_type or not name:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数: type 和 name"
+            }, status=400)
+        
+        service_id = config_manager.create_service(
+            service_type=service_type,
+            name=name,
+            base_url=base_url,
+            api_key=api_key,
+            description=description
+        )
+        
+        if service_id:
+            print(f"{PREFIX} 成功创建服务商 | 名称:{name} | ID:{service_id}")
+            return web.json_response({
+                "success": True,
+                "service_id": service_id
+            })
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "创建服务商失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 创建服务商异常 | 错误:{str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.put(f'{API_PREFIX}/services/{{service_id}}')
+async def update_service_config(request):
+    """
+    更新服务商配置
+    请求体: {name, description, base_url, api_key, auto_unload}
+    注意：仅在payload包含api_key时才更新API Key
+    """
+    try:
+        service_id = request.match_info['service_id']
+        data = await request.json()
+        
+        # 更新服务商
+        success = config_manager.update_service(service_id, **data)
+        
+        if success:
+            print(f"{PREFIX} 成功更新服务商 | ID:{service_id}")
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "更新服务商失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 更新服务商异常 | 错误:{str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.delete(f'{API_PREFIX}/services/{{service_id}}')
+async def delete_service(request):
+    """
+    删除服务商
+    """
+    try:
+        service_id = request.match_info['service_id']
+        
+        success = config_manager.delete_service(service_id)
+        
+        if success:
+            print(f"{PREFIX} 成功删除服务商 | ID:{service_id}")
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "删除服务商失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 删除服务商异常 | 错误:{str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/services/{{service_id}}')
+async def get_service(request):
+    """
+    获取指定服务商的配置
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        service = config_manager.get_service(service_id)
+        
+        if service:
+            return web.json_response({
+                "success": True,
+                "service": service
+            })
+        else:
+            return web.json_response({
+                "success": False,
+                "error": f"服务商不存在: {service_id}"
+            }, status=404)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取服务商失败: {str(e)}")
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/services/current')
+async def set_current_service_api(request):
+    """
+    设置当前使用的服务商
+    请求体: {service_type: 'llm'|'vlm'|'translate', service_id: string, model_name?: string}
+    """
+    try:
+        data = await request.json()
+        service_type = data.get('service_type')
+        service_id = data.get('service_id')
+        model_name = data.get('model_name')  # 可选参数
+        
+        # 验证参数
+        if not service_type or not service_id:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必要参数: service_type 和 service_id"
+            }, status=400)
+        
+        if service_type not in ['llm', 'vlm', 'translate']:
+            return web.json_response({
+                "success": False,
+                "error": "service_type必须为'llm'、'vlm'或'translate'"
+            }, status=400)
+        
+        # 调用配置管理器设置服务(现在支持model_name参数)
+        success = config_manager.set_current_service(service_type, service_id, model_name)
+        
+        if success:
+            return web.json_response({
+                "success": True,
+                "message": f"成功设置当前{service_type}服务"
+            })
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "设置服务失败"
+            }, status=500)
+    except Exception as e:
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+# ====================== 模型列表API ======================
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/services/{{service_id}}/models')
+async def get_service_models(request):
+    """
+    获取服务商的模型列表
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        
+        # 获取服务商信息
+        service = config_manager.get_service(service_id)
+        
+        if not service:
+            print(f"{ERROR_PREFIX} 服务商不存在 | ID:{service_id}")
+            return web.json_response({
+                "success": False,
+                "error": f"服务商不存在: {service_id}"
+            }, status=404)
+        
+        base_url = service.get('base_url', '')
+        api_key = service.get('api_key', '')
+        service_type = service.get('type', 'openai_compatible')
+        
+        # 特殊处理:智谱服务强制使用 'zhipu' 类型(使用预定义列表)
+        if service_id == 'zhipu':
+            service_type = 'zhipu'
+        
+        # 获取模型列表（新格式包含success和error）
+        result = get_models_from_service(base_url, api_key, service_type)
+        
+        # 检查是否成功
+        if not result.get('success'):
+            error_msg = result.get('error', '未知错误')
+            print(f"{ERROR_PREFIX} 获取模型列表失败: {error_msg}")
+            return web.json_response({
+                "success": False,
+                "error": error_msg
+            }, status=400)
+        
+        models = result.get('models', {'llm': [], 'vlm': []})
+        
+        # 统计模型总数(LLM和VLM列表相同,只统计一个)
+        total_count = len(models.get('llm', []))
+        print(f"{PREFIX} 模型列表获取成功 | 共 {total_count} 个模型")
+        
+        return web.json_response({
+            "success": True,
+            "models": models
+        })
+        
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取模型列表失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/services/{{service_id}}/models')
+async def add_model_to_service_api(request):
+    """
+    添加模型到服务商
+    
+    Request body: {model_type, model_name, temperature, top_p, max_tokens}
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        data = await request.json()
+        
+        model_type = data.get('model_type')
+        model_name = data.get('model_name')
+        temperature = data.get('temperature', 0.7)
+        top_p = data.get('top_p', 0.9)
+        max_tokens = data.get('max_tokens', 512)
+        
+        if not model_type or not model_name:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数: model_type 和 model_name"
+            }, status=400)
+        
+        success = config_manager.add_model_to_service(
+            service_id, model_type, model_name, temperature, top_p, max_tokens
+        )
+        
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "添加模型失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 添加模型失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.delete(f'{API_PREFIX}/services/{{service_id}}/models/{{model_type}}/{{model_name}}')
+async def delete_model_from_service_api(request):
+    """
+    从服务商删除模型
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        model_type = request.match_info.get('model_type')
+        model_name = request.match_info.get('model_name')
+        
+        success = config_manager.delete_model_from_service(service_id, model_type, model_name)
+        
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "删除模型失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 删除模型失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.put(f'{API_PREFIX}/services/{{service_id}}/models/default')
+async def set_default_model_api(request):
+    """
+    设置默认模型
+    
+    Request body: {model_type, model_name}
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        data = await request.json()
+        
+        model_type = data.get('model_type')
+        model_name = data.get('model_name')
+        
+        if not model_type or not model_name:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数: model_type 和 model_name"
+            }, status=400)
+        
+        success = config_manager.set_default_model(service_id, model_type, model_name)
+        
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "设置默认模型失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 设置默认模型失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.put(f'{API_PREFIX}/services/{{service_id}}/models/order')
+async def update_model_order_api(request):
+    """
+    更新模型顺序
+    
+    Request body: {model_type, model_names}
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        data = await request.json()
+        
+        model_type = data.get('model_type')
+        model_names = data.get('model_names', [])
+        
+        if not model_type:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数: model_type"
+            }, status=400)
+        
+        success = config_manager.update_model_order(service_id, model_type, model_names)
+        
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "更新模型顺序失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 更新模型顺序失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.put(f'{API_PREFIX}/services/order')
+async def update_services_order_api(request):
+    """
+    更新服务商顺序
+
+    Request body: {service_ids: ['id1', 'id2', ...]}
+    """
+    try:
+        data = await request.json()
+        service_ids = data.get('service_ids', [])
+
+        if not service_ids:
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数: service_ids"
+            }, status=400)
+
+        success = config_manager.update_services_order(service_ids)
+
+        if success:
+            print(f"{PREFIX} 成功更新服务商顺序 | 顺序:{', '.join(service_ids)}")
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "更新服务商顺序失败"
+            }, status=500)
+
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 更新服务商顺序失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+@PromptServer.instance.routes.put(f'{API_PREFIX}/services/{{service_id}}/models/parameter')
+async def update_model_parameter_api(request):
+    """
+    更新模型参数
+    
+    Request body: {model_type, model_name, parameter_name, parameter_value}
+    """
+    try:
+        service_id = request.match_info.get('service_id')
+        data = await request.json()
+        
+        model_type = data.get('model_type')
+        model_name = data.get('model_name')
+        parameter_name = data.get('parameter_name')
+        parameter_value = data.get('parameter_value')
+        
+        if not all([model_type, model_name, parameter_name, parameter_value is not None]):
+            return web.json_response({
+                "success": False,
+                "error": "缺少必需参数"
+            }, status=400)
+        
+        success = config_manager.update_model_parameter(
+            service_id, model_type, model_name, parameter_name, parameter_value
+        )
+        
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({
+                "success": False,
+                "error": "更新模型参数失败"
+            }, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 更新模型参数失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return web.json_response({
+            "success": False,
+            "error": str(e)
+        }, status=500)
+
+
+# ====================== 配置API ======================
+
 @PromptServer.instance.routes.get(f'{API_PREFIX}/config/system_prompts')
 async def get_system_prompts_config(request):
     """获取系统提示词配置"""
@@ -101,28 +691,15 @@ async def get_default_system_prompts_config(request):
 
 @PromptServer.instance.routes.get(f'{API_PREFIX}/config/tags')
 async def get_tags_config(request):
-    """获取标签配置"""
+    """获取标签配置（已废弃，tags.json 已被 CSV 系统替代）"""
     try:
-        import os
-        import json
-        
-        # 获取标签配置文件路径
-        tags_file_path = os.path.join(os.path.dirname(__file__), "config", "tags.json")
-        
-        # 检查文件是否存在
-        if not os.path.exists(tags_file_path):
-            print(f"{ERROR_PREFIX} 标签配置文件不存在 | 路径:{tags_file_path}")
-            return web.json_response({"error": "标签配置文件不存在"}, status=404)
-        
-        # 读取文件内容
-        with open(tags_file_path, "r", encoding="utf-8") as f:
-            tags_data = json.load(f)
-            
-        # print(f"{PREFIX} 标签配置文件加载成功")
-        return web.json_response(tags_data)
+        # tags.json 已废弃，返回空对象
+        return web.json_response({})
     except Exception as e:
         print(f"{ERROR_PREFIX} 标签配置加载失败 | 错误:{str(e)}")
         return web.json_response({"error": str(e)}, status=500)
+
+
 
 @PromptServer.instance.routes.get(f'{API_PREFIX}/config/tags_user')
 async def get_user_tags_config(request):
@@ -131,7 +708,6 @@ async def get_user_tags_config(request):
         # 使用配置管理器加载用户标签
         user_tags = config_manager.load_user_tags()
         
-        # print(f"{PREFIX} 用户标签配置文件加载成功")
         return web.json_response(user_tags)
     except Exception as e:
         print(f"{ERROR_PREFIX} 用户标签配置加载失败 | 错误:{str(e)}")
@@ -148,22 +724,138 @@ async def update_user_tags_config(request):
             print(f"{ERROR_PREFIX} 用户标签配置更新失败 | 错误:参数格式错误")
             return web.json_response({"error": "参数格式错误"}, status=400)
         
-        # 保存用户标签数据
-        import os
-        import json
+        # 使用配置管理器保存用户标签
+        success = config_manager.save_user_tags(data)
         
-        # 获取用户标签配置文件路径
-        tags_user_file_path = os.path.join(os.path.dirname(__file__), "config", "tags_user.json")
-        
-        # 保存数据到文件
-        with open(tags_user_file_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        # print(f"{PREFIX} 用户标签配置文件更新成功")
-        return web.json_response({"success": True})
+        if success:
+            return web.json_response({"success": True})
+        else:
+            print(f"{ERROR_PREFIX} 用户标签配置文件更新失败")
+            return web.json_response({"error": "保存失败"}, status=500)
+            
     except Exception as e:
         print(f"{ERROR_PREFIX} 用户标签配置更新异常 | 错误:{str(e)}")
         return web.json_response({"error": str(e)}, status=500)
+
+# ---CSV标签系统API---
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/tags_files')
+async def get_tags_files(request):
+    """获取tags目录下所有CSV文件列表"""
+    try:
+        files = config_manager.list_tags_files()
+        return web.json_response({"success": True, "files": files})
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取标签文件列表失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/tags_csv/{{filename}}')
+async def get_tags_csv(request):
+    """加载指定CSV标签文件"""
+    try:
+        filename = request.match_info.get('filename')
+        if not filename or not filename.endswith('.csv'):
+            return web.json_response({"success": False, "error": "无效的文件名"}, status=400)
+        
+        tags_data = config_manager.load_tags_csv(filename)
+        return web.json_response({"success": True, "data": tags_data})
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 加载CSV标签文件失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/config/tags_csv/{{filename}}')
+async def save_tags_csv(request):
+    """保存标签数据到指定CSV文件"""
+    try:
+        filename = request.match_info.get('filename')
+        if not filename or not filename.endswith('.csv'):
+            return web.json_response({"success": False, "error": "无效的文件名"}, status=400)
+        
+        data = await request.json()
+        tags_data = data.get('data', {})
+        
+        success = config_manager.save_tags_csv(filename, tags_data)
+        if success:
+            print(f"{PREFIX} CSV标签文件保存成功 | 文件:{filename}")
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "保存失败"}, status=500)
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 保存CSV标签文件失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/tags_selection')
+async def get_tags_selection(request):
+    """获取用户选择的标签文件"""
+    try:
+        selection = config_manager.get_tags_selection()
+        return web.json_response({"success": True, "selection": selection})
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取标签选择失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/config/tags_selection')
+async def save_tags_selection(request):
+    """保存用户选择的标签文件"""
+    try:
+        data = await request.json()
+        success = config_manager.save_tags_selection(data)
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "保存失败"}, status=500)
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 保存标签选择失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.get(f'{API_PREFIX}/config/favorites')
+async def get_favorites(request):
+    """获取收藏列表"""
+    try:
+        favorites = config_manager.get_favorites()
+        return web.json_response({"success": True, "favorites": favorites})
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 获取收藏列表失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/config/favorites/add')
+async def add_favorite(request):
+    """添加单个收藏"""
+    try:
+        data = await request.json()
+        tag_value = data.get('tag_value')
+        tag_name = data.get('tag_name')  # 获取可选的标签名称
+        category = data.get('category')  # 获取可选的分类（来源文件）
+        if not tag_value:
+            return web.json_response({"success": False, "error": "缺少tag_value参数"}, status=400)
+        
+        success = config_manager.add_favorite(tag_value, tag_name, category)
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "添加失败"}, status=500)
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 添加收藏失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/config/favorites/remove')
+async def remove_favorite(request):
+    """移除单个收藏"""
+    try:
+        data = await request.json()
+        tag_value = data.get('tag_value')
+        category = data.get('category')
+        if not tag_value:
+            return web.json_response({"success": False, "error": "缺少tag_value参数"}, status=400)
+        
+        success = config_manager.remove_favorite(tag_value, category)
+        if success:
+            return web.json_response({"success": True})
+        else:
+            return web.json_response({"success": False, "error": "移除失败"}, status=500)
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 移除收藏失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 @PromptServer.instance.routes.post(f'{API_PREFIX}/config/baidu_translate')
 async def update_baidu_translate_config(request):
@@ -241,7 +933,7 @@ async def update_system_prompts_config(request):
             expand_id = active_prompts.get('expand', '无')
             vision_zh_id = active_prompts.get('vision_zh', '无')
             vision_en_id = active_prompts.get('vision_en', '无')
-            print(f"{PREFIX} 系统提示词配置更新成功 | 激活提示词: 扩写={expand_id}, 中文反推={vision_zh_id}, 英文反推={vision_en_id}")
+            print(f"{PREFIX} 系统提示词配置更新成功 | 激活提示词: 提示词优化={expand_id}, 中文反推={vision_zh_id}, 英文反推={vision_en_id}")
             
             # 在更新配置后验证激活提示词
             print(f"{PREFIX} 正在验证更新后的激活提示词配置...")
@@ -420,7 +1112,7 @@ async def cancel_request(request):
             task.cancel()
             # 从字典中移除已取消的任务
             del ACTIVE_TASKS[request_id]
-            print(f"{PREFIX} 请求已取消 | ID:{request_id}")
+            print(f"{WARN_PREFIX} 请求已取消 | ID:{request_id}")
             return web.json_response({"success": True, "message": "请求已取消"})
         else:
             return web.json_response({"success": False, "error": "未找到活动任务或任务已完成"}, status=404)
@@ -450,21 +1142,21 @@ async def baidu_translate(request):
         if not request_id:
             return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
         
+        # 准备阶段日志
+        from_lang_name = {"auto": "自动", "zh": "中文", "en": "英文"}.get(from_lang, from_lang)
+        to_lang_name = {"zh": "中文", "en": "英文"}.get(to_lang, to_lang)
+        log_prepare(TASK_TRANSLATE, request_id, SOURCE_FRONTEND, "百度翻译", None, None, {"方向": f"{from_lang_name}→{to_lang_name}", "长度": len(text)})
+        
         # 创建并注册任务
-        task = asyncio.create_task(BaiduTranslateService.translate(text, from_lang, to_lang, request_id, is_auto))
+        task = asyncio.create_task(BaiduTranslateService.translate(text, from_lang, to_lang, request_id, is_auto, task_type=TASK_TRANSLATE, source=SOURCE_FRONTEND))
         ACTIVE_TASKS[request_id] = task
         
         result = await task
         
-        # 如果发生错误，输出详细错误信息
-        if not result.get('success'):
-            if not result.get('cancelled', False):
-                error_msg = result.get('error', '未知错误')
-                print(f"{ERROR_PREFIX} 百度翻译请求失败 | 请求ID:{request_id} | 错误:{error_msg}")
-            
+        # 服务层已输出错误日志，此处不再重复输出
         return web.json_response(result)
     except asyncio.CancelledError:
-        print(f"{PREFIX} 百度翻译任务被取消 | ID:{request_id}")
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} 百度翻译任务被取消 | ID:{request_id}", flush=True)
         return web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
     except Exception as e:
         error_msg = str(e)
@@ -486,26 +1178,52 @@ async def llm_expand(request):
         if not request_id:
             return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
 
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        llm_config = config_manager.get_llm_config()
+        if llm_config:
+            provider = llm_config.get('provider', 'ollama')
+            model = llm_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            # 检查disable_thinking配置
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            # 获取规则名称
+            system_prompts = config_manager.get_system_prompts()
+            rule_name = "未知规则"
+            if system_prompts and 'expand_prompts' in system_prompts:
+                active_prompt_id = system_prompts.get('active_prompts', {}).get('expand', 'expand_default')
+                if active_prompt_id in system_prompts['expand_prompts']:
+                    rule_name = system_prompts['expand_prompts'][active_prompt_id].get('name', active_prompt_id)
+                elif len(system_prompts['expand_prompts']) > 0:
+                    # 如果激活的ID不存在,使用第一个
+                    first_id = list(system_prompts['expand_prompts'].keys())[0]
+                    rule_name = system_prompts['expand_prompts'][first_id].get('name', first_id)
+            
+            log_prepare(TASK_EXPAND, request_id, SOURCE_FRONTEND, provider_display, model_display, rule_name, {"长度": len(prompt)})
+
         # 创建并注册任务
-        task = asyncio.create_task(LLMService.expand_prompt(prompt, request_id))
+        task = asyncio.create_task(LLMService.expand_prompt(prompt, request_id, task_type=TASK_EXPAND, source=SOURCE_FRONTEND))
         ACTIVE_TASKS[request_id] = task
         
         result = await task
         
-        # 如果发生错误，输出详细错误信息
-        if not result.get('success'):
-            # 检查是否是用户取消
-            if not result.get('cancelled', False):
-                error_msg = result.get('error', '未知错误')
-                print(f"{ERROR_PREFIX} LLM扩写请求失败 | 请求ID:{request_id} | 错误:{error_msg}")
-        
+        # 服务层已输出错误日志，此处不再重复输出
         return web.json_response(result)
     except asyncio.CancelledError:
-        print(f"{PREFIX} LLM扩写任务被取消 | ID:{request_id}")
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} LLM提示词优化任务被取消 | ID:{request_id}", flush=True)
         return web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
     except Exception as e:
         error_msg = str(e)
-        print(f"{ERROR_PREFIX} LLM扩写请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
+        print(f"{ERROR_PREFIX} LLM提示词优化请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
         return web.json_response({"success": False, "error": error_msg})
     finally:
         if request_id and request_id in ACTIVE_TASKS:
@@ -527,20 +1245,51 @@ async def llm_translate(request):
         if not request_id:
             return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
 
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        prefix = AUTO_TRANSLATE_REQUEST_PREFIX if is_auto else REQUEST_PREFIX
+        from_lang_name = {"auto": "自动检测", "zh": "中文", "en": "英文"}.get(from_lang, from_lang)
+        to_lang_name = {"zh": "中文", "en": "英文"}.get(to_lang, to_lang)
+        
+        # 使用独立的翻译配置
+        translate_config = config_manager.get_translate_config()
+        if translate_config:
+            provider = translate_config.get('provider', 'baidu')
+            model = translate_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            # 检查disable_thinking配置
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            log_prepare(TASK_TRANSLATE, request_id, SOURCE_FRONTEND, provider_display, model_display, None, {"方向": f"{from_lang_name}→{to_lang_name}", "长度": len(text)})
+
         # 创建并注册任务
-        task = asyncio.create_task(LLMService.translate(text, from_lang, to_lang, request_id, is_auto))
+        task = asyncio.create_task(LLMService.translate(
+            text=text, 
+            from_lang=from_lang, 
+            to_lang=to_lang, 
+            request_id=request_id, 
+            custom_provider=provider if translate_config else None,
+            custom_provider_config=translate_config,
+            cancel_event=None,
+            task_type=TASK_TRANSLATE,
+            source=SOURCE_FRONTEND
+        ))
         ACTIVE_TASKS[request_id] = task
 
         result = await task
         
-        # 如果发生错误，输出详细错误信息
-        if not result.get('success') and not result.get('cancelled', False):
-            error_msg = result.get('error', '未知错误')
-            print(f"{ERROR_PREFIX} LLM翻译请求失败 | 请求ID:{request_id} | 错误:{error_msg}")
-            
+        # 服务层已输出错误日志，此处不再重复输出
         return web.json_response(result)
     except asyncio.CancelledError:
-        print(f"{PREFIX} LLM翻译任务被取消 | ID:{request_id}")
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} LLM翻译任务被取消 | ID:{request_id}", flush=True)
         return web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
     except Exception as e:
         error_msg = str(e)
@@ -564,25 +1313,68 @@ async def vlm_analyze(request):
         if not request_id:
             return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
 
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        vision_config = config_manager.get_vision_config()
+        if vision_config:
+            provider = vision_config.get('provider', 'ollama')
+            model = vision_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            # 检查disable_thinking配置
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            # 获取规则名称
+            rule_name = "默认规则"
+            if prompt_content:
+                # 如果前端传了自定义提示词,尝试匹配规则名称
+                system_prompts = config_manager.get_system_prompts()
+                if system_prompts and 'vision_prompts' in system_prompts:
+                    # 尝试从vision_prompts中匹配
+                    for prompt_id, prompt_data in system_prompts['vision_prompts'].items():
+                        if prompt_data.get('content') == prompt_content:
+                            rule_name = prompt_data.get('name', prompt_id)
+                            break
+                    else:
+                        # 如果没有匹配到,说明是自定义的
+                        rule_name = "自定义规则"
+            else:
+                # 使用激活的系统提示词(需要判断语言)
+                # 这里简化为获取激活的中文规则,实际应该根据提示词判断语言
+                system_prompts = config_manager.get_system_prompts()
+                if system_prompts:
+                    active_prompts = system_prompts.get('active_prompts', {})
+                    # 优先使用中文规则
+                    active_prompt_id = active_prompts.get('vision_zh')
+                    if active_prompt_id and 'vision_prompts' in system_prompts:
+                        if active_prompt_id in system_prompts['vision_prompts']:
+                            rule_name = system_prompts['vision_prompts'][active_prompt_id].get('name', active_prompt_id)
+            
+            log_prepare(TASK_IMAGE_CAPTION, request_id, SOURCE_FRONTEND, provider_display, model_display, rule_name)
+
         # 创建并注册任务，使用新的接口签名
         task = asyncio.create_task(VisionService.analyze_image(
             image_data=image_data,
             request_id=request_id,
-            prompt_content=prompt_content
+            prompt_content=prompt_content,
+            task_type=TASK_IMAGE_CAPTION,
+            source=SOURCE_FRONTEND
         ))
         ACTIVE_TASKS[request_id] = task
 
         result = await task
 
-        # 如果发生错误，输出详细错误信息
-        if not result.get('success'):
-            if not result.get('cancelled', False):
-                error_msg = result.get('error', '未知错误')
-                print(f"{ERROR_PREFIX} 视觉分析请求失败 | 请求ID:{request_id} | 错误:{error_msg}")
-
+        # 服务层已输出错误日志，此处不再重复输出
         return web.json_response(result)
     except asyncio.CancelledError:
-        print(f"{PREFIX} 视觉分析任务被取消 | ID:{request_id}")
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} 视觉分析任务被取消 | ID:{request_id}", flush=True)
         return web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
     except Exception as e:
         error_msg = str(e)
@@ -591,6 +1383,83 @@ async def vlm_analyze(request):
     finally:
         if request_id and request_id in ACTIVE_TASKS:
             del ACTIVE_TASKS[request_id]
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/video/info')
+async def get_video_info(request):
+    """获取视频文件信息(FPS, 时长等)"""
+    try:
+        data = await request.json()
+        filename = data.get("filename")
+        subfolder = data.get("subfolder", "")
+        type_ = data.get("type", "input")
+        
+        if not filename:
+            return web.json_response({"success": False, "error": "缺少文件名参数"}, status=400)
+
+        # 获取文件完整路径
+        file_path = None
+        
+        # 1. 尝试直接作为绝对路径
+        if os.path.exists(filename):
+            file_path = filename
+        else:
+            # 2. 使用ComfyUI的路径解析
+            file_path = folder_paths.get_annotated_filepath(filename)
+        
+        if not file_path or not os.path.exists(file_path):
+            # 3. 尝试在input目录查找
+            input_dir = folder_paths.get_input_directory()
+            possible_path = os.path.join(input_dir, filename)
+            if os.path.exists(possible_path):
+                file_path = possible_path
+        
+        if not file_path or not os.path.exists(file_path):
+            return web.json_response({"success": False, "error": "找不到视频文件"}, status=404)
+
+        # 读取元数据
+        try:
+            import cv2
+            
+            cap = cv2.VideoCapture(file_path)
+            if not cap.isOpened():
+                return web.json_response({"success": False, "error": "无法打开视频文件"}, status=500)
+            
+            # 获取视频信息
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+            
+            # 有效性检查：某些视频格式 cv2 返回无效值
+            if fps <= 0:
+                fps = 30  # 默认 fps
+            if total_frames <= 0 or total_frames > 1e9:  # 无效或异常大的值
+                # 尝试通过读取所有帧来计算
+                total_frames = 0
+                while True:
+                    ret = cap.grab()
+                    if not ret:
+                        break
+                    total_frames += 1
+                # 重新打开视频以释放资源
+                cap.release()
+                cap = cv2.VideoCapture(file_path)
+            
+            duration = total_frames / fps if fps > 0 else 0
+            
+            cap.release()
+            
+            
+            return web.json_response({
+                "success": True,
+                "fps": fps,
+                "duration": duration,
+                "total_frames": total_frames,
+                "path": file_path
+            })
+        except Exception as e:
+            return web.json_response({"success": False, "error": f"读取视频元数据失败: {str(e)}"}, status=500)
+            
+    except Exception as e:
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 @PromptServer.instance.routes.post(f'{API_PREFIX}/models/list')
 async def get_models_list(request):
@@ -642,3 +1511,63 @@ async def get_models_list(request):
             "success": False,
             "error": error_msg
         }, status=500) 
+
+# ---视频帧提取 API---
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/video/frame')
+async def get_video_frame(request):
+    """
+    获取视频指定帧的图片
+    
+    请求参数：
+        filename: 视频文件名
+        frame_index: 帧索引（基于 force_rate 后的帧序列）
+        force_rate: 强制帧率（可选，0 表示原始帧率）
+        type: 文件类型（input/output，默认 input）
+    
+    返回：
+        success: 是否成功
+        data: base64 编码的 JPEG 图片
+        width/height: 图片尺寸
+    """
+    try:
+        data = await request.json()
+        filename = data.get("filename")
+        frame_index = data.get("frame_index", 0)
+        force_rate = data.get("force_rate", 0)
+        type_ = data.get("type", "input")
+        
+        if not filename:
+            return web.json_response({"success": False, "error": "缺少文件名参数"}, status=400)
+        
+        # 获取文件完整路径
+        file_path = None
+        
+        # 1. 尝试直接作为绝对路径
+        if os.path.exists(filename):
+            file_path = filename
+        else:
+            # 2. 使用 ComfyUI 的路径解析
+            file_path = folder_paths.get_annotated_filepath(filename)
+        
+        if not file_path or not os.path.exists(file_path):
+            # 3. 尝试在 input 目录查找
+            input_dir = folder_paths.get_input_directory()
+            possible_path = os.path.join(input_dir, filename)
+            if os.path.exists(possible_path):
+                file_path = possible_path
+        
+        if not file_path or not os.path.exists(file_path):
+            return web.json_response({"success": False, "error": "找不到视频文件"}, status=404)
+        
+        # 调用帧提取函数
+        result = extract_frame_by_index(file_path, frame_index, force_rate)
+        
+        if result["success"]:
+            return web.json_response(result)
+        else:
+            return web.json_response(result, status=500)
+            
+    except Exception as e:
+        print(f"{ERROR_PREFIX} 帧提取失败 | 错误:{str(e)}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)

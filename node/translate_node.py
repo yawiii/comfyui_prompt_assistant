@@ -10,71 +10,60 @@ from comfy.model_management import InterruptProcessingException
 
 from ..services.llm import LLMService
 from ..services.baidu import BaiduTranslateService
-from ..services.error_util import format_api_error
+from ..utils.common import format_api_error, format_model_with_thinking, generate_request_id, log_prepare, log_error, TASK_TRANSLATE, SOURCE_NODE
+from ..services.thinking_control import build_thinking_suppression
+from .base import LLMNodeBase
 
 
-# 定义ANSI颜色代码常量
-GREEN = "\033[32m"
-BLUE = "\033[34m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
-
-
-class PromptTranslate:
+class PromptTranslate(LLMNodeBase):
     """
-    文本翻译节点
+    提示词翻译节点
     自动识别输入语言并翻译成目标语言，支持多种翻译服务
     """
-    # 定义日志前缀
-    LOG_PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"  # 绿色：结果阶段
-    REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"  # 蓝色：准备阶段
-    PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"  # 黄色：API调用阶段
-    
-    # 提供商显示名称映射
-    PROVIDER_DISPLAY_MAP = {
-        "zhipu": "智谱",
-        "siliconflow": "硅基流动",
-        "302ai": "302.AI",
-        "ollama": "Ollama",
-        "custom": "自定义"
-    }
 
     @classmethod
     def INPUT_TYPES(cls):
+        # ---动态获取翻译服务/模型列表(包含硬编码的百度翻译)---
+        service_options = cls.get_translate_service_options()
+        default_service = service_options[0] if service_options else "百度翻译"
+        
         return {
             "required": {
-                "原文": ("STRING", {"forceInput": True, "default": "", "multiline": True, "placeholder": "输入要翻译的文本..."}),
-                "目标语言": (["英文", "中文"], {"default": "英文"}),
-                "翻译服务": (["百度翻译", "智谱翻译", "硅基流动翻译", "302.AI翻译", "Ollama翻译", "自定义翻译"], {"default": "百度翻译"}),
-                # Ollama自动释放：仅对Ollama翻译服务生效
-                "Ollama自动释放": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "⚠️ 该选项仅在选择了Ollama服务时生效"}),
+                "source_text": ("STRING", {"forceInput": True, "default": "", "multiline": True, "placeholder": "Input text to translate..."}),
+                "target_language": (["English", "Chinese"], {"default": "English"}),
+                "translate_service": (service_options, {"default": default_service, "tooltip": "Select translation service and model"}),
+                # Ollama Automatic VRAM Unload
+                "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
             },
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("翻译输出",)
+    RETURN_NAMES = ("translated_text",)
     FUNCTION = "translate"
-    CATEGORY = "✨提示词小助手"
+    CATEGORY = "✨Prompt Assistant"
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 原文=None, 目标语言=None, 翻译服务=None, Ollama自动释放=None):
+    def IS_CHANGED(cls, source_text=None, target_language=None, translate_service=None, ollama_auto_unload=None, unique_id=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
         """
         # 计算文本的哈希值
         text_hash = ""
-        if 原文:
+        if source_text:
             # 使用hashlib计算文本的哈希值，更安全和一致
-            text_hash = hashlib.md5(原文.encode('utf-8')).hexdigest()
+            text_hash = hashlib.md5(source_text.encode('utf-8')).hexdigest()
 
         # 组合所有输入的哈希值
         input_hash = hash((
             text_hash,
-            目标语言,
-            翻译服务,
-            bool(Ollama自动释放)
+            target_language,
+            translate_service,
+            bool(ollama_auto_unload)
         ))
 
         return input_hash
@@ -102,315 +91,175 @@ class PromptTranslate:
         else:
             return "auto"
     
-    def translate(self, 原文, 目标语言, 翻译服务, Ollama自动释放):
+    def translate(self, source_text, target_language, translate_service, ollama_auto_unload, unique_id=None):
         """
         翻译文本函数
-
-        Args:
-            原文: 输入的文本
-            目标语言: 目标语言 ("英文", "中文")
-            翻译服务: 翻译服务 ("百度翻译", "智谱翻译")
-            Ollama自动释放: 是否在调用完成后自动释放Ollama模型（仅对Ollama翻译生效）
-
-        Returns:
-            tuple: 翻译结果
         """
+        request_id = None  # 提升到方法级别作用域
         try:
             # 检查输入
-            if not 原文 or not 原文.strip():
+            if not source_text or not source_text.strip():
                 return ("",)
 
             # 自动检测源语言
-            detected_lang = self._detect_language(原文)
-            to_lang = "en" if 目标语言 == "英文" else "zh"
+            detected_lang = self._detect_language(source_text)
+            to_lang = "en" if target_language == "English" else "zh"
 
             # 智能跳过翻译逻辑
             skip_translation = False
             if to_lang == 'en' and detected_lang == 'en':
-                print(f"{self.REQUEST_PREFIX} 检测到英文输入，目标为英文，无需翻译")
+                from ..utils.common import _ANSI_CLEAR_EOL
+                print(f"\r{_ANSI_CLEAR_EOL}{self.REQUEST_PREFIX} 检测到英文输入，目标为英文，无需翻译", flush=True)
                 skip_translation = True
             elif to_lang == 'zh' and detected_lang == 'zh':
-                print(f"{self.REQUEST_PREFIX} 检测到中文输入，目标为中文，无需翻译")
+                from ..utils.common import _ANSI_CLEAR_EOL
+                print(f"\r{_ANSI_CLEAR_EOL}{self.REQUEST_PREFIX} 检测到中文输入，目标为中文，无需翻译", flush=True)
                 skip_translation = True
 
             if skip_translation:
-                return (原文,)
+                return (source_text,)
 
             # 映射语言名称
             lang_map = {'zh': '中文', 'en': '英文', 'auto': '原文'}
             from_lang_name = lang_map.get(detected_lang, detected_lang)
             to_lang_name = lang_map.get(to_lang, to_lang)
             
-            if 翻译服务 == "百度翻译":
-                result = self._translate_with_baidu(原文, detected_lang, to_lang, 翻译服务, from_lang_name, to_lang_name)
-            elif 翻译服务 == "智谱翻译":
-                result = self._translate_with_llm(原文, detected_lang, to_lang, "zhipu", 翻译服务, from_lang_name, to_lang_name, Ollama自动释放)
-            elif 翻译服务 == "硅基流动翻译":
-                result = self._translate_with_llm(原文, detected_lang, to_lang, "siliconflow", 翻译服务, from_lang_name, to_lang_name, Ollama自动释放)
-            elif 翻译服务 == "302.AI翻译":
-                result = self._translate_with_llm(原文, detected_lang, to_lang, "302ai", 翻译服务, from_lang_name, to_lang_name, Ollama自动释放)
-            elif 翻译服务 == "Ollama翻译":
-                result = self._translate_with_llm(原文, detected_lang, to_lang, "ollama", 翻译服务, from_lang_name, to_lang_name, Ollama自动释放)
-            elif 翻译服务 == "自定义翻译":
-                result = self._translate_with_llm(原文, detected_lang, to_lang, "custom", 翻译服务, from_lang_name, to_lang_name, Ollama自动释放)
+            # ---解析服务/模型字符串---
+            service_id, model_name = self.parse_service_model(translate_service)
+            if not service_id:
+                raise ValueError(f"Invalid service selection: {translate_service}")
+            
+            # ---百度翻译特殊处理---
+            if service_id == 'baidu':
+                request_id, result = self._translate_with_baidu(source_text, detected_lang, to_lang, translate_service, from_lang_name, to_lang_name, unique_id)
             else:
-                raise ValueError(f"不支持的翻译服务: {翻译服务}")
+                # ---LLM翻译:获取服务配置---
+                from ..config_manager import config_manager
+                service = config_manager.get_service(service_id)
+                if not service:
+                    raise ValueError(f"Service config not found: {translate_service}")
+                
+                request_id, result = self._translate_with_llm(source_text, detected_lang, to_lang, service_id, model_name, service, translate_service, from_lang_name, to_lang_name, ollama_auto_unload, unique_id)
 
             if result and result.get('success'):
                 translated_text = result.get('data', {}).get('translated', '').strip()
                 if not translated_text:
-                    error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
-                    print(f"{self.LOG_PREFIX} 翻译失败 | 错误:{error_msg}")
-                    raise RuntimeError(f"翻译失败: {error_msg}")
+                    error_msg = 'API returned empty result'
+                    raise RuntimeError(f"❌Translation failed: {error_msg}")
 
                 # 结果阶段日志由服务层统一输出，节点层不再重复打印
                 return (translated_text,)
             else:
-                error_msg = result.get('error', '翻译失败，未知错误') if result else '翻译服务未返回结果'
-                print(f"{self.LOG_PREFIX} 翻译失败: {error_msg}")
-                raise RuntimeError(f"翻译失败: {error_msg}")
+                error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
+                # 如果是中断错误,直接抛出InterruptProcessingException,不打印日志(由基类打印)
+                if error_msg == "任务被中断":
+                    raise InterruptProcessingException()
+                log_error(TASK_TRANSLATE, request_id, error_msg)
+                raise RuntimeError(f"Translation failed: {error_msg}")
 
         except InterruptProcessingException:
-            print(f"{self.LOG_PREFIX} 翻译任务被用户取消")
+            # 不打印日志,由基类统一打印
             raise
         except Exception as e:
-            error_msg = format_api_error(e, 翻译服务)
-            print(f"{self.LOG_PREFIX} 翻译异常: {error_msg}")
-            raise RuntimeError(f"翻译异常: {error_msg}")
+            error_msg = format_api_error(e, translate_service)
+            log_error(TASK_TRANSLATE, request_id, error_msg)
+            raise RuntimeError(f"Translation error: {error_msg}")
 
-    def _translate_with_baidu(self, text, from_lang, to_lang, service_name, from_lang_name, to_lang_name):
+    def _translate_with_baidu(self, text, from_lang, to_lang, service_name, from_lang_name, to_lang_name, unique_id):
         """使用百度翻译服务"""
-        try:
-            # 创建请求ID
-            request_id = f"translate_{int(time.time())}_{random.randint(1000, 9999)}"
-            
-            # 准备阶段日志（合并为一条）
-            print(f"{PromptTranslate.REQUEST_PREFIX} 翻译准备 | 服务:{service_name} | 方向:{from_lang_name} → {to_lang_name} | 长度:{len(text)} | 请求ID:{request_id}")
-            
-            result_container = {}
-
-            # 在独立线程中运行异步翻译
-            thread = threading.Thread(
-                target=self._run_async_translation,
-                args=(BaiduTranslateService.translate, text, from_lang, to_lang, request_id, result_container)
-            )
-            thread.start()
-
-            # 等待翻译完成，同时检查中断
-            while thread.is_alive():
-                # 检查是否被中断 - 这会抛出 InterruptProcessingException
-                try:
-                    import nodes
-                    nodes.before_node_execution()
-                except:
-                    # 如果检查中断时出现异常，说明被中断了
-                    print(f"{self.LOG_PREFIX} 检测到中断信号，正在终止翻译任务...")
-                    # 设置结果容器为中断状态，让线程知道要停止
-                    result_container['interrupted'] = True
-                    # 等待线程结束或超时
-                    thread.join(timeout=1.0)
-                    if thread.is_alive():
-                        print(f"{self.LOG_PREFIX} 翻译线程未能及时响应中断")
-                    raise InterruptProcessingException()
-
-                time.sleep(0.1)
-
-            return result_container.get('result')
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def _translate_with_llm(self, text, from_lang, to_lang, provider, service_name, from_lang_name, to_lang_name, auto_unload):
-        """使用LLM翻译服务"""
-        try:
-            # 获取配置
-            from ..config_manager import config_manager
-            provider_config = self._get_provider_config(config_manager, provider)
-
-            if not provider_config:
-                provider_display_name = self.PROVIDER_DISPLAY_MAP.get(provider, provider)
-                return {"success": False, "error": f"未找到{provider_display_name}的配置，请先完成API配置"}
-
-            # 创建请求ID
-            request_id = f"translate_{int(time.time())}_{random.randint(1000, 9999)}"
-            
-            # 准备阶段日志（合并为一条）
-            print(f"{PromptTranslate.REQUEST_PREFIX} 翻译准备 | 服务:{service_name} | 模型:{provider_config.get('model')} | 方向:{from_lang_name} → {to_lang_name} | 长度:{len(text)} | 请求ID:{request_id}")
-            
-            result_container = {}
-
-            # 在独立线程中运行LLM翻译
-            thread = threading.Thread(
-                target=self._run_llm_translation,
-                args=(text, from_lang, to_lang, request_id, result_container, provider, provider_config, auto_unload)
-            )
-            thread.start()
-
-            # 等待翻译完成，同时检查中断
-            while thread.is_alive():
-                # 检查是否被中断 - 这会抛出 InterruptProcessingException
-                try:
-                    import nodes
-                    nodes.before_node_execution()
-                except:
-                    # 如果检查中断时出现异常，说明被中断了
-                    print(f"{self.LOG_PREFIX} 检测到中断信号，正在终止翻译任务...")
-                    # 设置结果容器为中断状态，让线程知道要停止
-                    result_container['interrupted'] = True
-                    # 等待线程结束或超时
-                    thread.join(timeout=1.0)
-                    if thread.is_alive():
-                        print(f"{self.LOG_PREFIX} 翻译线程未能及时响应中断")
-                    raise InterruptProcessingException()
-
-                time.sleep(0.1)
-
-            return result_container.get('result')
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def _run_async_translation(self, service_func, text, from_lang, to_lang, request_id, result_container, **kwargs):
-        """在独立线程中运行异步翻译任务"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # 检查是否在开始前就被中断了
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result = loop.run_until_complete(
-                service_func(text, from_lang, to_lang, request_id, **kwargs)
-            )
-
-            # 检查是否在执行过程中被中断了
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result_container['result'] = result
-        except Exception as e:
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-            else:
-                result_container['result'] = {"success": False, "error": str(e)}
-        finally:
-            loop.close()
-    
-    def _get_provider_config(self, config_manager, provider):
-        """获取指定provider的配置"""
-        llm_config = config_manager.get_llm_config()
-        if 'providers' in llm_config and provider in llm_config['providers']:
-            return llm_config['providers'][provider]
-        return None
-    
-    async def _unload_ollama_model(self, model: str, provider_config: dict, auto_unload: bool):
-        """
-        卸载Ollama模型以释放显存和内存
+        # 创建请求ID
+        request_id = generate_request_id("trans", "baidu", unique_id)
         
-        参数:
-            model: 模型名称
-            provider_config: 提供商配置字典
-            auto_unload: 是否启用自动释放（来自节点参数）
-        """
-        try:
-            # 检查是否启用自动释放（使用节点参数，不从provider_config读取）
-            if not auto_unload:
-                return
-            
-            # 获取base_url
-            base_url = provider_config.get('base_url', 'http://localhost:11434')
-            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
-            if base_url.endswith('/v1'):
-                base_url = base_url[:-3]
-            
-            # 调用Ollama API卸载模型
-            url = f"{base_url}/api/generate"
-            payload = {
-                "model": model,
-                "keep_alive": 0  # 立即卸载模型
-            }
-            
-            print(f"{self.PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
-            
-            import httpx
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(url, json=payload)
-                
-        except Exception as e:
-            # 释放失败不影响主流程，只记录警告
-            print(f"{self.LOG_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
+        # 准备阶段日志
+        log_prepare(TASK_TRANSLATE, request_id, SOURCE_NODE, "百度翻译", None, None, {"方向": f"{from_lang_name}→{to_lang_name}", "长度": len(text)})
+        
+        # 执行翻译（异步线程 + 可中断）
+        result = self._run_llm_task(
+            BaiduTranslateService.translate,
+            service_name,
+            text=text,
+            from_lang=from_lang,
+            to_lang=to_lang,
+            request_id=request_id,
+            task_type=TASK_TRANSLATE,
+            source=SOURCE_NODE
+        )
 
-    def _run_llm_translation(self, text, from_lang, to_lang, request_id, result_container, provider, provider_config, auto_unload):
-        """在独立线程中运行LLM翻译"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            # 检查是否在开始前就被中断了
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
+        return request_id, result
 
-            # 获取API密钥和模型
-            api_key = provider_config.get('api_key', '')
-            model = provider_config.get('model', '')
+    def _translate_with_llm(self, text, from_lang, to_lang, service_id, model_name, service, service_display_name, from_lang_name, to_lang_name, auto_unload, unique_id):
+        """使用LLM翻译服务"""
+        # ---构建provider_config---
+        # 查找指定的模型或默认模型
+        llm_models = service.get('llm_models', [])
+        target_model = None
+        
+        if model_name:
+            # 查找指定的模型
+            target_model = next((m for m in llm_models if m.get('name') == model_name), None)
+        
+        if not target_model:
+            # 使用默认模型或第一个模型
+            target_model = next((m for m in llm_models if m.get('is_default')), 
+                                llm_models[0] if llm_models else None)
+        
+        if not target_model:
+            return {"success": False, "error": f"Service {service_display_name} has no available models"}
+        
+        # 构建配置对象
+        provider_config = {
+            'provider': service_id,
+            'model': target_model.get('name', ''),
+            'base_url': service.get('base_url', ''),
+            'api_key': service.get('api_key', ''),
+            'temperature': target_model.get('temperature', 0.7),
+            'max_tokens': target_model.get('max_tokens', 1000),
+            'top_p': target_model.get('top_p', 0.9),
+        }
+        
+        # Ollama特殊处理:添加auto_unload配置
+        if service.get('type') == 'ollama':
+            provider_config['auto_unload'] = auto_unload
 
-            if not api_key or not model:
-                result_container['result'] = {
-                    "success": False,
-                    "error": f"请先配置{provider}的API密钥和模型"
-                }
-                return
+        # 创建请求ID
+        request_id = generate_request_id("trans", "llm", unique_id)
+        
+        # 检查是否关闭思维链
+        model_full_name = provider_config.get('model')
+        disable_thinking_enabled = service.get('disable_thinking', True)
+        thinking_extra = build_thinking_suppression(service_id, model_full_name) if disable_thinking_enabled else None
+        model_display = format_model_with_thinking(model_full_name, bool(thinking_extra))
+        
+        # 获取服务显示名称
+        service_display_name = service.get('name', service_id)
+        
+        # 准备阶段日志
+        log_prepare(TASK_TRANSLATE, request_id, SOURCE_NODE, service_display_name, model_display, None, {"方向": f"{from_lang_name}→{to_lang_name}", "长度": len(text)})
+        
+        # 检查API密钥和模型
+        api_key = provider_config.get('api_key', '')
+        model = provider_config.get('model', '')
+        
+        if not api_key or not model:
+            return {"success": False, "error": f"Please configure API key and model for {service_display_name}"}
 
-            # 检查是否启用直连模式
-            bypass_proxy = False
-            try:
-                from ..config_manager import config_manager as cm
-                settings = cm.get_settings()
-                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
-            except Exception:
-                pass
-            
-            direct_mode_tag = "(直连)" if bypass_proxy else ""
+        # 执行翻译（异步线程 + 可中断）
+        result = self._run_llm_task(
+            LLMService.translate,
+            service_id,
+            text=text,
+            from_lang=from_lang,
+            to_lang=to_lang,
+            request_id=request_id,
+            stream_callback=None,
+            custom_provider=service_id,
+            custom_provider_config=provider_config,
+            task_type=TASK_TRANSLATE,
+            source=SOURCE_NODE
+        )
 
-            # 获取提供商显示名称
-            provider_display_name = PromptTranslate.PROVIDER_DISPLAY_MAP.get(provider, provider)
+        return request_id, result
 
-            # 统一走服务层（含兼容/降级处理）
-            service_result = loop.run_until_complete(
-                LLMService.translate(
-                    text,
-                    from_lang,
-                    to_lang,
-                    request_id,
-                    False,
-                    None,
-                    custom_provider=provider,
-                    custom_provider_config=provider_config
-                )
-            )
-
-            # 检查是否在执行过程中被中断了
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result_container['result'] = service_result
-            
-            # 结果日志已在translate方法中统一打印，这里不再重复
-
-        except Exception as e:
-            # 格式化错误信息
-            error_message = format_api_error(e, provider_display_name)
-
-            result_container['result'] = {
-                "success": False,
-                "error": error_message
-            }
-            print(f"{PromptTranslate.LOG_PREFIX} 翻译失败 | 服务:{provider_display_name} | 错误:{error_message}")
-        finally:
-            loop.close()
 
 # 节点映射，用于向ComfyUI注册节点
 NODE_CLASS_MAPPINGS = {
@@ -419,5 +268,5 @@ NODE_CLASS_MAPPINGS = {
 
 # 节点显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptTranslate": "✨提示词翻译",
+    "PromptTranslate": "✨Prompt Translate",
 }

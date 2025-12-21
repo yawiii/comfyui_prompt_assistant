@@ -26,30 +26,197 @@ class UIToolkit {
             error: (msg) => msg || '翻译失败'
         },
         expand: {
-            loading: '扩写中',
-            success: '扩写完成',
-            error: (msg) => msg || '扩写失败'
+            loading: '提示词优化中',
+            success: '提示词优化完成',
+            error: (msg) => msg || '提示词优化失败'
         }
     };
 
     /**
      * 检查输入控件是否为有效的文本输入
+     * 支持传统litegraph模式和Vue node2.0模式
      */
-    static isValidInput(widget) {
-        // 简化检测逻辑：直接判断是否有TEXTAREA
+    static isValidInput(widget, options = {}) {
+        const { debug = false, node = null } = options;
         let isValid = false;
+        let reason = '';
 
-        // 标准文本输入控件
+        // 方法1: 标准文本输入控件（传统litegraph模式）
         if (widget.inputEl && widget.inputEl.tagName === "TEXTAREA" &&
             this.VALID_INPUT_IDS.includes(widget.name)) {
             isValid = true;
+            reason = 'litegraph textarea matched';
         }
-        // Note节点特殊输入
+        // 方法2: Note节点特殊输入
         else if (widget.element && widget.element.tagName === "TEXTAREA") {
             isValid = true;
+            reason = 'Note textarea matched';
+        }
+        // 方法3: Markdown Note节点特殊输入（Tiptap编辑器）
+        else if (this.isMarkdownNoteInput(widget)) {
+            isValid = true;
+            reason = 'Markdown Note matched';
+        }
+        // 方法4: Vue node2.0 模式检测 - 通过节点类型判断
+        else if (this._isVueNodesModeWidget(widget, node)) {
+            isValid = true;
+            reason = 'Vue node2.0 mode widget';
+        }
+
+        if (debug) {
+            const widgetName = widget.name || widget.id || 'unknown';
+            const nodeType = node?.type || widget.node?.type || 'unknown';
+            logger.debug(`[isValidInput] 控件: ${widgetName} | 节点类型: ${nodeType} | 有效: ${isValid} | 原因: ${reason}`);
         }
 
         return isValid;
+    }
+
+    /**
+     * 检查是否为 Vue node2.0 模式下的有效文本控件
+     * 在Vue模式下，widget对象可能没有inputEl/element，但节点类型可以判断
+     */
+    static _isVueNodesModeWidget(widget, node = null) {
+        // 获取节点引用
+        const nodeRef = node || widget.node;
+        if (!nodeRef) return false;
+
+        // 检查是否为Vue节点模式
+        if (typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode !== true) {
+            return false;
+        }
+
+        // 已知支持的节点类型
+        const supportedNodeTypes = [
+            'Note',
+            'MarkdownNote',
+            'PreviewAny',       // Preview as Text节点（实际类型）
+            'PreviewTextNode',  // Preview节点可能的其他名称
+            'Show any [Crystools]',
+            // 添加其他支持的节点类型
+        ];
+
+        // 检查节点类型
+        if (supportedNodeTypes.includes(nodeRef.type)) {
+            return true;
+        }
+
+        // 检查控件名称是否为有效输入
+        if (this.VALID_INPUT_IDS.includes(widget.name)) {
+            return true;
+        }
+
+        // Markdown类型节点检测（包括Preview as Text等使用comfy-markdown的节点）
+        const typeLower = nodeRef.type?.toLowerCase() || '';
+        if (typeLower.includes('markdown') ||
+            (typeLower.includes('preview') && typeLower.includes('text'))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 检查是否为使用comfy-markdown的节点输入框
+     * 包括 MarkdownNote、Preview as Text 等使用 Tiptap/ProseMirror 编辑器的节点
+     */
+    static isMarkdownNoteInput(widget) {
+        // 方法1: 检查节点类型
+        const nodeRef = widget.node;
+        if (nodeRef) {
+            // 支持的使用comfy-markdown的节点类型
+            const markdownNodeTypes = ['MarkdownNote', 'PreviewAny', 'PreviewTextNode'];
+            if (markdownNodeTypes.includes(nodeRef.type)) {
+                return true;
+            }
+
+            // 检查节点类型名称是否包含相关关键词
+            const typeLower = nodeRef.type?.toLowerCase() || '';
+            if (typeLower.includes('markdown') ||
+                (typeLower.includes('preview') && typeLower.includes('text'))) {
+                return true;
+            }
+        }
+
+        // 方法2: 检查widget名称（Vue模式下可能只有名称）
+        if (widget.name === 'text' && nodeRef && nodeRef.type?.toLowerCase().includes('markdown')) {
+            return true;
+        }
+
+        // 方法3: 通过 DOM 结构检测
+        let element = widget.element || widget.inputEl;
+        if (!element) return false;
+
+        // 向上查找 .comfy-markdown 容器
+        let parent = element.parentElement;
+        while (parent) {
+            if (parent.classList && parent.classList.contains('comfy-markdown')) {
+                return true;
+            }
+            // Vue模式下检测 widget-markdown 类
+            if (parent.classList && parent.classList.contains('widget-markdown')) {
+                return true;
+            }
+            parent = parent.parentElement;
+        }
+
+        // 检查元素本身是否是 Tiptap 编辑器
+        if (element.classList &&
+            (element.classList.contains('tiptap') || element.classList.contains('ProseMirror'))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 获取 Markdown Note 的 Tiptap 编辑器实例
+     * @param {HTMLElement} element - 输入框元素或相关元素
+     * @returns {Object|null} Tiptap 编辑器实例，如果找不到则返回 null
+     */
+    static getMarkdownNoteEditor(element) {
+        if (!element) return null;
+
+        // 查找 .comfy-markdown 容器
+        let container = element;
+        if (!container.classList || !container.classList.contains('comfy-markdown')) {
+            container = element.closest('.comfy-markdown');
+        }
+
+        if (!container) return null;
+
+        // 查找 Tiptap 编辑器元素
+        const editorElement = container.querySelector('.tiptap.ProseMirror, .ProseMirror.tiptap');
+        if (!editorElement) return null;
+
+        // 尝试从元素获取 Tiptap 编辑器实例
+        // Tiptap 通常会将编辑器实例存储在元素的某个属性中
+        if (editorElement.__tiptap_editor) {
+            return editorElement.__tiptap_editor;
+        }
+
+        // 尝试从全局或父元素查找
+        if (container.__tiptap_editor) {
+            return container.__tiptap_editor;
+        }
+
+        // 如果找不到实例，返回编辑器元素本身，后续可以通过 DOM 操作
+        return {
+            element: editorElement,
+            getHTML: () => editorElement.innerHTML,
+            getText: () => editorElement.textContent || editorElement.innerText,
+            setContent: (content) => {
+                if (editorElement.__tiptap_editor) {
+                    editorElement.__tiptap_editor.commands.setContent(content);
+                } else {
+                    // 降级方案：直接操作 DOM
+                    editorElement.innerHTML = content;
+                    // 触发更新事件
+                    editorElement.dispatchEvent(new Event('input', { bubbles: true }));
+                    editorElement.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }
+        };
     }
 
     /**
@@ -539,6 +706,27 @@ class UIToolkit {
         if (mapping && mapping.inputEl) {
             const inputEl = mapping.inputEl;
 
+            // 检查是否为 Markdown Note
+            const editor = this.getMarkdownNoteEditor(inputEl);
+            if (editor) {
+                // 使用 Tiptap 编辑器写入内容
+                editor.setContent(content);
+
+                // 添加高亮效果（对编辑器元素）
+                if (options.highlight && editor.element) {
+                    this._highlightInput(editor.element);
+                }
+
+                // 聚焦编辑器
+                if (options.focus && editor.element) {
+                    editor.element.focus();
+                }
+
+                logger.debug(`内容写入 | 结果:成功 | 节点:${nodeId} | 输入框:${inputId} | 类型:Markdown Note`);
+                return true;
+            }
+
+            // 标准输入框处理
             // 将内容写入输入框
             inputEl.value = content;
 
@@ -573,6 +761,48 @@ class UIToolkit {
 
         if (mapping && mapping.inputEl) {
             const inputEl = mapping.inputEl;
+
+            // 检查是否为 Markdown Note
+            const editor = this.getMarkdownNoteEditor(inputEl);
+            if (editor) {
+                // 对于 Markdown Note，使用 Tiptap 的插入命令
+                if (editor.element && editor.element.__tiptap_editor) {
+                    const tiptapEditor = editor.element.__tiptap_editor;
+                    // 使用 Tiptap 的 insertContent 命令
+                    tiptapEditor.commands.insertContent(content);
+                } else {
+                    // 降级方案：获取当前文本，插入内容，然后设置回去
+                    const currentText = editor.getText();
+                    const selection = window.getSelection();
+                    let cursorPos = 0;
+                    if (selection && selection.rangeCount > 0) {
+                        const range = selection.getRangeAt(0);
+                        const preCaretRange = range.cloneRange();
+                        preCaretRange.selectNodeContents(editor.element);
+                        preCaretRange.setEnd(range.endContainer, range.endOffset);
+                        cursorPos = preCaretRange.toString().length;
+                    }
+                    const beforeText = currentText.substring(0, cursorPos);
+                    const afterText = currentText.substring(cursorPos);
+                    const newContent = beforeText + content + afterText;
+                    editor.setContent(newContent);
+                }
+
+                // 添加高亮效果
+                if (options.highlight && editor.element) {
+                    this._highlightInput(editor.element);
+                }
+
+                // 保持焦点
+                if (options.keepFocus && editor.element) {
+                    editor.element.focus();
+                }
+
+                logger.debug(`内容插入 | 结果:成功 | 节点:${nodeId} | 输入框:${inputId} | 类型:Markdown Note`);
+                return true;
+            }
+
+            // 标准输入框处理
             const currentValue = inputEl.value;
             const cursorPos = inputEl.selectionStart;
             const beforeText = currentValue.substring(0, cursorPos);
@@ -672,7 +902,7 @@ class UIToolkit {
                                 // 根据按钮ID显示不同的取消提示
                                 let cancelMessage = '请求已取消';
                                 if (buttonId === 'expand') {
-                                    cancelMessage = '扩写已取消';
+                                    cancelMessage = '提示词优化已取消';
                                 } else if (buttonId === 'translate') {
                                     cancelMessage = '翻译已取消';
                                 }

@@ -35,22 +35,22 @@ export class ButtonMenu {
     constructor() {
         // 当前菜单DOM元素
         this.menuElement = null;
-        
+
         // 当前触发菜单的按钮
         this.targetButton = null;
-        
+
         // 菜单项配置
         this.menuItems = [];
-        
+
         // 菜单是否显示中
         this.isMenuVisible = false;
-        
+
         // 菜单上下文数据
         this.menuContext = {};
 
         // 初始化全局点击事件，用于关闭菜单
         this._setupGlobalEvents();
-        
+
         // 日志
         logger.log("按钮菜单服务已初始化");
     }
@@ -69,7 +69,7 @@ export class ButtonMenu {
                 }
             }
         });
-        
+
         // 按ESC键关闭菜单
         EventManager.addDOMListener(document, 'keydown', async (event) => {
             if (event.key === 'Escape' && this.isMenuVisible) {
@@ -88,11 +88,11 @@ export class ButtonMenu {
         // 创建菜单容器
         const menuContainer = document.createElement('div');
         menuContainer.className = 'button-context-menu';
-        
+
         // 创建菜单项列表
         const menuList = document.createElement('ul');
         menuList.className = 'button-menu-list';
-        
+
         // 添加菜单项
         items.forEach(item => {
             // 如果是分隔线
@@ -194,9 +194,15 @@ export class ButtonMenu {
 
                 // —— 子菜单显示/隐藏的防抖处理，避免鼠标穿越导致关闭 ——
                 let hideTimer = null;
+                // 获取子菜单对齐方式，默认居中
+                const submenuAlign = item.submenuAlign || 'center';
                 const openSubmenu = () => {
                     if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
                     menuItem.classList.add('submenu-open');
+                    // 使用 requestAnimationFrame 确保子菜单已渲染再调整位置
+                    requestAnimationFrame(() => {
+                        this._adjustSubmenuPosition(submenu, menuItem, submenuAlign);
+                    });
                 };
                 const scheduleCloseSubmenu = () => {
                     if (hideTimer) clearTimeout(hideTimer);
@@ -222,12 +228,24 @@ export class ButtonMenu {
 
                     const subMenuItem = document.createElement('li');
                     subMenuItem.className = 'button-menu-item';
+
+                    // 检查子菜单项是否有children(支持三级及以上菜单)
+                    const hasSubChildren = Array.isArray(subItem.children) && subItem.children.length > 0;
+                    if (hasSubChildren) {
+                        subMenuItem.classList.add('button-menu-item-has-children');
+                    }
+
                     if (subItem.disabled) {
                         subMenuItem.classList.add('button-menu-item-disabled');
                     } else {
                         subMenuItem.addEventListener('click', async (e) => {
                             e.preventDefault();
                             e.stopPropagation();
+
+                            // 如果点击的是右侧箭头或子子菜单,不触发点击
+                            const isOnRightIcon = e.target && (e.target.classList?.contains('button-menu-right-icon') || e.target.classList?.contains('pi-chevron-right'));
+                            const isInsideSubSubmenu = e.target && subMenuItem.querySelector('.button-submenu')?.contains(e.target);
+                            if (isOnRightIcon || isInsideSubSubmenu) return;
 
                             // 隐藏菜单
                             await this.hideMenu();
@@ -236,6 +254,13 @@ export class ButtonMenu {
                                 subItem.onClick(context);
                             }
                         });
+
+                        // 如果有子子菜单,添加悬停逻辑
+                        if (hasSubChildren) {
+                            subMenuItem.addEventListener('mouseenter', () => {
+                                subMenuItem.classList.add('submenu-open');
+                            });
+                        }
                     }
 
                     if (subItem.icon) {
@@ -259,6 +284,87 @@ export class ButtonMenu {
                         subShortcut.className = 'button-menu-shortcut';
                         subShortcut.textContent = subItem.shortcut;
                         subMenuItem.appendChild(subShortcut);
+                    }
+
+                    // 如果有子子菜单,递归创建
+                    if (hasSubChildren) {
+                        const subRightIcon = document.createElement('span');
+                        subRightIcon.className = 'button-menu-right-icon pi pi-chevron-right';
+                        subMenuItem.appendChild(subRightIcon);
+
+                        // 构建子子菜单
+                        const subSubmenu = document.createElement('div');
+                        subSubmenu.className = 'button-submenu';
+                        const subSubmenuList = document.createElement('ul');
+                        subSubmenuList.className = 'button-menu-list';
+
+                        // 防抖处理
+                        let subHideTimer = null;
+                        // 获取子菜单对齐方式，默认居中
+                        const subSubmenuAlign = subItem.submenuAlign || 'center';
+                        const openSubSubmenu = () => {
+                            if (subHideTimer) { clearTimeout(subHideTimer); subHideTimer = null; }
+                            subMenuItem.classList.add('submenu-open');
+                            // 使用 requestAnimationFrame 确保子菜单已渲染再调整位置
+                            requestAnimationFrame(() => {
+                                this._adjustSubmenuPosition(subSubmenu, subMenuItem, subSubmenuAlign);
+                            });
+                        };
+                        const scheduleCloseSubSubmenu = () => {
+                            if (subHideTimer) clearTimeout(subHideTimer);
+                            subHideTimer = setTimeout(() => {
+                                subMenuItem.classList.remove('submenu-open');
+                                subHideTimer = null;
+                            }, 200);
+                        };
+
+                        subMenuItem.addEventListener('mouseleave', scheduleCloseSubSubmenu);
+                        subMenuItem.addEventListener('mouseenter', openSubSubmenu);
+                        subSubmenu.addEventListener('mouseenter', openSubSubmenu);
+                        subSubmenu.addEventListener('mouseleave', scheduleCloseSubSubmenu);
+
+                        // 渲染第三级菜单项
+                        subItem.children.forEach(subSubItem => {
+                            if (subSubItem.type === 'separator') {
+                                const sep = document.createElement('li');
+                                sep.className = 'button-menu-separator';
+                                subSubmenuList.appendChild(sep);
+                                return;
+                            }
+
+                            const subSubMenuItem = document.createElement('li');
+                            subSubMenuItem.className = 'button-menu-item';
+
+                            if (subSubItem.disabled) {
+                                subSubMenuItem.classList.add('button-menu-item-disabled');
+                            } else {
+                                subSubMenuItem.addEventListener('click', async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    await this.hideMenu();
+                                    if (typeof subSubItem.onClick === 'function') {
+                                        subSubItem.onClick(context);
+                                    }
+                                });
+                            }
+
+                            if (subSubItem.icon) {
+                                const subSubIcon = document.createElement('span');
+                                subSubIcon.className = 'button-menu-icon';
+                                subSubIcon.innerHTML = subSubItem.icon;
+                                subSubMenuItem.appendChild(subSubIcon);
+                            }
+
+                            const subSubLabel = document.createElement('span');
+                            subSubLabel.className = 'button-menu-label';
+                            subSubLabel.textContent = subSubItem.label || '';
+                            subSubMenuItem.appendChild(subSubLabel);
+
+                            subSubmenuList.appendChild(subSubMenuItem);
+                        });
+
+                        subSubmenu.appendChild(subSubmenuList);
+                        subMenuItem.appendChild(subSubmenu);
                     }
 
                     submenuList.appendChild(subMenuItem);
@@ -288,11 +394,16 @@ export class ButtonMenu {
     async showMenu(targetButton, items, context = {}, event) {
         // Close any open popups first
         const { PopupManager } = await import('../utils/popupManager.js');
+
+        // 【关键】标记正在切换，防止容器折叠
+        PopupManager._isTransitioning = true;
+        console.log(`[ButtonMenu] showMenu | 设置 _isTransitioning = true`);
+
         await PopupManager.closeAllPopups();
 
         // 先隐藏可能已存在的菜单
         await this.hideMenu();
-        
+
         // 在所有其他窗口关闭后，设置活动按钮状态
         if (context.widget && targetButton.dataset.id) {
             UIToolkit.setActiveButton({
@@ -301,30 +412,34 @@ export class ButtonMenu {
             });
             logger.debug(`右键菜单 | 设置活动按钮 | 按钮ID: ${targetButton.dataset.id}`);
         }
-        
+
         // 保存参数
         this.targetButton = targetButton;
         this.menuItems = items;
         this.menuContext = context;
-        
+
         // 创建菜单元素
         this.menuElement = this._createMenuElement(items, context);
-        
+
         // 添加到文档
         document.body.appendChild(this.menuElement);
-        
+
         // 设置菜单位置
         this._positionMenu(event);
-        
+
         // 标记菜单为可见
         this.isMenuVisible = true;
-        
+
+        // 【关键】清除切换标记，因为菜单已经显示
+        PopupManager._isTransitioning = false;
+        console.log(`[ButtonMenu] showMenu | 设置 _isTransitioning = false`);
+
         // 阻止默认右键菜单
         if (event) {
             event.preventDefault();
             event.stopPropagation();
         }
-        
+
         // 添加焦点管理
         this._setupKeyboardNavigation();
     }
@@ -334,11 +449,11 @@ export class ButtonMenu {
      */
     _setupKeyboardNavigation() {
         if (!this.menuElement) return;
-        
+
         // 添加键盘事件处理
         const keyHandler = (e) => {
             if (!this.isMenuVisible) return;
-            
+
             switch (e.key) {
                 case 'ArrowDown':
                     this._navigateMenu(1);
@@ -354,26 +469,26 @@ export class ButtonMenu {
                     break;
             }
         };
-        
+
         // 添加键盘事件监听
         document.addEventListener('keydown', keyHandler);
-        
+
         // 保存清理函数
         this._keyboardCleanup = () => {
             document.removeEventListener('keydown', keyHandler);
         };
     }
-    
+
     /**
      * 菜单导航
      * @param {number} direction 导航方向 (1: 下, -1: 上)
      */
     _navigateMenu(direction) {
         if (!this.menuElement) return;
-        
+
         const items = this.menuElement.querySelectorAll('.button-menu-item:not(.button-menu-item-disabled)');
         if (items.length === 0) return;
-        
+
         // 找到当前选中项
         let currentIndex = -1;
         for (let i = 0; i < items.length; i++) {
@@ -382,7 +497,7 @@ export class ButtonMenu {
                 break;
             }
         }
-        
+
         // 计算下一个索引
         let nextIndex;
         if (currentIndex === -1) {
@@ -390,20 +505,20 @@ export class ButtonMenu {
         } else {
             nextIndex = (currentIndex + direction + items.length) % items.length;
         }
-        
+
         // 移除所有焦点
         items.forEach(item => item.classList.remove('button-menu-item-focus'));
-        
+
         // 设置新焦点
         items[nextIndex].classList.add('button-menu-item-focus');
     }
-    
+
     /**
      * 激活当前选中项
      */
     _activateSelectedItem() {
         if (!this.menuElement) return;
-        
+
         const focusedItem = this.menuElement.querySelector('.button-menu-item-focus');
         if (focusedItem) {
             focusedItem.click();
@@ -421,29 +536,29 @@ export class ButtonMenu {
 
             // 移除菜单元素
             menuToHide.classList.remove('button-menu-visible');
-            
+
             // 清理键盘导航
             if (this._keyboardCleanup) {
                 this._keyboardCleanup();
                 this._keyboardCleanup = null;
             }
-            
+
             // 使用动画完成事件监听器
             const handleTransitionEnd = () => {
                 if (menuToHide && menuToHide.parentNode) {
                     menuToHide.removeEventListener('transitionend', handleTransitionEnd);
                     menuToHide.parentNode.removeChild(menuToHide);
-                    
+
                     // 仅当实例属性仍指向我们移除的菜单时，才将其置空
                     if (this.menuElement === menuToHide) {
-                    this.menuElement = null;
+                        this.menuElement = null;
                     }
                 }
             };
-            
+
             // 监听动画完成事件
             menuToHide.addEventListener('transitionend', handleTransitionEnd);
-            
+
             // 如果动画未开始，设置超时
             setTimeout(() => {
                 if (menuToHide && menuToHide.parentNode) {
@@ -451,25 +566,34 @@ export class ButtonMenu {
                 }
             }, 300); // 300ms后强制移除，防止动画不触发
         }
-        
+
         // 重置中央按钮状态
         UIToolkit.setActiveButton(null);
         logger.debug('右键菜单 | 重置活动按钮');
-        
+
         // 触发小助手可见性更新以允许其自动折叠
         if (widget) {
             try {
                 // 处理提示词小助手的情况
                 if (widget.type === 'prompt_assistant') {
                     const { promptAssistant } = await import('../modules/PromptAssistant.js');
+                    // 先更新可见性
                     promptAssistant.updateAssistantVisibility(widget);
-                } 
+
+                    // 直接触发自动折叠（如果小助手处于展开状态）
+                    if (!widget.isCollapsed) {
+                        setTimeout(() => {
+                            // 在下一个事件循环中触发自动折叠
+                            promptAssistant.triggerAutoCollapse(widget);
+                        }, 100);
+                    }
+                }
                 // 处理图像小助手的情况 - 使用更宽松的检测条件
                 else if (widget.type === 'image_caption_assistant' || widget.nodeId) {
                     const { imageCaption } = await import('../modules/imageCaption.js');
                     // 先更新可见性
                     imageCaption.updateAssistantVisibility(widget);
-                    
+
                     // 直接触发自动折叠（如果小助手处于展开状态）
                     if (!widget.isCollapsed) {
                         setTimeout(() => {
@@ -483,7 +607,7 @@ export class ButtonMenu {
                 logger.error(`触发小助手可见性更新失败: ${error.message}`);
             }
         }
-        
+
         // 重置状态
         this.isMenuVisible = false;
         this.targetButton = null;
@@ -497,18 +621,18 @@ export class ButtonMenu {
      */
     _positionMenu(event) {
         if (!this.menuElement || !this.targetButton) return;
-        
+
         const buttonRect = this.targetButton.getBoundingClientRect();
         const menuRect = this.menuElement.getBoundingClientRect();
 
         // 计算菜单位置，使其位于按钮正上方并居中
         let x = buttonRect.left + (buttonRect.width / 2) - (menuRect.width / 2);
         let y = buttonRect.top - menuRect.height - 4; // 4px的间距
-        
+
         // 设置菜单初始位置
         this.menuElement.style.left = `${x}px`;
         this.menuElement.style.top = `${y}px`;
-        
+
         // 确保菜单在视口内
         setTimeout(() => this._adjustMenuPosition(), 0);
     }
@@ -518,12 +642,12 @@ export class ButtonMenu {
      */
     _adjustMenuPosition() {
         if (!this.menuElement) return;
-        
+
         const menuRect = this.menuElement.getBoundingClientRect();
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
         const margin = 12; // 边距
-        
+
         // 检查并调整水平位置
         if (menuRect.right > viewportWidth - margin) {
             const newLeft = viewportWidth - menuRect.width - margin;
@@ -531,7 +655,7 @@ export class ButtonMenu {
         } else if (menuRect.left < margin) {
             this.menuElement.style.left = `${margin}px`;
         }
-        
+
         // 检查并调整垂直位置
         if (menuRect.top < margin && this.targetButton) {
             const buttonRect = this.targetButton.getBoundingClientRect();
@@ -547,11 +671,77 @@ export class ButtonMenu {
             const newTop = viewportHeight - menuRect.height - margin;
             this.menuElement.style.top = `${Math.max(margin, newTop)}px`;
         }
-        
+
         // 添加显示动画
         requestAnimationFrame(() => {
             this.menuElement.classList.add('button-menu-visible');
         });
+    }
+
+    /**
+     * 调整子菜单位置
+     * @param {HTMLElement} submenu 子菜单元素
+     * @param {HTMLElement} parentItem 父级菜单项元素
+     * @param {string} align 对齐方式：'top'(上对齐), 'center'(居中), 'bottom'(下对齐)，默认 'center'
+     */
+    _adjustSubmenuPosition(submenu, parentItem, align = 'center') {
+        if (!submenu || !parentItem) return;
+
+        const parentRect = parentItem.getBoundingClientRect();
+        const submenuRect = submenu.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const margin = 12;
+
+        // 根据对齐方式计算初始垂直位置
+        let topOffset;
+        switch (align) {
+            case 'top':
+                // 上对齐：子菜单顶部与父项顶部对齐
+                topOffset = 0;
+                break;
+            case 'bottom':
+                // 下对齐：子菜单底部与父项底部对齐
+                topOffset = parentRect.height - submenuRect.height;
+                break;
+            case 'center':
+            default:
+                // 居中：子菜单中心与父项中心对齐
+                topOffset = (parentRect.height - submenuRect.height) / 2;
+                break;
+        }
+
+        // 计算子菜单实际的 top 位置（基于视口）
+        let actualTop = parentRect.top + topOffset;
+
+        // 限制在视口范围内（动态调整）
+        if (actualTop < margin) {
+            // 超出顶部，调整到顶部边缘
+            topOffset = margin - parentRect.top;
+        } else if (actualTop + submenuRect.height > viewportHeight - margin) {
+            // 超出底部，调整到底部边缘
+            topOffset = viewportHeight - margin - submenuRect.height - parentRect.top;
+        }
+
+        // 设置垂直位置
+        submenu.style.top = `${topOffset}px`;
+        submenu.style.bottom = 'auto';
+
+        // 检查水平位置：如果右侧超出视口，尝试显示在左侧
+        const rightEdge = parentRect.right + submenuRect.width + 4;
+        if (rightEdge > viewportWidth - margin) {
+            // 显示在父菜单左侧
+            submenu.style.left = 'auto';
+            submenu.style.right = '100%';
+            submenu.style.marginLeft = '0';
+            submenu.style.marginRight = '2px';
+        } else {
+            // 默认显示在父菜单右侧
+            submenu.style.left = '100%';
+            submenu.style.right = 'auto';
+            submenu.style.marginLeft = '2px';
+            submenu.style.marginRight = '0';
+        }
     }
 
     /**
@@ -562,34 +752,34 @@ export class ButtonMenu {
      */
     setupButtonMenu(button, getMenuItems, context = {}) {
         if (!button || typeof getMenuItems !== 'function') return;
-        
+
         // 清理可能已存在的事件监听器
         if (button._menuEventCleanup) {
             button._menuEventCleanup();
         }
-        
+
         // 添加右键菜单事件
         const removeContextMenu = EventManager.addDOMListener(button, 'contextmenu', async (event) => {
             event.preventDefault();
             event.stopPropagation();
-            
+
             // 获取当前菜单项 - 支持异步函数
             try {
                 const menuItems = await Promise.resolve(getMenuItems(context));
-            if (!menuItems || menuItems.length === 0) return;
-            
-            // 显示菜单
+                if (!menuItems || menuItems.length === 0) return;
+
+                // 显示菜单
                 await this.showMenu(button, menuItems, context, event);
             } catch (error) {
                 logger.error(`获取菜单项失败: ${error.message}`);
             }
         });
-        
+
         // 保存清理函数
         button._menuEventCleanup = () => {
             removeContextMenu();
         };
-        
+
         // 返回清理函数，方便外部调用
         return button._menuEventCleanup;
     }
@@ -602,7 +792,7 @@ export function addButtonMenuStyles() {
     if (!ResourceManager.isInitialized()) {
         ResourceManager.init();
     }
-    
+
     // 样式已经在popup.css中定义，不需要额外添加
     logger.debug("按钮菜单样式已从popup.css加载");
 }

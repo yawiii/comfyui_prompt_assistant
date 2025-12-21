@@ -28,35 +28,40 @@ class Logger {
 
     log(message) {
         if (this.level >= LOG_LEVELS.BASIC) {
-            console.log(`[PromptAssistant-系统] ${message}`);
+            const msg = typeof message === 'function' ? message() : message;
+            console.log(`[PromptAssistant-系统] ${msg}`);
         }
     }
 
     debug(message) {
         if (this.level >= LOG_LEVELS.DEBUG) {
-            // 统一的调试输出入口。为防止刷屏，可考虑在此处加入节流/采样。
-            console.debug(`[PromptAssistant-调试] ${message}`);
+            // 支持传入函数以实现惰性求值，避免在非调试模式下的性能开销
+            const msg = typeof message === 'function' ? message() : message;
+            console.debug(`[PromptAssistant-调试] ${msg}`);
         }
     }
 
     /**
      * 轻量调试（采样）
      * 仅当随机命中概率时才输出，用于高频路径
-     * @param {string} message
+     * @param {string|Function} message
      * @param {number} rate 0~1，默认0.1表示10%采样
      */
     debugSample(message, rate = 0.1) {
         if (this.level >= LOG_LEVELS.DEBUG && Math.random() < rate) {
-            console.debug(`[PromptAssistant-调试] ${message}`);
+            const msg = typeof message === 'function' ? message() : message;
+            console.debug(`[PromptAssistant-调试] ${msg}`);
         }
     }
 
     error(message) {
-        console.error(`[PromptAssistant-错误] ${message}`);
+        const msg = typeof message === 'function' ? message() : message;
+        console.error(`[PromptAssistant-错误] ${msg}`);
     }
 
     warn(message) {
-        console.warn(`[PromptAssistant-警告] ${message}`);
+        const msg = typeof message === 'function' ? message() : message;
+        console.warn(`[PromptAssistant-警告] ${msg}`);
     }
 
     /**

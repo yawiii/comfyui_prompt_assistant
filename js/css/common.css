@@ -1,11 +1,13 @@
 /**
  * 通用样式及动画库
- * 提供全局共享的动画效果和基础样式
+ * 提供全局共享的动画效果和特定功能组件样式
  */
 
-/* ======== 动画定义 ======== */
+/* ==========================================================================
+   1. 关键帧动画 (Keyframes)
+   ========================================================================== */
 
-/* 输入框高亮动画 */
+/* 输入框高亮闪烁 */
 @keyframes inputHighlight {
     0% {
         background-color: transparent;
@@ -20,112 +22,7 @@
     }
 }
 
-.input-highlight {
-    animation: inputHighlight 0.2s ease-out;
-}
-
-
-
-/* 小助手折叠和展开过渡效果 */
-.prompt-assistant-transition {
-    transition: width 0.3s cubic-bezier(0.25, 1, 0.5, 1),
-        opacity 0.3s cubic-bezier(0.25, 1, 0.5, 1),
-        border-color 0.2s ease-out,
-        backdrop-filter 0.2s ease-out,
-        box-shadow 0.2s ease-out,
-        background-color 0.5s ease-out;
-}
-
-/* 确保内容不随容器宽度变化而移动的样式 */
-.prompt-assistant-content-fixed {
-    display: flex;
-    gap: 2px;
-    position: relative;
-    right: 0;
-    justify-content: flex-end;
-    width: auto;
-    flex-grow: 1;
-    transition: none;
-}
-
-/* 折叠状态下按钮的透明度过渡 */
-.prompt-assistant-container.collapsed .prompt-assistant-button {
-    transition: opacity 0.3s cubic-bezier(0.11, 0, 0.5, 0);
-    opacity: 0;
-}
-
-/* 折叠状态下容器的透明效果 */
-.prompt-assistant-container.collapsed {
-    background-color: transparent;
-    border-color: transparent;
-    backdrop-filter: blur(0px);
-    box-shadow: none;
-}
-
-/* 向上淡入动画 */
-@keyframes clipFadeInUp {
-    from {
-        opacity: 0;
-        transform: translateY(-10px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* 向下淡入动画 */
-@keyframes clipFadeInDown {
-    from {
-        opacity: 0;
-        transform: translateY(10px) scale(1);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-}
-
-/* 向上淡出动画 */
-@keyframes clipFadeOutUp {
-    from {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-
-    to {
-        opacity: 0;
-        transform: translateY(10px) scale(1);
-    }
-}
-
-/* 向下淡出动画 */
-@keyframes clipFadeOutDown {
-    from {
-        opacity: 1;
-        transform: translateY(0) scale(1);
-    }
-
-    to {
-        opacity: 0;
-        transform: translateY(-10px) scale(1);
-    }
-}
-
-/* 淡入动画 */
-@keyframes clipFadeIn {
-    from {
-        opacity: 0;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
-
-/* 按钮呼吸缩放动画 */
+/* 按钮呼吸效果 */
 @keyframes buttonBreathing {
     0% {
         transform: scale(1);
@@ -143,9 +40,7 @@
     }
 }
 
-
-
-/* 状态提示浮动效果 - 向上淡出 */
+/* 状态提示浮动消失 */
 @keyframes tipFloatUp {
     0% {
         opacity: 1;
@@ -163,7 +58,7 @@
     }
 }
 
-/* 状态提示缩放出现动画 */
+/* 状态提示缩放出现 */
 @keyframes tipScaleIn {
     0% {
         opacity: 0;
@@ -181,7 +76,66 @@
     }
 }
 
-/* 标签内容渐显动画 */
+/* 淡入淡出组合 */
+@keyframes clipFadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes clipFadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(1);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes clipFadeOutUp {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(10px) scale(1);
+    }
+}
+
+@keyframes clipFadeOutDown {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translateY(-10px) scale(1);
+    }
+}
+
+@keyframes clipFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+/* 标签内容渐显 */
 @keyframes tagContentFadeIn {
     from {
         opacity: 0;
@@ -194,7 +148,44 @@
     }
 }
 
-/* 标签内容包装器样式 */
+/* 对话框入场 */
+@keyframes dialogFadeIn {
+    from {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* Loading 旋转 */
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ==========================================================================
+   2. 通用工具类 (Utilities)
+   ========================================================================== */
+
+/* 应用高亮动画 */
+.input-highlight {
+    animation: inputHighlight 0.2s ease-out;
+}
+
+/* ==========================================================================
+   3. 标签组件样式 (Tag Components)
+   ========================================================================== */
+
+/* 标签内容包装器 (用于 tag.js) */
 .tag_content_wrapper {
     width: 100%;
     height: 100%;
@@ -208,7 +199,10 @@
     transform: translateY(0);
 }
 
-/* ======== 图像反推复制对话框样式 ======== */
+/* ==========================================================================
+   4. 图像反推对话框 (Image Caption Dialog)
+   ========================================================================== */
+
 .image-assistant-copy-dialog {
     position: fixed;
     top: 50%;
@@ -218,12 +212,12 @@
     color: var(--p-text-muted-color);
     border-radius: 8px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-    z-index: 9999;
+    z-index: 10220;
     width: 400px;
     height: 300px;
     padding: 20px;
     font-family: var(--litegraph-font, Arial, sans-serif);
-    position: relative;
+    animation: dialogFadeIn 0.2s ease-out;
 }
 
 /* 关闭按钮 */
@@ -233,20 +227,20 @@
     right: 12px;
     width: 24px;
     height: 24px;
-    background: none;
-    border: none;
-    color: var(--p-button-text-secondary-color);
-    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
+
+    background: none;
+    border: none;
     border-radius: 12px;
+    color: var(--p-button-text-secondary-color);
+    cursor: pointer;
     transition: all 0.2s ease;
 }
 
 .image-assistant-copy-dialog-close:hover {
     background-color: rgba(255, 255, 255, 0.1);
-    color: var(--p-button-text-secondary-color);
 }
 
 .image-assistant-copy-dialog-close .svg-icon {
@@ -254,14 +248,13 @@
     height: 16px;
 }
 
-/* 标题文本 */
+/* 对话框标题 */
 .image-assistant-copy-dialog-title {
     font-size: 14px;
     font-weight: bold;
     line-height: 1.4;
     margin: 0 0 16px 0;
     padding-right: 30px;
-    /* 为关闭按钮留出空间 */
 }
 
 /* 文本区域 */
@@ -269,17 +262,19 @@
     width: 100%;
     height: 160px;
     padding: 12px;
-    border: 1px solid var(--p-content-border-color);
-    border-radius: 6px;
+    margin-bottom: 16px;
+    box-sizing: border-box;
+
     background-color: var(--comfy-input-bg);
     color: var(--input-text);
+    border: 1px solid var(--p-content-border-color);
+    border-radius: 6px;
+
     font-family: var(--litegraph-font, Arial, sans-serif);
     font-size: 13px;
     line-height: 1.5;
     resize: none;
     outline: none;
-    box-sizing: border-box;
-    margin-bottom: 16px;
 }
 
 .image-assistant-copy-dialog-textarea:focus {
@@ -292,15 +287,17 @@
     display: block;
     margin: 0 auto;
     padding: 10px 24px;
+    min-width: 120px;
+
     background-color: var(--p-primary-color);
     color: var(--p-button-primary-color);
     border: none;
     border-radius: 6px;
-    cursor: pointer;
+
     font-size: 14px;
     font-weight: 500;
+    cursor: pointer;
     transition: all 0.2s ease;
-    min-width: 120px;
 }
 
 .image-assistant-copy-dialog-copy-btn:hover {
@@ -313,19 +310,31 @@
     box-shadow: 0 1px 4px rgba(74, 144, 226, 0.3);
 }
 
-/* 对话框入场动画 */
-@keyframes dialogFadeIn {
-    from {
-        opacity: 0;
-        transform: translate(-50%, -50%) scale(0.9);
-    }
+/* ==========================================================================
+   5. Loading 组件
+   ========================================================================== */
 
-    to {
-        opacity: 1;
-        transform: translate(-50%, -50%) scale(1);
-    }
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    text-align: center;
 }
 
-.image-assistant-copy-dialog {
-    animation: dialogFadeIn 0.2s ease-out;
+.loading-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--p-divider-color);
+    border-top-color: var(--p-primary-color);
+    border-radius: 50%;
+    margin-bottom: 12px;
+    animation: spin 0.8s linear infinite;
+}
+
+.loading-text {
+    font-size: 14px;
+    color: var(--p-text-muted-color);
+    margin-top: 8px;
 }

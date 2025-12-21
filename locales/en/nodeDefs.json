@@ -1,0 +1,210 @@
+{
+    "PromptExpand": {
+        "display_name": "✨Prompt Enhance",
+        "description": "Enhance your prompt using LLM",
+        "inputs": {
+            "rule": {
+                "name": "Rule",
+                "tooltip": "Preset rule for prompt enhancement"
+            },
+            "custom_rule": {
+                "name": "Custom Rule",
+                "tooltip": "Enable custom rule input below"
+            },
+            "custom_rule_content": {
+                "name": "Custom Rule Content",
+                "tooltip": "Enter your custom rule here"
+            },
+            "user_prompt": {
+                "name": "User Prompt",
+                "tooltip": "Your prompt to be enhanced"
+            },
+            "llm_service": {
+                "name": "LLM Service",
+                "tooltip": "Select LLM Service"
+            },
+            "ollama_auto_unload": {
+                "name": "Auto Unload",
+                "tooltip": "Auto unload Ollama model"
+            },
+            "source_text": {
+                "name": "Source Text",
+                "tooltip": "Optional input text"
+            }
+        },
+        "outputs": {
+            "0": {
+                "name": "Prompt Output",
+                "tooltip": "Result of enhancement"
+            }
+        }
+    },
+    "ImageCaptionNode": {
+        "display_name": "✨Image Caption",
+        "description": "Generate caption for image using VLM",
+        "inputs": {
+            "image": {
+                "name": "Image",
+                "tooltip": "Input image"
+            },
+            "rule": {
+                "name": "Rule",
+                "tooltip": "Preset rule for captioning"
+            },
+            "custom_rule": {
+                "name": "Custom Rule",
+                "tooltip": "Enable custom rule input"
+            },
+            "custom_rule_content": {
+                "name": "Custom Rule Content",
+                "tooltip": "Custom rule content"
+            },
+            "user_prompt": {
+                "name": "User Prompt",
+                "tooltip": "Enter additional prompts here, sent with the rule"
+            },
+            "vlm_service": {
+                "name": "VLM Service",
+                "tooltip": "Select VLM Service"
+            },
+            "ollama_auto_unload": {
+                "name": "Auto Unload",
+                "tooltip": "Auto unload Ollama model"
+            }
+        },
+        "outputs": {
+            "0": {
+                "name": "Prompt Output",
+                "tooltip": "Generated caption"
+            }
+        }
+    },
+    "PromptTranslate": {
+        "display_name": "✨Prompt Translate",
+        "description": "Translate prompt between languages",
+        "inputs": {
+            "source_text": {
+                "name": "Source Text",
+                "tooltip": "Text to translate"
+            },
+            "target_language": {
+                "name": "Target Language",
+                "tooltip": "Target language for translation",
+                "options": {
+                    "English": "English",
+                    "Chinese": "Chinese"
+                }
+            },
+            "translate_service": {
+                "name": "Translate Service",
+                "tooltip": "Select Translation Service"
+            },
+            "ollama_auto_unload": {
+                "name": "Auto Unload",
+                "tooltip": "Auto unload Ollama model"
+            }
+        },
+        "outputs": {
+            "0": {
+                "name": "Prompt Output",
+                "tooltip": "Translated result"
+            }
+        }
+    },
+    "VideoCaptionNode": {
+        "display_name": "✨Video Caption",
+        "description": "Generate caption for video using VLM",
+        "inputs": {
+            "rule": {
+                "name": "Rule",
+                "tooltip": "Preset rule for video captioning"
+            },
+            "custom_rule": {
+                "name": "Custom Rule",
+                "tooltip": "Enable custom rule input"
+            },
+            "custom_rule_content": {
+                "name": "Custom Rule Content",
+                "tooltip": "Custom rule content"
+            },
+            "user_prompt": {
+                "name": "User Prompt",
+                "tooltip": "Enter additional prompts here, sent with the rule"
+            },
+            "vlm_service": {
+                "name": "VLM Service",
+                "tooltip": "Select VLM Service"
+            },
+            "sampling_mode": {
+                "name": "Sampling Mode",
+                "tooltip": "Select Auto (Uniform) to uniformly sample frames based on video length. Manual (Indices) mode allows manual frame selection via the '🎬Select Frames for Captioning' button",
+                "options": {
+                    "Auto (Uniform)": "Auto (Uniform)",
+                    "Manual (Indices)": "Manual (Indices)"
+                }
+            },
+            "frame_count": {
+                "name": "Frame Count",
+                "tooltip": "Number of frames to sample (Auto mode)"
+            },
+            "manual_indices": {
+                "name": "Manual Indices",
+                "tooltip": "Specific frame indices (Manual mode)"
+            },
+            "ollama_auto_unload": {
+                "name": "Auto Unload",
+                "tooltip": "Auto unload Ollama model"
+            },
+            "video": {
+                "name": "Video",
+                "tooltip": "Input Video"
+            },
+            "image_sequence": {
+                "name": "Images",
+                "tooltip": "Input Image Sequence"
+            }
+        },
+        "outputs": {
+            "0": {
+                "name": "Prompt Output",
+                "tooltip": "Generated video caption"
+            },
+            "1": {
+                "name": "Preview frames",
+                "tooltip": "Preview frames"
+            }
+        }
+    },
+    "KontextPresetNode": {
+        "display_name": "✨Kontext Preset",
+        "description": "Generate creative instruction using Kontext presets",
+        "inputs": {
+            "image": {
+                "name": "Image",
+                "tooltip": "Input image"
+            },
+            "kontext_preset": {
+                "name": "Preset",
+                "tooltip": "Select Kontext preset"
+            },
+            "user_prompt": {
+                "name": "User Prompt",
+                "tooltip": "Enter additional prompts here, sent with the preset"
+            },
+            "vlm_service": {
+                "name": "VLM Service",
+                "tooltip": "Select VLM Service"
+            },
+            "ollama_auto_unload": {
+                "name": "Auto Unload",
+                "tooltip": "Auto unload Ollama model"
+            }
+        },
+        "outputs": {
+            "0": {
+                "name": "Prompt Output",
+                "tooltip": "Generated creative instruction"
+            }
+        }
+    }
+}

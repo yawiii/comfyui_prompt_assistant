@@ -36,9 +36,15 @@ class PopupManager {
 
         // 如果已有其他弹窗，先关闭它
         if (this.activePopup && this.activePopup !== popup) {
+            console.log(`[PopupManager] 切换弹窗 | 关闭旧弹窗，准备打开新弹窗`);
+
             // 保存当前活动弹窗的信息
             const oldPopupInfo = this.activePopupInfo;
             const oldPopup = this.activePopup;
+
+            // 【关键】标记正在切换弹窗，避免在切换期间触发折叠
+            this._isTransitioning = true;
+            console.log(`[PopupManager] 设置 _isTransitioning = true`);
 
             // 清除当前活动弹窗引用，避免hidePopup中的状态冲突
             this.activePopup = null;
@@ -68,6 +74,9 @@ class PopupManager {
                     }
                     // 显示新弹窗
                     this._showNewPopup(options);
+                    // 清除切换标记
+                    this._isTransitioning = false;
+                    console.log(`[PopupManager] 设置 _isTransitioning = false`);
                     resolve();
                 }, 200);
             });
@@ -621,6 +630,11 @@ class PopupManager {
                     e.target.closest(`.${className}`) !== null;
             });
 
+            // 检查是否点击的是上下文菜单、确认弹窗或设置对话框
+            const isContextMenu = e.target.closest('.pa-context-menu') || e.target.closest('.pa-confirm-popup');
+            const isSettingsModal = e.target.closest('.settings-modal') || e.target.closest('.settings-modal-overlay');
+            if (isContextMenu || isSettingsModal) return;
+
             // 检查是否点击的是目标输入框
             const isTargetInput = e.target.classList.contains('comfy-multiline-input');
 
@@ -678,6 +692,10 @@ class PopupManager {
             }
 
             if (e.key === 'Escape') {
+                // 如果存在设置对话框，不关闭标签弹窗（让设置对话框处理 ESC）
+                const settingsModal = document.querySelector('.settings-modal');
+                if (settingsModal) return;
+
                 if (typeof onClose === 'function') {
                     onClose();
                 }

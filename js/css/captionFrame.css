@@ -1,0 +1,458 @@
+/* 适配 createSettingsDialog 的自定义弹窗样式 */
+.caption-frame-dialog {
+    /* 默认尺寸，受 max 限制 */
+    width: 800px !important;
+    height: 700px !important;
+    min-width: 500px;
+    min-height: 400px;
+
+    /* 强制最大尺寸 */
+    max-width: 800px !important;
+    max-height: 800px !important;
+
+    /* 启用 Flex 布局来管理 header/content/footer */
+    display: flex !important;
+    flex-direction: column !important;
+
+    overflow: auto;
+
+    /* 确保在最上层，但低于 tooltip */
+    z-index: var(--settings-modal-z-index);
+    border: 1px solid var(--p-dialog-border-color);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6) !important;
+    background-color: var(--p-dialog-background);
+}
+
+/* --- 标题栏视频信息样式 --- */
+.video-header-info {
+    flex: none;
+    margin-left: auto;
+    margin-right: 15px;
+    font-size: 12px;
+    color: var(--color-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1.4;
+    /* 圆角边框容器 */
+    background: var(--p-button-secondary-background);
+    border-radius: 10px;
+    padding: 4px 10px;
+    font-family: monospace;
+}
+
+/* 覆盖内容区域默认样式，使其填满空间 */
+.caption-frame-dialog .p-dialog-content {
+    padding: 0 !important;
+    flex: 1 1 auto;
+    /* 占据剩余高度 */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden !important;
+    /* 防止滚动条出现 */
+    min-height: 0;
+    /* Flex 嵌套中的关键，允许内容缩小 */
+}
+
+/* 视频容器：自适应占据剩余空间 */
+.video-container {
+    flex: 1 1 auto;
+    /* 占据剩余高度 */
+    width: 100%;
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+    /* 为绝对定位的 overlay 提供参照 */
+    overflow: hidden;
+    min-height: 0;
+    /* Flex 嵌套中的关键，允许内容缩小 */
+    padding: 10px;
+    /* 给视频留一点边距 */
+    box-sizing: border-box;
+}
+
+.video-container video {
+    /* 强制视频适应容器，保持比例 */
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    /* 确保完整显示内容 */
+    outline: none;
+}
+
+/* --- 帧显示模式样式 --- */
+.frame-display-container {
+    position: relative;
+}
+
+.frame-display-img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* 混合模式：视频播放元素 */
+.frame-video-player {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: none;
+    /* 默认隐藏，播放时显示 */
+}
+
+.frame-loading-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.7);
+    padding: 15px 20px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.frame-loading-indicator .pi-spinner {
+    font-size: 24px;
+    color: var(--p-button-primary-background);
+}
+
+/* --- 统一时间轴组件样式 --- */
+.unified-timeline-container {
+    position: relative;
+    /* 增加高度：滑块头部 + 轨道 */
+    height: 40px;
+    margin: 10px 20px 0;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+/* 标记轨道（底层）*/
+.frame-marker-track {
+    position: absolute;
+    /* 轨道位于下方，给滑块头部留出空间 */
+    top: 12px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--p-scrollpanel-bar-background);
+    border-radius: 0 0 2px 2px;
+    /* 上描边更明显，模拟时间轴刻度线 */
+    border-top: 4px solid color-mix(in srgb, var(--p-button-secondary-color), transparent 84%);
+    border-left: 1px solid var(--p-divider-border-color);
+    border-right: 1px solid var(--p-divider-border-color);
+    border-bottom: 1px solid var(--p-divider-border-color);
+    cursor: pointer;
+}
+
+/* 自定义滑块（时间轴指针样式）*/
+.timeline-slider-thumb {
+    position: absolute;
+    /* 从轨道位置开始，不超出轨道 */
+    top: 12px;
+    left: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--p-button-primary-background);
+    transform: translateX(-50%);
+    cursor: grab;
+    z-index: 10;
+}
+
+/* 滑块头部（圆点）- 与轨道上描边垂直居中对齐 */
+.timeline-slider-thumb::before {
+    content: '';
+    position: absolute;
+    /* 圆点14px高，中心对齐上描边：-7px */
+    top: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 14px;
+    height: 14px;
+    background: var(--p-button-primary-background);
+    border-radius: 50%;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.timeline-slider-thumb:hover::before {
+    transform: translateX(-50%) scale(1.2);
+    box-shadow: 0 0 10px var(--p-button-primary-background);
+}
+
+.timeline-slider-thumb.dragging {
+    cursor: grabbing;
+}
+
+.timeline-slider-thumb.dragging::before {
+    transform: translateX(-50%) scale(1.1);
+    box-shadow: 0 0 12px var(--p-button-primary-background);
+}
+
+/* 视频内悬浮信息面板 */
+.video-info-overlay {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    padding: 10px;
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 10;
+    backdrop-filter: blur(4px);
+    /* border: 1px solid rgba(255, 255, 255, 0.1); */
+    min-width: 150px;
+}
+
+/* 信息行样式 */
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+    color: var(--color-muted);
+    font-family: monospace;
+    line-height: 1.4;
+}
+
+.info-label {
+    color: var(--color-muted);
+    margin-right: 8px;
+}
+
+/* 控制区域容器 */
+.controls-container {
+    flex-shrink: 0;
+    /* 固定高度，不随父容器压缩 */
+    background: var(--p-dialog-background);
+    padding: 12px 20px;
+    border-top: 1px solid var(--p-dialog-border-color);
+    /* 改为横向 Flex 布局 */
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    /* 两端对齐 */
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    z-index: 2;
+}
+
+/* 按钮组容器 */
+.playback-controls {
+    display: flex;
+    gap: 8px;
+    /* 按钮之间的间距 */
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 选帧列表区域 */
+.frame-list-container {
+    flex-shrink: 0;
+    /* 固定高度 */
+    background: color-mix(in srgb, var(--secondary-background), transparent 30%);
+    ;
+    padding: 10px 20px;
+    border-top: 1px solid var(--p-divider-border-color);
+    max-height: 120px;
+    overflow-y: auto;
+}
+
+.frame-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    /* 移除 margin-bottom，因为标签现在在同一行 */
+    font-size: 12px;
+    color: #aaa;
+}
+
+.frame-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    flex: 1;
+    /* 允许标签占据剩余空间 */
+}
+
+/* 帧标签基础样式 */
+.frame-tag {
+    /* 默认背景，会被覆盖 */
+    background: transparent;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    user-select: none;
+    border: 1px solid transparent;
+}
+
+/* 单帧标签 - 蓝色 */
+.frame-tag.frame-tag-single {
+    background: var(--p-button-primary-background);
+    border-color: var(--p-button-primary-background);
+}
+
+.frame-tag.frame-tag-single:hover {
+    background: var(--p-button-primary-hover-background);
+}
+
+/* 范围帧标签 - 绿色 */
+.frame-tag.frame-tag-range {
+    background: var(--p-green-600);
+    border-color: var(--p-green-600);
+}
+
+.frame-tag.frame-tag-range:hover {
+    background: color-mix(in srgb, var(--p-green-600) 80%, black);
+}
+
+.frame-tag .remove-frame {
+    cursor: pointer;
+    color: var(--p-button-secondary-color);
+    font-weight: bold;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.7;
+}
+
+.frame-tag .remove-frame:hover {
+    opacity: 1;
+}
+
+/* 微调底部按钮区域 */
+.caption-frame-dialog .p-dialog-footer {
+    padding: 10px 20px !important;
+    background: var(--p-dialog-background);
+    border-top: 1px solid var(--p-divider-border-color);
+
+    flex-shrink: 0;
+}
+
+/* 单帧标记 - 上尖下圆角 */
+.frame-marker {
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 100%;
+    background: var(--p-button-primary-background);
+    cursor: grab;
+    transform: translateX(-50%);
+    transition: background 0.15s;
+    /* 上尖下圆角：使用 clip-path 裁剪 */
+    clip-path: polygon(50% 0%, 100% 30%, 100% 100%, 0% 100%, 0% 30%);
+    border-radius: 0 0 3px 3px;
+    user-select: none;
+}
+
+.frame-marker:hover {
+    background: var(--p-button-primary-hover-background);
+}
+
+.frame-marker:active {
+    cursor: grabbing;
+    opacity: 0.8;
+    filter: drop-shadow(0 0 6px var(--p-button-primary-background));
+}
+
+/* 临时标记 - 绿色闪烁 */
+.frame-marker-temp {
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 100%;
+    background: var(--p-green-600);
+    cursor: pointer;
+    transform: translateX(-50%);
+    /* 上尖下圆角 */
+    clip-path: polygon(50% 0%, 100% 30%, 100% 100%, 0% 100%, 0% 30%);
+    border-radius: 0 0 3px 3px;
+    /* 闪烁动画 */
+    animation: blink 1s ease-in-out infinite;
+}
+
+/* 闪烁动画关键帧 */
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* 范围标记 */
+.frame-marker-range {
+    position: absolute;
+    bottom: 0;
+    height: 100%;
+    background: color-mix(in srgb, var(--p-green-600) 25%, transparent);
+    border-left: 2px solid var(--p-green-600);
+    border-right: 2px solid var(--p-green-600);
+    cursor: move;
+    transition: background 0.15s;
+    box-sizing: border-box;
+    user-select: none;
+}
+
+.frame-marker-range:hover {
+    background: color-mix(in srgb, var(--p-green-600) 35%, transparent);
+}
+
+.frame-marker-range:active {
+    opacity: 0.9;
+}
+
+/* 范围手柄 */
+.range-handle {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 8px;
+    cursor: ew-resize;
+    z-index: 1;
+}
+
+.range-handle-left {
+    left: -4px;
+}
+
+.range-handle-right {
+    right: -4px;
+}
+
+.range-handle:hover {
+    background: color-mix(in srgb, var(--p-green-600) 50%, transparent);
+}
+
+/* 拖动跟随标签 */
+.drag-label {
+    position: absolute;
+    top: -30px;
+    transform: translateX(-50%);
+    background: var(--p-button-primary-background);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}

@@ -313,10 +313,26 @@ class PromptFormatter {
                 to = 'zh';
                 type = '纯英文';
             } else {
-                // 混合语言（包含中英文）或其他情况，默认中译英
-                from = 'zh';
-                to = 'en';
-                type = '混合语言';
+                // 混合语言：按中文汉字数量 vs 英文单词数量比较以决定方向
+                const cnChars = text.match(/[\u4e00-\u9fff]/g) || [];
+                const enWords = text.match(/[A-Za-z]+(?:['’\-][A-Za-z]+)*/g) || [];
+                const cnUnits = cnChars.length;
+                const enUnits = enWords.length;
+
+                if (cnUnits > enUnits) {
+                    from = 'zh';
+                    to = 'en';
+                    type = '混合语言-中文占优';
+                } else if (enUnits > cnUnits) {
+                    from = 'en';
+                    to = 'zh';
+                    type = '混合语言-英文占优';
+                } else {
+                    // 数量持平时沿用原逻辑：默认中译英
+                    from = 'zh';
+                    to = 'en';
+                    type = '混合语言';
+                }
             }
 
             // 记录日志
@@ -331,6 +347,16 @@ class PromptFormatter {
                 to: 'zh'
             };
         }
+    }
+
+    /**
+     * 判断是否为中英文混合文本
+     */
+    static isMixedChineseEnglish(text) {
+        if (!text) return false;
+        const hasChinese = /[\u4e00-\u9fff]/.test(text);
+        const hasEnglish = /[A-Za-z]/.test(text);
+        return hasChinese && hasEnglish;
     }
 }
 

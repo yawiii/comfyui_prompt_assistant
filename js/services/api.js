@@ -8,25 +8,195 @@ import { logger } from '../utils/logger.js';
 // 用于存储进行中的请求的AbortController
 const runningRequests = new Map();
 
+// ---基础路由推断逻辑---
+// 自动获取当前插件的挂载点，消除硬编码路径
+// 通过解析当前脚本的 URL，提取出 extensions/ 后的目录名
+let apiBaseUrl = null;
+
+function getDynamicApiBase() {
+    if (apiBaseUrl) return apiBaseUrl;
+
+    try {
+        const scriptUrl = import.meta.url;
+        const url = new URL(scriptUrl);
+        const pathParts = url.pathname.split('/');
+
+        // 策略1：寻找 /js/ 目录段，并取其前一个段作为插件名 (最通用)
+        const jsIdx = pathParts.indexOf('js');
+        if (jsIdx > 0) {
+            const nodeDir = pathParts[jsIdx - 1];
+            apiBaseUrl = `/${nodeDir}/api`;
+        }
+        // 策略2：回退到 extensions 关键词寻找 (ComfyUI 标准结构)
+        else {
+            const extIdx = pathParts.indexOf('extensions');
+            if (extIdx !== -1 && pathParts.length > extIdx + 1) {
+                const nodeDir = pathParts[extIdx + 1];
+                apiBaseUrl = `/${nodeDir}/api`;
+            } else {
+                // 策略3：硬编码兜底
+                apiBaseUrl = '/prompt-assistant/api';
+            }
+        }
+    } catch (e) {
+        apiBaseUrl = '/prompt-assistant/api';
+    }
+    return apiBaseUrl;
+}
+
 class APIService {
     /**
      * 构建完整的API URL
      */
     static getApiUrl(path) {
-        // 获取当前域名和端口
-        const baseUrl = window.location.origin;
-        // 确保路径格式正确
-        const formattedPath = path.startsWith('/') ? path : `/${path}`;
-        const url = `${baseUrl}${formattedPath}`;
-        logger.debug(`构建API URL: ${url}`);
+        // 获取动态基础路由 (例如 /comfyui_prompt_assistant/api)
+        const baseApi = getDynamicApiBase();
+
+        // 确保 path 不含重复的前缀，且格式正确
+        let subPath = path.startsWith('/') ? path : `/${path}`;
+
+        // 如果 path 已经包含了 baseApi，则不再重复添加
+        const fullPath = subPath.startsWith(baseApi) ? subPath : `${baseApi}${subPath}`;
+
+        const url = `${window.location.origin}${fullPath}`;
+        // logger.debug(`构建API URL: ${url}`);
         return url;
+    }
+
+    /**
+     * 解析形如 [{"id":0,"text":"..."}, ...] 的JSON数组
+     * 返回 Map<id, text>
+     */
+    static _extractIndexedTranslations(text) {
+        const arr = APIService._extractJsonArray(text);
+        if (!Array.isArray(arr)) return null;
+        const map = new Map();
+        for (const item of arr) {
+            if (!item || typeof item !== 'object') return null;
+            if (!('id' in item) || !('text' in item)) return null;
+            map.set(Number(item.id), String(item.text ?? ''));
+        }
+        return map;
+    }
+
+    /**
+     * 结构化批量翻译（纯前端封装，单次LLM请求）
+     * 要求模型严格返回 JSON 数组，与输入 texts 一一对应
+     */
+    static async llmBatchTranslate(texts, from = 'auto', to = 'zh', request_id = null) {
+        try {
+            if (!Array.isArray(texts) || texts.length === 0) {
+                throw new Error('待翻译文本数组不能为空');
+            }
+
+            // 构造结构化指令，使用索引，要求输出严格的 JSON 对象数组
+            const indexed = texts.map((t, i) => ({ id: i, text: t }));
+            // 强化提示词：明确禁止 Markdown 表格格式，禁止添加 '|' 前缀
+            const sysHint = `你是一个专业的翻译API。请将输入的 JSON 数组中的 text 字段内容从 ${from} 翻译为 ${to}。
+            规则：
+            1. 保持 JSON 结构不变，返回包含 id 和 text 的数组。
+            2. 严禁使用 Markdown 表格格式，严禁在译文前添加 '|' 符号。
+            3. 对于参数名、变量名（如 snake_case 格式），请尽可能将其翻译为中文含义（例如：pose_images -> 姿势图像），除非是专有名词（如 CLIP, VAE）。
+            4. 保持数组长度与输入一致。
+            5. 直接输出 JSON，不要包含 Markdown 代码块标记（如 \`\`\`json）。`;
+
+            const payload = { segments: indexed };
+            const prompt = [
+                sysHint,
+                'Input: ' + JSON.stringify(payload)
+            ].join('\n');
+
+            // 复用单文本接口
+            const res = await this.llmTranslate(prompt, from, to, request_id);
+            if (!res || !res.success) {
+                return { success: false, error: res?.error || '批量翻译失败' };
+            }
+
+            const content = (res.data && (res.data.translated || res.data.expanded || res.data.content)) || res.translated || res.content || '';
+            // 解析为索引映射
+            let mapped = APIService._extractIndexedTranslations(content);
+            if (!mapped) {
+                // 回退：尝试解析为纯字符串数组并顺序对齐
+                const arr = APIService._extractJsonArray(content);
+                if (Array.isArray(arr) && arr.length === texts.length) {
+                    mapped = new Map(arr.map((v, i) => [i, v]));
+                }
+            }
+
+            if (!mapped) {
+                return { success: false, error: '解析批量译文失败：未检测到有效JSON' };
+            }
+
+            // 如果缺项，针对缺失索引做单次补救调用，避免整次失败
+            const translations = new Array(texts.length).fill("");
+            const missingIdx = [];
+            for (let i = 0; i < texts.length; i++) {
+                if (mapped.has(i)) {
+                    translations[i] = mapped.get(i);
+                } else {
+                    missingIdx.push(i);
+                }
+            }
+
+            if (missingIdx.length > 0) {
+                for (const i of missingIdx) {
+                    const single = await this.llmTranslate(texts[i], from, to, request_id);
+                    if (single && single.success) {
+                        translations[i] = (single.data && single.data.translated) || '';
+                    } else {
+                        translations[i] = '';
+                    }
+                }
+            }
+
+            return { success: true, data: { translations } };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
+     * 从字符串中提取并解析首个JSON数组
+     */
+    static _extractJsonArray(text) {
+        if (!text) return null;
+        try {
+            // 快速路径：整段就是JSON数组
+            if (text.trim().startsWith('[')) {
+                return JSON.parse(text.trim());
+            }
+        } catch (_) { /* ignore */ }
+
+        // 兼容模型添加的前后缀：寻找第一个 '[' 与匹配的 ']'
+        const first = text.indexOf('[');
+        const last = text.lastIndexOf(']');
+        if (first === -1 || last === -1 || last <= first) return null;
+        const candidate = text.slice(first, last + 1);
+        try {
+            return JSON.parse(candidate);
+        } catch (e) {
+            // 尝试修正全角引号
+            const normalized = candidate.replace(/[“”]/g, '"');
+            try { return JSON.parse(normalized); } catch { return null; }
+        }
     }
 
     /**
      * 生成唯一请求ID
      */
-    static generateRequestId() {
-        return `req_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
+    /**
+     * 生成唯一请求ID
+     * 格式: 请求类型_服务类型(可选)_NodeID_四位时间戳
+     */
+    static generateRequestId(type, serviceType = null, nodeId = '0') {
+        const timestamp = Math.floor(Date.now() / 1000).toString().slice(-4);
+        const parts = [type];
+        if (serviceType) {
+            parts.push(serviceType);
+        }
+        parts.push(nodeId);
+        parts.push(timestamp);
+        return parts.join('_');
     }
 
     /**
@@ -46,7 +216,7 @@ class APIService {
 
         // 2. 通知后端取消任务
         try {
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/request/cancel');
+            const apiUrl = this.getApiUrl('request/cancel');
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -66,8 +236,9 @@ class APIService {
      */
     static async baiduTranslate(text, from = 'auto', to = 'zh', request_id = null, is_auto = false) {
         // 生成请求ID
+        // 生成请求ID
         if (!request_id) {
-            request_id = `baidu_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            request_id = this.generateRequestId('trans', 'baidu');
         }
 
         const controller = new AbortController();
@@ -80,7 +251,7 @@ class APIService {
             }
 
             // 获取API URL
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/baidu/translate');
+            const apiUrl = this.getApiUrl('baidu/translate');
 
             // 调用后端API
             const response = await fetch(apiUrl, {
@@ -145,8 +316,9 @@ class APIService {
      */
     static async llmExpandPrompt(prompt, request_id = null) {
         // 生成请求ID
+        // 生成请求ID
         if (!request_id) {
-            request_id = `glm4_expand_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            request_id = this.generateRequestId('exp');
         }
 
         const controller = new AbortController();
@@ -155,14 +327,14 @@ class APIService {
 
         try {
             if (!prompt || prompt.trim() === '') {
-                throw new Error('请输入要扩写的内容');
+                throw new Error('请输入要优化的提示词');
             }
 
-            logger.debug(`发起LLM扩写请求 | 请求ID:${request_id} | 原文:${prompt}`);
+            logger.debug(`发起LLM提示词优化请求 | 请求ID:${request_id} | 原文:${prompt}`);
 
             // 调用后端API
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/llm/expand');
-            logger.debug('LLM扩写API URL:', apiUrl);
+            const apiUrl = this.getApiUrl('llm/expand');
+            logger.debug('LLM提示词优化API URL:', apiUrl);
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -177,15 +349,15 @@ class APIService {
             });
 
             const result = await response.json();
-            logger.debug(`LLM扩写请求成功 | 请求ID:${request_id} | 结果:${JSON.stringify(result)}`);
+            logger.debug(`LLM提示词优化请求成功 | 请求ID:${request_id} | 结果:${JSON.stringify(result)}`);
 
             return result;
         } catch (error) {
             if (error.name === 'AbortError') {
-                logger.debug(`LLM扩写请求被用户中止 | ID: ${request_id}`);
+                logger.debug(`LLM提示词优化请求被用户中止 | ID: ${request_id}`);
                 return { success: false, error: '请求已取消', cancelled: true };
             }
-            logger.error(`LLM扩写请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            logger.error(`LLM提示词优化请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
             return {
                 success: false,
                 error: error.message
@@ -203,8 +375,9 @@ class APIService {
      */
     static async llmTranslate(text, from = 'auto', to = 'zh', request_id = null, is_auto = false) {
         // 生成请求ID
+        // 生成请求ID
         if (!request_id) {
-            request_id = `llm_trans_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+            request_id = this.generateRequestId('trans', 'llm');
         }
 
         const controller = new AbortController();
@@ -217,7 +390,7 @@ class APIService {
             }
 
             // 调用后端API
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/llm/translate');
+            const apiUrl = this.getApiUrl('llm/translate');
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -258,8 +431,9 @@ class APIService {
      */
     static async llmAnalyzeImage(imageData, prompt, request_id = null) {
         // 生成请求ID
+        // 生成请求ID
         if (!request_id) {
-            request_id = this.generateRequestId();
+            request_id = this.generateRequestId('icap');
         }
 
         const controller = new AbortController();
@@ -274,7 +448,7 @@ class APIService {
             logger.debug(`发起视觉分析请求 | 请求ID:${request_id}`);
 
             // 构建API URL
-            const apiUrl = this.getApiUrl('/prompt_assistant/api/vlm/analyze');
+            const apiUrl = this.getApiUrl('vlm/analyze');
             logger.debug('视觉分析API URL:', apiUrl);
 
             // 构建请求数据

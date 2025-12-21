@@ -1,264 +1,258 @@
 import os
 import json
+import csv
+import tempfile
+import shutil
+import folder_paths
 
 class ConfigManager:
     def __init__(self):
-        # 插件目录和配置文件路径
+        # 插件目录
         self.dir_path = os.path.dirname(os.path.abspath(__file__))
+        
+        # 获取 ComfyUI 用户目录
+        try:
+            user_dir = folder_paths.get_user_directory()
+            if user_dir and os.path.isdir(user_dir):
+                # 使用 user/default/prompt-assistant 作为基础目录
+                self.base_dir = os.path.join(user_dir, "default", "prompt-assistant")
+                # self._log(f"使用用户配置目录: {self.base_dir}")
+            else:
+                # 回退到插件目录
+                self.base_dir = self.dir_path
+                self._log(f"回退到插件配置目录: {self.base_dir}")
+        except Exception as e:
+            # 异常处理，回退到插件目录
+            self.base_dir = self.dir_path
+            self._log(f"无法获取用户目录({str(e)})，使用插件配置目录")
+        
+        # 定义各个子目录
+        self.config_dir = os.path.join(self.base_dir, "config")
+        self.rules_dir = os.path.join(self.base_dir, "rules")
+        self.tags_dir = os.path.join(self.base_dir, "tags")
+        
+        # 确保目录存在
+        os.makedirs(self.config_dir, exist_ok=True)
+        os.makedirs(self.rules_dir, exist_ok=True)
+        os.makedirs(self.tags_dir, exist_ok=True)
 
-        # 创建config目录
-        self.config_dir = os.path.join(self.dir_path, "config")
-        if not os.path.exists(self.config_dir):
-            os.makedirs(self.config_dir)
-
+        # 配置文件路径（用户配置和选择）
         self.config_path = os.path.join(self.config_dir, "config.json")
-        self.system_prompts_path = os.path.join(self.config_dir, "system_prompts.json")
         self.active_prompts_path = os.path.join(self.config_dir, "active_prompts.json")
         self.tags_user_path = os.path.join(self.config_dir, "tags_user.json")
+        self.tags_selection_path = os.path.join(self.config_dir, "tags_selection.json")
+        
+        # 规则文件路径（规则定义和模板）
+        self.system_prompts_path = os.path.join(self.rules_dir, "system_prompts.json")
+        self.kontext_presets_path = os.path.join(self.rules_dir, "kontext_presets.json")
 
-        # 默认配置
-        self.default_config = {
-            "__comment": "提示词小助手配置文件",
-            "baidu_translate": {
-                "app_id": "",
-                "secret_key": ""
-            },
-            "llm": {
-                "current_provider": "zhipu",
-                "providers": {
-                    "zhipu": {
-                        "model": "glm-4-flash-250414",
-                        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "top_p": 0.9
-                    },
-                    "siliconflow": {
-                        "model": "Qwen/Qwen2.5-7B-Instruct",
-                        "base_url": "https://api.siliconflow.cn/v1",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "top_p": 0.9
-                    },
-                    "302ai": {
-                        "model": "gemini-2.5-flash",
-                        "base_url": "https://api.302.ai/v1",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "top_p": 0.9
-                    },
-                    "ollama": {
-                        "model": "huihui_ai/qwen3-abliterated:14b",
-                        "base_url": "http://localhost:11434/v1",
-                        "api_key": "ollama",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "top_p": 0.9,
-                        "auto_unload": True
-                    },
-                    "custom": {
-                        "model": "",
-                        "base_url": "",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                        "top_p": 0.9
-                    }
-                }
-            },
-            "vlm": {
-                "current_provider": "zhipu",
-                "providers": {
-                    "zhipu": {
-                        "model": "glm-4v-flash",
-                        "base_url": "https://open.bigmodel.cn/api/paas/v4",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 500,
-                        "top_p": 0.9
-                    },
-                    "siliconflow": {
-                        "model": "THUDM/GLM-4.1V-9B-Thinking",
-                        "base_url": "https://api.siliconflow.cn/v1",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 500,
-                        "top_p": 0.9
-                    },
-                    "302ai": {
-                        "model": "gemini-2.5-flash",
-                        "base_url": "https://api.302.ai/v1",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 500,
-                        "top_p": 0.9
-                    },
-                    "ollama": {
-                        "model": "aha2025/llama-joycaption-beta-one-hf-llava:Q6_K",
-                        "base_url": "http://localhost:11434/v1",
-                        "api_key": "ollama",
-                        "temperature": 0.7,
-                        "max_tokens": 500,
-                        "top_p": 0.9,
-                        "auto_unload": True
-                    },
-                    "custom": {
-                        "model": "",
-                        "base_url": "",
-                        "api_key": "",
-                        "temperature": 0.7,
-                        "max_tokens": 500,
-                        "top_p": 0.9
-                    }
-                }
-            }
-        }
+        # ---模板目录（插件内置）---
+        self.templates_dir = os.path.join(self.dir_path, "config")
+        
+        # 存储模板版本号（用于版本比对）
+        self._template_versions = {}
 
-        # 默认激活的提示词
+        # ---加载默认配置（从模板文件）---
+        self.default_config = self._load_template("config", {"version": "2.0", "model_services": []})
+        self.default_system_prompts = self._load_template("system_prompts", {})
+        self.default_kontext_presets = self._load_template("kontext_presets", {})
+        
+        # ---简单默认配置（无需模板，直接定义）---
         self.default_active_prompts = {
-                "expand": "expand_扩写-自然语言",
-                "vision_zh": "vision_zh_全图反推(中文)",
-                "vision_en": "vision_en_全图反推(英文)"
+            "expand": "expand_扩写-通用",
+            "vision_zh": "vision_zh_图像描述-Tag风格",
+            "vision_en": "vision_en_Detail_Caption"
         }
+        self.default_user_tags = {"favorites": []}
+        
+        # 默认标签选择
+        self.default_tags_selection = {"selected_file": "default.csv"}
 
-        # 默认提示词配置 (不再包含 active_prompts)
-        self.default_system_prompts = {
-            "expand_prompts": {
-                "expand_扩写-自然语言": {
-                    "name": "扩写-自然语言",
-                    "role": "system",
-                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 风格化：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 使用自然流畅的语言描述，避免机械堆砌关键词\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 直接输出完整提示词，不添加解释、分类标签或注释\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
-                },
-                "expand_扩写-Tag": {
-                    "name": "扩写-Tag",
-                    "role": "system",
-                    "content": "你是一位专业的AI绘画提示词工程师，擅长将简短描述转化为高质量、细节丰富的提示词。请按照以下步骤处理用户输入：\n\n1. 分析理解：\n   - 识别用户输入的核心主题和关键元素\n   - 确定画面类型（人物、风景、静物、概念艺术等）\n   - 提取已有的视觉细节、风格倾向和情感基调\n\n2. 结构化扩展：\n   - 主体描述：补充主体的详细特征（如人物的外貌、表情、服装、姿态；物体的材质、形状、纹理等）\n   - 场景环境：根据主题补充或完善场景信息（室内/室外、自然/城市、时代背景等）\n   - 构图视角：添加画面构图信息（视角高度、景别大小、主体位置、前景/背景关系等）\n   - 光影氛围：补充光源类型、光线方向、明暗对比、色调氛围等\n   - 风格化：根据内容补充适合的艺术风格、渲染技术或参考艺术家\n   - 质量标签：添加提升画面品质的技术描述（高细节、高分辨率、写实渲染等）\n\n3. 智能补全：\n   - 当用户输入缺少关键元素时，基于主题自动补充合理的场景、光源、环境氛围等\n   - 确保补充内容与主题风格协调一致，不产生冲突元素\n   - 保持原始意图的同时，丰富画面的叙事性和视觉层次\n\n4. 输出格式：\n   - 直接输出标签，不添加任何分类或说明\n   - 按照视觉重要性排序元素，主体描述在前，环境氛围在后\n   - 控制提示词长度在适当范围内，确保核心元素突出\n\n请直接返回扩展后的完整提示词，不需要解释你的思考过程或添加额外说明。"
-                },
-                "expand_Kontext优化并翻译": {
-                    "name": "Kontext优化并翻译",
-                    "role": "system",
-                    "content": "# Kontext Prompt Assistant Guide\n\nYou are an expert Flux.1 Kontext prompt engineer. Your task is to analyze user input, identify their image editing intent, and transform their request into an optimal Kontext prompt that follows best practices.\n\n## Your Process\n\n1. Analyze the user's input to determine their editing intent\n2. **Identify the main subject type from the user's description (human, animal, object, scene)**\n3. Select the most appropriate instruction type from the available categories\n4. Extract key information from the user's request\n5. **Determine what essential features must be preserved based on subject type**\n6. Restructure the information into a well-formed Kontext prompt following the syntax pattern for that instruction type\n7. **Always include appropriate preservation clauses based on the subject type**\n8. Return ONLY the final English prompt without explanations, notes, or quotation marks\n\n## Subject-Specific Preservation Guidelines\n\n### For Human Subjects\nWhen user describes modifications to people or human-related elements (clothing, hair, accessories, etc.), always include preservation clauses like:\n- \"while preserving the person's facial features, identity, and expressions\"\n- \"while maintaining the person's gender, age appearance, and unique characteristics\"\n- \"while keeping the exact same pose, proportions, and positioning\"\n\n### For Animal Subjects\nWhen user describes modifications to animals, include preservation clauses like:\n- \"while preserving the animal's species, breed characteristics, and expressions\"\n- \"while maintaining the exact same pose and proportions\"\n\n### For Objects\nWhen user describes modifications to products, objects, or items, include preservation clauses like:\n- \"while maintaining the object's proportions, position, and functionality\"\n- \"while preserving the object's core design elements and purpose\"\n\n### For Scenes/Environments\nWhen user describes modifications to scenes or environments, include preservation clauses like:\n- \"while maintaining the same composition, perspective, and spatial relationships\"\n- \"while preserving the scene's atmosphere and spatial layout\"\n\n## Instruction Types and Syntax Patterns\n\n### 1. Basic Modification\n**Pattern:** [Verb] [object] [modification details] [preservation clause]\n**Example:** Change the car color to red while maintaining the same lighting, reflections, and exact model details\n**Example (human):** Change the white shirt to a black tank top while preserving the person's facial features, expressions, and maintaining the exact same pose and proportions\n\n### 2. Style Transformation\n**Pattern:** Transform to [specific style name] with [style characteristics], while maintaining [elements to preserve]\n**Example:** Transform to 1960s pop art style with bright colors, bold graphics, and commercial aesthetics, while maintaining the original composition\n**Example (human):** Transform to 1960s pop art style with bright colors and bold graphics, while preserving the person's identity, facial features, and maintaining the same pose and proportions\n\n### 3. Character/Object Consistency\n**Pattern:** [Verb] [specific object description] [modification], [preserved features]\n**Example:** Change the clothes to be a viking warrior while preserving facial features, gender, age appearance, and maintaining the same pose\n\n### 4. Text Editing\n**Pattern:** [Verb] [text content] [modification method] [integration details]\n**Example:** Add ASCII style text only the single word 'Welcome' no additional letters to the display, integrated naturally with the environment\n\n### 5. Camera/Viewpoint Change\n**Pattern:** [Verb] [viewpoint description] [preserved elements]\n**Example:** Rotate the camera 180 degrees to view directly from behind the subject, showing its back while maintaining the same style and identity\n\n### 6. Lighting/Environment Change\n**Pattern:** Convert to [environment description] [lighting description], [preserved elements]\n**Example:** Convert to early morning scene with soft golden sunrise light and gentle morning mist, maintaining the same composition, subjects, and architectural details\n\n### 7. Deep Context Integration\n**Pattern:** [Relighting instruction] + [contextual story elements] + [color unification] + [asset adjustment] + [seamless integration] + [preservation clause]\n**Example:** Adjust the lighting to match the scene's dramatic side lighting, add subtle environmental elements like dust particles in the air, unify the color grading to the warm sepia tone of the background, adjust the hair to appear slightly windblown, and ensure perfect blending at all transition points while preserving the person's identity and facial features\n\n### 8. Seamless Blending\n**Pattern:** [Micro-lighting adjustment] + [skin tone and texture unification] + [edge perfect blending] + [preservation clause]\n**Example:** Fine-tune the lighting and shadows around the neck and jawline for perfect matching, unify the skin tones and micro-textures like pores and film grain across the blended area, and create an invisible transition at the neckline while maintaining the person's identity and facial features\n\n### 9. Scene Teleportation\n**Pattern:** [Subject] [teleported to] [detailed new environment description], [maintain pose and identity]\n**Example:** Place the subject in an ancient Egyptian temple with hieroglyphics on stone walls, golden artifacts, and warm torchlight, while maintaining the exact same pose, expression, and preserving all facial features and identity\n\n### 10. Camera Movement\n**Pattern:** Change to [camera angle type] [narrative purpose] [preservation clause]\n**Example:** Change to a dramatic low-angle shot from the ground, making the subject appear heroic and monumental against the sky, while preserving the person's identity, facial features, and clothing details\n\n### 11. Relighting\n**Pattern:** Relight the scene with [lighting style] [light source description] [lighting effect] [preservation clause]\n**Example:** Relight the scene with Film Noir aesthetics: hard, single-source key light creating deep shadows and high contrast, while maintaining all subject details and identities\n\n### 12. Professional Product Shot\n**Pattern:** [Professional lighting setup] + [composition description] + [product focus emphasis] + [preservation clause]\n**Example:** Set up three-point lighting with a softbox key light, rim light for separation, and fill light for shadows, compose on a clean white background with subtle shadow beneath, and emphasize crisp product details and perfect textures while maintaining the exact same product design and features\n\n### 13. Frame Zooming\n**Pattern:** [Zoom action] [target] [purpose] [preservation clause]\n**Example:** Slowly push in on the subject's eyes to reveal a subtle, hidden emotion while maintaining the person's identity and all facial features\n\n### 14. Material Transformation\n**Pattern:** Transform the subject into [material type] [material properties description] [preservation clause]\n**Example:** Transform the subject into a statue carved from a single piece of dark, polished obsidian with glossy, reflective surface that catches the light, while preserving the exact pose, proportions, and recognizable features\n\n### 15. Season Change\n**Pattern:** [Transform season] [season characteristics] [environment changes] [clothing adjustments] [preservation clause]\n**Example:** Plunge the scene into a deep, quiet Autumn. Change all foliage to rich tones of crimson and gold, litter the ground with fallen leaves, make the air feel crisp with a low golden light, and adjust the subject's clothing to include a cozy sweater while preserving all facial features, identity, and maintaining the same pose\n\n### 16. Art Style Emulation\n**Pattern:** Transform the image into [art movement] in the style of [artist], using [technique description] [preservation clause]\n**Example:** Transform the image into a Post-Impressionist painting in the style of Van Gogh, using thick, swirling brushstrokes, vibrant emotional colors, and dynamic sense of energy in every element, while maintaining the recognition of all subjects and their core identities\n\n## Core Principles for Effective Prompts\n\n1. **Be Specific and Clear**\n   - ✅ Convert to pencil sketch with natural graphite lines, cross-hatching, and visible paper texture\n   - ❌ Make it a sketch\n\n2. **Break Complex Edits into Steps**\n   - Handle subject first, then background\n   - Adjust lighting first, then change style\n\n3. **Explicitly State What to Preserve Based on Subject Type**\n   - For people: while preserving facial features, identity, expressions, gender, and proportions\n   - For objects: while maintaining the same design, proportions, and functionality\n   - For scenes: while preserving the spatial layout, composition, and atmosphere\n\n4. **Use Precise Verbs**\n   - Prefer \"change\", \"replace\", \"adjust\" over vague terms like \"transform\"\n   - Use specific action verbs that clearly communicate the intended modification\n\n5. **Include Professional Terminology**\n   - Photography: three-point lighting, backlight, softbox\n   - Art: brushstrokes, color saturation, composition\n\n6. **Add Narrative Elements**\n   - as if we are seeing them at a different stage of their life\n   - as if viewed through a tilt-shift lens\n\n7. **Analyze Text Context Carefully**\n   - Determine subject type by analyzing the vocabulary and terms used by the user\n   - Look for keywords related to people (clothing, hair, skin, face), animals, objects, or scenes\n   - Pay attention to descriptive words that indicate the nature of the subject\n   - When in doubt about the subject type, include more comprehensive preservation clauses\n\n## Response Format\n\nAnalyze the user's request and respond with ONLY the optimized English prompt for Kontext. Do not include explanations, notes, quotation marks, or any other text.\n\n## IMPORTANT: DO NOT include quotation marks in your response\n\nYour final output should be plain text without any surrounding quotes. For example:\n\n✅ CORRECT: Change the background to a beautiful tropical beach with golden sand\n❌ INCORRECT: \"Change the background to a beautiful tropical beach with golden sand\"\n\n## Examples\n\nUser: \"把这个人物放到海滩上\"\nResponse: Change the background to a beautiful tropical beach with golden sand, clear blue water, and palm trees, while keeping the person in the exact same position, scale, and pose, and preserving all facial features, expressions, and identity\n\nUser: \"让这张图片变成梵高风格\"\nResponse: Transform the image into a Post-Impressionist painting in the style of Van Gogh, using thick, swirling brushstrokes (impasto), vibrant, emotional colors, and a dynamic sense of energy and movement in every element, while maintaining the recognition of all subjects and their core identities\n\nUser: \"给这个人物换上维京战士的衣服\"\nResponse: Change the clothes to be a viking warrior with leather armor, fur accents, and metal details while preserving facial features, identity, gender, age appearance, and maintaining the exact same pose and proportions\n\nUser: \"让画面变成黄昏时分的感觉\"\nResponse: Convert to golden hour sunset scene with warm orange and pink lighting, long soft shadows, and a rich atmospheric glow, maintaining the same composition, subject details, and spatial relationships\n\nUser: \"在右边墙上写上'欢迎光临'\"\nResponse: Write the words '欢迎光临' on the wall on the right using the same style and texture as the surrounding environment, integrating naturally with the scene\n\nUser: \"把这个人变老20岁\"\nResponse: Age the subject by 20 years, adding appropriate wrinkles around the eyes and mouth, graying the hair naturally at the temples, and slightly softening the facial structure while maintaining their core identity, gender, proportions, and expression\n\nUser: \"请把图片中用红框圈出来的白色衬衫更换成黑色背心\"\nResponse: Change the white shirt highlighted in the red box to a black tank top while preserving the person's facial features, identity, gender, age appearance, and maintaining the exact same pose and proportions"
-                }
-            },
-            "translate_prompts": {
-                "ZH": {
-                    "role": "system",
-                    "content": "你是一名AI绘画领域的提示词翻译专家，负责将用户提供的文本内容由{src_lang}准确地翻译成{dst_lang}。要求：1.完整翻译用户提供的所有文本，不要遗漏；2.保持格式，不要改变原文的书写结构、保持权重标记格式【如(提示词内容:1.2)】等；2.翻译要准确理解全文，使用地道的{dst_lang}和AI绘画领域的专业术语；5.直接输出翻译结果，无需解释说明。不要输出思考过程。"
-                }
-            },
-            "vision_prompts": {
-                "vision_zh_全图反推(中文)": {
-                    "name": "全图反推(中文)",
-                    "role": "system",
-                    "content": "你是一位专业的图像分析专家，请将提供的图片转换为适合AI绘图模型使用的自然语言。你的描述需要准确、详细，并符合Stable Diffusion等模型的提示词特点。\n\n分析重点：\n1. 主体描述（按重要性排序）：\n   - 人物/物体的具体类型和特征\n   - 准确的外观描述（发型、服装、表情等）\n   - 清晰的姿势和动作\n   - 关键细节特征\n\n2. 场景要素：\n   - 具体的场景类型\n   - 环境细节\n   - 空间关系\n   - 天气和时间状态\n\n3. 视觉风格：\n   - 整体艺术风格\n   - 画面质感\n   - 特殊效果\n\n4. 技术特征：\n   - 构图方式\n   - 光影效果\n   - 色彩特点\n   - 渲染风格\n\n输出要求：\n1. 使用AI绘图模型常用的描述方式\n2. 按重要性顺序组织描述\n3. 包含必要的艺术风格和技术标签\n4. 避免使用模型难以理解的抽象描述\n5. 保持描述的可执行性和清晰度\n\n示例输出：\n一位穿着白色连衣裙的年轻动漫女孩，金色长发飘逸，面带甜美笑容。她站在阳光明媚的春日花园中，周围绽放着粉色和白色的花朵。画面采用温暖的色调，细腻的动漫风格渲染，半身构图，柔和的自然光效果。背景经过适度模糊处理，突出人物主体。高质量插画风格，注重细节刻画，8k分辨率。\n\n注意事项：\n1. 使用具体而非抽象的描述\n2. 包含AI模型能够理解的标准术语\n3. 按照\"主体 > 场景 > 风格 > 效果\"的顺序组织描述\n4. 确保每个重要视觉元素都有明确描述\n5. 适当添加技术参数和质量标签\n\n请直接输出符合AI绘图要求的自然语言描述，确保描述既流畅自然，又包含足够的细节供模型准确理解和生成。"
-                },
-                "vision_zh_全图反推-Tag(中文)": {
-                    "name": "全图反推-Tag(中文)",
-                    "role": "system",
-                    "content": "你是一位专业的图像分析专家。请仔细分析提供的图片，提取所有视觉元素并转换为中文标签，用于AI绘图模型使用。\n\n分析要点：\n1. 主体内容：\n   - 主要对象（人物/动物/物体）\n   - 外观特征（体态/表情/服装/材质）\n   - 动作姿态\n   - 细节特征（装饰/纹理/标志）\n\n2. 场景环境：\n   - 场景类型和环境\n   - 空间布局\n   - 环境元素\n   - 时间和天气\n\n3. 光影色彩：\n   - 光源和光照效果\n   - 主要色调和配色\n   - 明暗对比和氛围\n\n4. 构图视角：\n   - 构图方式\n   - 视角和景别\n   - 画面重点\n\n5. 艺术风格：\n   - 整体风格（写实/动漫/插画等）\n   - 特殊艺术效果\n   - 渲染技法\n\n输出要求：\n- 使用中文标签，以逗号分隔\n- 按重要性排序：主体 > 场景 > 风格 > 细节 > 技术特征\n- 所有标签在同一行内\n- 直接输出标签，不添加任何分类或说明\n\n示例输出：\n可爱女孩，金色长发，白色连衣裙，春日花园，阳光明媚，清新动漫风，温暖色调，甜美笑容，蝴蝶结装饰，半身构图，柔和光影，高清细节\n\n请直接输出标签序列，确保客观描述，避免主观评价。"
-                },
-                    "vision_en_全图反推(英文)": {
-                    "name": "全图反推(英文)",
-                    "role": "system",
-                    "content": "You are a professional image analysis expert. Please convert the provided image into a natural language description suitable for AI image generation models like Stable Diffusion. Your description should be accurate, detailed, and follow prompt writing best practices.\n\nAnalysis Focus:\n1. Subject Description (in order of importance):\n   - Specific type and characteristics of people/objects\n   - Accurate appearance details (hairstyle, clothing, expressions)\n   - Clear poses and actions\n   - Key details and features\n\n2. Scene Elements:\n   - Specific scene type\n   - Environmental details\n   - Spatial relationships\n   - Weather and time conditions\n\n3. Visual Style:\n   - Overall artistic style\n   - Image quality\n   - Special effects\n\n4. Technical Features:\n   - Composition method\n   - Lighting effects\n   - Color characteristics\n   - Rendering style\n\nOutput Requirements:\n1. Use standard terminology common in AI image generation\n2. Organize description by importance\n3. Include necessary artistic style and technical tags\n4. Avoid abstract descriptions that models struggle with\n5. Maintain clarity and executability\n\nExample Output:\nA young anime girl wearing a white sundress, flowing golden hair, gentle smile on her face. She stands in a sun-lit spring garden surrounded by blooming pink and white flowers. Warm color palette, detailed anime style rendering, medium shot composition, soft natural lighting. Background with subtle blur effect to emphasize the subject. High-quality illustration style, intricate details, 8k resolution.\n\nGuidelines:\n1. Use specific rather than abstract descriptions\n2. Include standard terms that AI models understand\n3. Organize in order: subject > scene > style > effects\n4. Ensure each important visual element is clearly described\n5. Add appropriate technical parameters and quality tags\n\nPlease output a natural language description suitable for AI image generation, ensuring it is both fluent and contains sufficient details for accurate model interpretation and generation."
-                },
-                "vision_en_全图反推-Tag(英文)": {
-                    "name": "全图反推-Tag(英文)",
-                    "role": "system",
-                    "content": "You are a professional image analysis expert. Please analyze the provided image and convert all visual elements into English tags suitable for AI image generation models.\n\nAnalysis Points:\n1. Main Subject:\n   - Primary objects (people/animals/objects)\n   - Appearance (physique/expression/clothing/texture)\n   - Actions and poses\n   - Detail features (decorations/patterns/marks)\n\n2. Scene & Environment:\n   - Scene type and setting\n   - Spatial layout\n   - Environmental elements\n   - Time and weather\n\n3. Light & Color:\n   - Light sources and lighting effects\n   - Main color schemes\n   - Contrast and atmosphere\n\n4. Composition:\n   - Composition method\n   - Perspective and shot type\n   - Focal points\n\n5. Artistic Style:\n   - Overall style (realistic/anime/illustration)\n   - Special artistic effects\n   - Rendering techniques\n\nOutput Requirements:\n- Use clear, standard English tags\n- Separate tags with commas\n- Order by importance: subject > scene > style > details > technical features\n- All tags in a single line\n- Direct tag output without categories or explanations\n\nExample Output:\nbeautiful girl, long blonde hair, white dress, spring garden, sunny day, anime style, warm colors, sweet smile, bow decoration, medium shot, soft lighting, high detail\n\nPlease output only the tag sequence. Ensure objective description and avoid subjective judgments. Use standard art and photography terminology where appropriate."
-                }
 
-            }
-        }
 
-        # 默认用户标签 - 空对象
-        self.default_user_tags = {}
+        # 执行数据迁移和配置文件初始化
+        # migration_tool 统一处理：确保文件存在 -> CSV标签迁移 -> 旧版迁移 -> 增量更新
+        self._run_migrations()
 
-        # 确保配置文件存在
-        self.ensure_config_exists()
-        self.ensure_system_prompts_exists()
-        # 先校验并补全系统提示词内容，再处理激活项
-        self.validate_and_fix_system_prompts()
-        self.ensure_active_prompts_exists()
-        self.ensure_user_tags_exists()
-
-        # 验证并修复激活提示词
+        # 验证并修复激活提示词（静默模式，仅异常时修复）
         self.validate_and_fix_active_prompts()
 
         # 验证并修复模型参数配置
         self.validate_and_fix_model_params()
-    # --- 统一日志输出（绿色前缀）---
+
+    # --- 数据迁移 ---
+    def _run_migrations(self):
+        """
+        执行数据迁移（按需调用，不影响性能）
+        仅在需要时才导入和运行迁移工具
+        """
+        try:
+            from .utils.migration_tool import run_migrations
+            
+            # 准备默认配置数据用于增量更新
+            default_configs = {
+                'config': self.default_config,
+                'system_prompts': self.default_system_prompts,
+                'active_prompts': self.default_active_prompts,
+                'tags_user': self.default_user_tags,
+                'kontext_presets': self.default_kontext_presets
+            }
+            
+            # 运行迁移
+            results = run_migrations(
+                plugin_dir=self.dir_path,
+                user_base_dir=self.base_dir,
+                logger=self._log,
+                default_configs=default_configs
+            )
+            
+            # 记录迁移结果
+            if results.get('tags_migration'):
+                self._log("[用户标签.csv] 数据迁移完成")
+                
+        except Exception as e:
+            self._log(f"数据迁移失败: {str(e)}")
+            # 迁移失败不影响正常运行，仅记录日志
+
+    # --- 统一日志输出 ---
     def _log(self, msg: str):
-        """统一控制台日志前缀为绿色 [PromptAssistant]"""
-        print(f"\033[32m[✨PromptAssistant]\033[0m {msg}")
+        """统一控制台日志前缀"""
+        from .utils.common import _ANSI_CLEAR_EOL
+        print(f"\r{_ANSI_CLEAR_EOL}✨ {msg}", flush=True)
 
+    # ---模板加载---
+    def _load_template(self, template_name: str, fallback: dict = None) -> dict:
+        """
+        从模板文件加载默认配置
+        
+        参数:
+            template_name: 模板名称（不含扩展名和_template后缀）
+            fallback: 加载失败时的回退默认值
+            
+        返回:
+            配置字典（包含 __config_version 用于版本管理）
+        """
+        template_path = os.path.join(self.templates_dir, f"{template_name}_template.json")
+        try:
+            with open(template_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                # 获取版本号并保存，用于后续比对
+                template_version = data.get("__config_version", "2.0")
+                self._template_versions[template_name] = template_version
+                return data
+        except Exception as e:
+            self._log(f"加载模板 {template_name} 失败: {str(e)}，使用回退值")
+            # 确保 fallback 也包含版本号
+            if fallback is None:
+                fallback = {}
+            # 如果 fallback 没有版本号，添加默认版本号
+            if "__config_version" not in fallback:
+                fallback = {"__config_version": "2.0", **fallback}
+            self._template_versions[template_name] = "2.0"
+            return fallback
 
-    def ensure_config_exists(self):
-        """确保配置文件存在，不存在则创建默认配置"""
-        if not os.path.exists(self.config_path):
-            self._log("配置文件不存在，创建默认配置文件...")
-            self.save_config(self.default_config)
-
-    def ensure_system_prompts_exists(self):
-        """确保系统提示词配置文件存在，不存在则创建默认配置"""
-        if not os.path.exists(self.system_prompts_path):
-            self._log("系统提示词配置文件不存在，创建默认配置文件...")
-            self.save_system_prompts(self.default_system_prompts)
-        else:
-            # 即使文件存在，也检查一下是否包含所有必要的提示词类型
+    def _get_config_version(self, config: dict) -> str:
+        """
+        获取配置版本号（兼容新旧两种版本字段）
+        
+        版本字段优先级:
+        1. __config_version (新版本字段，如 "2.0.0")
+        2. version (旧版本字段，如 "2.0" 或 "1.0")
+        3. 默认返回 "1.0"（无版本字段视为最旧版本）
+        
+        返回:
+            版本字符串，如 "2.0.0"、"2.0" 或 "1.0"
+        """
+        # 优先使用新版本字段
+        if "__config_version" in config:
+            return config["__config_version"]
+        # 兼容旧版本字段
+        return config.get("version", "1.0")
+    
+    def _is_v2_config(self, config: dict) -> bool:
+        """
+        检查配置是否为 v2.0 或更高版本
+        
+        返回:
+        True 表示 v2.0 或更高版本 (1.9 也视为 v2 格式，用于增量测试)
+        """
+        version = self._get_config_version(config)
+        try:
+            v_float = float(version)
+            return v_float >= 1.9
+        except ValueError:
+            # 如果不是数字（如 "2.0.0"），取主版本号比较
+            major_version = version.split(".")[0]
             try:
-                with open(self.system_prompts_path, "r", encoding="utf-8") as f:
-                    system_prompts = json.load(f)
+                return int(major_version) >= 2
+            except ValueError:
+                return False
 
-                # 检查是否包含所有必要的提示词类型
-                need_update = False
-                for prompt_type, default_prompts in self.default_system_prompts.items():
-                    if prompt_type not in system_prompts:
-                        self._log(f"系统提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
-                        system_prompts[prompt_type] = default_prompts
-                        need_update = True
+    # --- 注意：以下方法已迁移到 migration_tool.py ---
+    # - _apply_migrated_api_keys
+    # - _migrate_provider_to_service
+    # - _create_or_update_custom_service
+    # - _match_service_by_provider
+    # - _check_and_add_missing_services
+    # 配置文件的创建、迁移和增量更新统一由 migration_tool 处理
 
-                # 如果需要更新，保存修复后的系统提示词
-                if need_update:
-                    self.save_system_prompts(system_prompts)
-                    self._log("已完成系统提示词配置文件的修复")
-            except Exception as e:
-                self._log(f"检查系统提示词配置文件时出错: {str(e)}")
 
-    def ensure_active_prompts_exists(self):
-        """确保激活的提示词配置文件存在，不存在则创建默认配置"""
-        if not os.path.exists(self.active_prompts_path):
-            self._log("激活的提示词配置文件不存在，创建默认配置文件...")
-            self.save_active_prompts(self.default_active_prompts)
-        else:
-            # 即使文件存在，也检查一下是否包含所有必要的提示词类型
-            try:
-                with open(self.active_prompts_path, "r", encoding="utf-8") as f:
-                    active_prompts = json.load(f)
-
-                # 检查是否包含所有必要的提示词类型
-                need_update = False
-                for prompt_type, default_value in self.default_active_prompts.items():
-                    if prompt_type not in active_prompts:
-                        self._log(f"激活的提示词配置文件中缺少 {prompt_type} 类型，添加默认配置...")
-                        active_prompts[prompt_type] = default_value
-                        need_update = True
-
-                # 如果需要更新，保存修复后的激活提示词
-                if need_update:
-                    self.save_active_prompts(active_prompts)
-                    self._log("已完成激活提示词配置文件的修复")
-            except Exception as e:
-                self._log(f"检查激活提示词配置文件时出错: {str(e)}")
-
-    def ensure_user_tags_exists(self):
-        """确保用户标签文件存在，不存在则创建空对象文件"""
-        if not os.path.exists(self.tags_user_path):
-            self._log("用户标签文件不存在，创建空标签文件...")
-            self.save_user_tags(self.default_user_tags)
+    def _atomic_write_json(self, file_path: str, data: dict) -> bool:
+        """
+        原子性写入 JSON 文件
+        
+        采用"写临时文件 + 原子性重命名"的策略，确保文件写入的原子性：
+        - 如果写入成功，新文件会替换旧文件
+        - 如果写入失败或被中断，旧文件保持不变
+        
+        参数:
+            file_path: 目标文件路径
+            data: 要保存的数据字典
+            
+        返回:
+            bool: 保存成功返回 True，失败返回 False
+        """
+        temp_fd = None
+        temp_path = None
+        
+        try:
+            # ---步骤1：写入临时文件---
+            # 在同一目录下创建临时文件（确保在同一文件系统，rename 才是原子的）
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=os.path.dirname(file_path),
+                suffix='.tmp',
+                prefix='.tmp_'
+            )
+            
+            # 完整写入新配置到临时文件
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                temp_fd = None  # 文件已关闭，避免重复关闭
+            
+            # ---步骤2：原子性替换---
+            # rename 操作是原子的，要么成功替换，要么失败不变
+            shutil.move(temp_path, file_path)
+            temp_path = None  # 已移动，避免清理时删除
+            
+            return True
+            
+        except Exception as e:
+            self._log(f"原子性写入 JSON 文件失败 [{os.path.basename(file_path)}]: {str(e)}")
+            return False
+            
+        finally:
+            # 清理临时文件（如果写入失败）
+            if temp_fd is not None:
+                try:
+                    os.close(temp_fd)
+                except:
+                    pass
+            
+            if temp_path is not None and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
 
     def load_config(self):
         """加载配置文件"""
@@ -271,13 +265,7 @@ class ConfigManager:
 
     def save_config(self, config):
         """保存配置文件"""
-        try:
-            with open(self.config_path, "w", encoding="utf-8") as f:
-                json.dump(config, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            self._log(f"保存配置文件失败: {str(e)}")
-            return False
+        return self._atomic_write_json(self.config_path, config)
 
     def load_system_prompts(self):
         """加载系统提示词配置"""
@@ -290,13 +278,7 @@ class ConfigManager:
 
     def save_system_prompts(self, system_prompts):
         """保存系统提示词配置"""
-        try:
-            with open(self.system_prompts_path, "w", encoding="utf-8") as f:
-                json.dump(system_prompts, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            self._log(f"保存系统提示词配置失败: {str(e)}")
-            return False
+        return self._atomic_write_json(self.system_prompts_path, system_prompts)
 
     def load_active_prompts(self):
         """加载激活的提示词配置"""
@@ -309,13 +291,7 @@ class ConfigManager:
 
     def save_active_prompts(self, active_prompts):
         """保存激活的提示词配置"""
-        try:
-            with open(self.active_prompts_path, "w", encoding="utf-8") as f:
-                json.dump(active_prompts, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            self._log(f"保存激活的提示词配置失败: {str(e)}")
-            return False
+        return self._atomic_write_json(self.active_prompts_path, active_prompts)
 
     def load_user_tags(self):
         """加载用户标签配置"""
@@ -328,12 +304,266 @@ class ConfigManager:
 
     def save_user_tags(self, user_tags):
         """保存用户标签配置"""
+        return self._atomic_write_json(self.tags_user_path, user_tags)
+
+    def load_kontext_presets(self):
+        """加载Kontext预设配置"""
         try:
-            with open(self.tags_user_path, "w", encoding="utf-8") as f:
-                json.dump(user_tags, f, ensure_ascii=False, indent=2)
+            with open(self.kontext_presets_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            self._log(f"加载Kontext预设配置失败: {str(e)}")
+            return {}
+
+    def save_kontext_presets(self, kontext_presets):
+        """保存Kontext预设配置"""
+        return self._atomic_write_json(self.kontext_presets_path, kontext_presets)
+
+
+
+    # --- 注意：ensure_tags_csv_exists 和 CSV 标签迁移已迁移到 migration_tool.py ---
+
+
+
+    def list_tags_files(self) -> list:
+        """列出tags目录下所有CSV文件"""
+        try:
+            files = []
+            for filename in os.listdir(self.tags_dir):
+                if filename.endswith(".csv"):
+                    files.append(filename)
+            return sorted(files)
+        except Exception as e:
+            self._log(f"列出标签文件失败: {str(e)}")
+            return []
+
+    def load_tags_csv(self, filename: str) -> dict:
+        """加载CSV标签文件，返回嵌套字典结构"""
+        csv_path = os.path.join(self.tags_dir, filename)
+        if not os.path.exists(csv_path):
+            self._log(f"CSV文件不存在: {filename}")
+            return {}
+        
+        # 尝试多种编码，优先尝试 utf-8-sig (Excel默认UTF-8)，然后是 gbk (Excel默认ANSI)，最后是 utf-8
+        encodings = ['utf-8-sig', 'gbk', 'gb18030', 'utf-8']
+        
+        for encoding in encodings:
+            try:
+                result = {}
+                with open(csv_path, "r", encoding=encoding, newline="") as f:
+                    reader = csv.reader(f)
+                    try:
+                        header = next(reader, None)  # 跳过表头
+                    except StopIteration:
+                        return {} # 空文件
+                    
+                    for row in reader:
+                        if len(row) < 3:
+                            continue
+                        
+                        tag_name = row[0].strip()
+                        tag_value = row[1].strip()
+                        # 分类路径：从第3列开始，过滤空值
+                        categories = [c.strip() for c in row[2:] if c.strip()]
+                        
+                        if not tag_name or not categories:
+                            continue
+                        
+                        # 构建嵌套结构
+                        current = result
+                        for cat in categories:
+                            if cat not in current:
+                                current[cat] = {}
+                            current = current[cat]
+                        
+                        # 添加标签
+                        current[tag_name] = tag_value
+                
+                # self._log(f"成功加载CSV文件: {filename} (编码: {encoding})")
+                return result
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                self._log(f"加载CSV标签失败 ({encoding}): {str(e)}")
+                continue
+        
+        self._log(f"无法加载CSV文件: {filename}，尝试了所有编码均失败")
+        return {}
+
+    def save_tags_csv(self, filename: str, tags: dict) -> bool:
+        """保存标签数据到CSV文件"""
+        csv_path = os.path.join(self.tags_dir, filename)
+        
+        try:
+            rows = []
+            
+            def extract_tags(obj, path: list):
+                for key, value in obj.items():
+                    if isinstance(value, str):
+                        rows.append([key, value] + path)
+                    elif isinstance(value, dict):
+                        extract_tags(value, path + [key])
+            
+            for level1_name, level1_content in tags.items():
+                if isinstance(level1_content, dict):
+                    extract_tags(level1_content, [level1_name])
+            
+            with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["标签名", "标签值", "一级分类", "二级分类", "三级分类", "四级分类"])
+                for row in rows:
+                    while len(row) < 6:
+                        row.append("")
+                    writer.writerow(row[:6])
+            
             return True
         except Exception as e:
-            self._log(f"保存用户标签配置失败: {str(e)}")
+            self._log(f"保存CSV标签失败: {str(e)}")
+            return False
+
+    def get_tags_selection(self) -> dict:
+        """获取用户选择的标签文件"""
+        try:
+            if os.path.exists(self.tags_selection_path):
+                with open(self.tags_selection_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            return self.default_tags_selection
+        except Exception as e:
+            self._log(f"读取标签选择失败: {str(e)}")
+            return self.default_tags_selection
+
+    def save_tags_selection(self, selection: dict) -> bool:
+        """保存用户选择的标签文件"""
+        try:
+            with open(self.tags_selection_path, "w", encoding="utf-8") as f:
+                json.dump(selection, f, ensure_ascii=False, indent=2)
+            return True
+        except Exception as e:
+            self._log(f"保存标签选择失败: {str(e)}")
+            return False
+
+    def get_favorites(self) -> dict:
+        """获取收藏列表"""
+        user_tags = self.load_user_tags()
+        favorites = user_tags.get("favorites", {})
+        
+        # 兼容性处理：如果是列表，转换为字典
+        if isinstance(favorites, list):
+            new_favorites = {}
+            for item in favorites:
+                if isinstance(item, str):
+                    new_favorites[item] = item
+                elif isinstance(item, dict):
+                    name = item.get("name", item.get("value"))
+                    value = item.get("value")
+                    if name and value:
+                        new_favorites[name] = value
+            return new_favorites
+            
+        return favorites
+
+    def add_favorite(self, tag_value: str, tag_name: str = None, category: str = "默认") -> bool:
+        """添加收藏"""
+        try:
+            user_tags = self.load_user_tags()
+            favorites = user_tags.get("favorites", {})
+            
+            # 兼容性迁移：如果是一维字典 {name: value}，无需强制迁移，但新添加的会放入 category
+            # 如果是列表，先迁移为字典
+            if isinstance(favorites, list):
+                favorites = self.get_favorites()
+                
+            name = tag_name if tag_name else tag_value
+            
+            # 使用嵌套结构 {分类: {名称: 值}}
+            if category not in favorites:
+                # 检查是否存在旧的平铺结构，如果有，且category是默认，可能混杂
+                # 这里简单处理：如果 favorites 只有键值对且都不是字典，说明是旧版平铺
+                # 但为了不破坏旧数据，我们在顶层只存储分类字典
+                # 如果 favorites 中已有非字典的值，说明是旧版平铺结构 {name: value}
+                # 我们将它们移动到 "默认" 分类
+                has_legacy = any(not isinstance(v, dict) for v in favorites.values())
+                if has_legacy:
+                    legacy_items = {k: v for k, v in favorites.items() if not isinstance(v, dict)}
+                    # 清除旧项
+                    for k in legacy_items:
+                        del favorites[k]
+                    # 初始化默认分类
+                    if "默认" not in favorites:
+                        favorites["默认"] = {}
+                    favorites["默认"].update(legacy_items)
+                
+                if category not in favorites:
+                    favorites[category] = {}
+
+            # 如果 favorites[category] 不是字典（防御性编程），初始化为字典
+            if not isinstance(favorites.get(category), dict):
+                favorites[category] = {}
+
+            favorites[category][name] = tag_value
+            
+            user_tags["favorites"] = favorites
+            return self.save_user_tags(user_tags)
+        except Exception as e:
+            self._log(f"添加收藏失败: {str(e)}")
+            return False
+
+    def remove_favorite(self, tag_value: str, category: str = None) -> bool:
+        """移除收藏"""
+        try:
+            user_tags = self.load_user_tags()
+            favorites = user_tags.get("favorites", {})
+            
+            # 兼容性迁移
+            if isinstance(favorites, list):
+                favorites = self.get_favorites()
+            
+            removed = False
+            
+            # 如果指定了分类，只在指定分类中删除
+            if category:
+                # 尝试直接匹配分类（完全匹配）
+                target_categories = [category]
+                
+                # 如果没找到，尝试模糊匹配（处理文件名后缀差异）
+                if category not in favorites:
+                    # 比如 category 是 "foo"，favorites里有 "foo.csv" 或相反
+                    # 但通常 favorites 里的 key 已经是去后缀的
+                    pass
+
+                for cat in target_categories:
+                    if cat in favorites and isinstance(favorites[cat], dict):
+                        # 根据值删除
+                        keys_to_remove = [k for k, v in favorites[cat].items() if v == tag_value]
+                        for k in keys_to_remove:
+                            del favorites[cat][k]
+                            removed = True
+                            
+                        # 如果该分类空了，是否删除分类键？暂时保留
+            else:
+                # 未指定分类，递归全部删除（旧逻辑）
+                # 如果是旧版平铺结构
+                if any(not isinstance(v, dict) for v in favorites.values()):
+                    keys_to_remove = [k for k, v in favorites.items() if not isinstance(v, dict) and v == tag_value]
+                    for k in keys_to_remove:
+                        del favorites[k]
+                        removed = True
+                
+                # 如果是新版嵌套结构
+                for cat, items in favorites.items():
+                    if isinstance(items, dict):
+                        keys_to_remove = [k for k, v in items.items() if v == tag_value]
+                        for k in keys_to_remove:
+                            del items[k]
+                            removed = True
+            
+            if removed:
+                user_tags["favorites"] = favorites
+                return self.save_user_tags(user_tags)
+                
+            return True
+        except Exception as e:
+            self._log(f"移除收藏失败: {str(e)}")
             return False
 
     def get_system_prompts(self):
@@ -368,41 +598,250 @@ class ConfigManager:
     def get_llm_config(self):
         """获取LLM配置"""
         config = self.load_config()
-        llm_config = config.get("llm", self.default_config["llm"])
-
-        # 构建前端友好的配置格式
-        current_provider = llm_config.get("current_provider", "zhipu")
-        provider_config = llm_config.get("providers", {}).get(current_provider, {})
-
+        current_service_info = config.get('current_services', {}).get('llm')
+        
+        # 适配新旧格式:支持字符串(旧)和字典(新)
+        if isinstance(current_service_info, str):
+            # 旧格式: "service_id"
+            current_service_id = current_service_info
+            current_model_name = None
+        elif isinstance(current_service_info, dict):
+            # 新格式: {"service": "service_id", "model": "model_name"}
+            current_service_id = current_service_info.get('service')
+            current_model_name = current_service_info.get('model')
+        else:
+            # 未设置
+            current_service_id = None
+            current_model_name = None
+        
+        if not current_service_id:
+            # 没有选中的服务，返回默认结构
+            return self._get_empty_llm_config()
+        
+        # 查找对应的服务
+        service = self._get_service_by_id(current_service_id)
+        if not service:
+            return self._get_empty_llm_config()
+        
+        # 获取LLM模型列表
+        llm_models = service.get('llm_models', [])
+        
+        # 如果指定了模型名称,尝试查找
+        target_model = None
+        if current_model_name:
+            target_model = next((m for m in llm_models if m.get('name') == current_model_name), None)
+        
+        # 如果未找到指定模型,使用默认模型或第一个模型
+        if not target_model:
+            target_model = next((m for m in llm_models if m.get('is_default')), 
+                                llm_models[0] if llm_models else None)
+        
+        if not target_model:
+            return self._get_empty_llm_config()
+        
+        # 直接获取API Key（明文存储）
+        api_key = service.get('api_key', '')
+        
+        # 返回配置
         return {
-            "provider": current_provider,
-            "model": provider_config.get("model", ""),
-            "base_url": provider_config.get("base_url", ""),
-            "api_key": provider_config.get("api_key", ""),
-            "temperature": provider_config.get("temperature", 0.7),
-            "max_tokens": provider_config.get("max_tokens", 1000),
-            "top_p": provider_config.get("top_p", 0.9),
-            "providers": llm_config.get("providers", {})
+            "provider": service.get('id', ''),  # 使用service_id作为provider
+            "model": target_model.get('name', ''),
+            "base_url": service.get('base_url', ''),
+            "api_key": api_key,
+            "temperature": target_model.get('temperature', 0.7),
+            "max_tokens": target_model.get('max_tokens', 1000),
+            "top_p": target_model.get('top_p', 0.9),
+            "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
+            "providers": {}  # v2.0中不再使用此字段
         }
+
+    
+    def _get_empty_llm_config(self):
+        """返回空的LLM配置"""
+        return {
+            "provider": "",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "temperature": 0.7,
+            "max_tokens": 1000,
+            "top_p": 0.9,
+            "providers": {}
+        }
+    
+    def _get_service_by_id(self, service_id: str) -> dict:
+        """根据ID获取服务配置"""
+        config = self.load_config()
+        services = config.get('model_services', [])
+        for service in services:
+            if service.get('id') == service_id:
+                return service
+        return None
 
     def get_vision_config(self):
         """获取视觉模型配置"""
         config = self.load_config()
-        vision_config = config.get("vlm", self.default_config["vlm"])
-
-        # 构建前端友好的配置格式
-        current_provider = vision_config.get("current_provider", "zhipu")
-        provider_config = vision_config.get("providers", {}).get(current_provider, {})
-
+        current_service_info = config.get('current_services', {}).get('vlm')
+        
+        # 适配新旧格式:支持字符串(旧)和字典(新)
+        if isinstance(current_service_info, str):
+            # 旧格式: "service_id"
+            current_service_id = current_service_info
+            current_model_name = None
+        elif isinstance(current_service_info, dict):
+            # 新格式: {"service": "service_id", "model": "model_name"}
+            current_service_id = current_service_info.get('service')
+            current_model_name = current_service_info.get('model')
+        else:
+            # 未设置
+            current_service_id = None
+            current_model_name = None
+        
+        if not current_service_id:
+            # 没有选中的服务，返回默认结构
+            return self._get_empty_vision_config()
+        
+        # 查找对应的服务
+        service = self._get_service_by_id(current_service_id)
+        if not service:
+            return self._get_empty_vision_config()
+        
+        # 获取VLM模型列表
+        vlm_models = service.get('vlm_models', [])
+        
+        # 如果指定了模型名称,尝试查找
+        target_model = None
+        if current_model_name:
+            target_model = next((m for m in vlm_models if m.get('name') == current_model_name), None)
+        
+        # 如果未找到指定模型,使用默认模型或第一个模型
+        if not target_model:
+            target_model = next((m for m in vlm_models if m.get('is_default')), 
+                                vlm_models[0] if vlm_models else None)
+        
+        if not target_model:
+            return self._get_empty_vision_config()
+        
+        # 直接获取API Key（明文存储）
+        api_key = service.get('api_key', '')
+        
+        # 返回配置
         return {
-            "provider": current_provider,
-            "model": provider_config.get("model", ""),
-            "base_url": provider_config.get("base_url", ""),
-            "api_key": provider_config.get("api_key", ""),
-            "temperature": provider_config.get("temperature", 0.7),
-            "max_tokens": provider_config.get("max_tokens", 500),
-            "top_p": provider_config.get("top_p", 0.9),
-            "providers": vision_config.get("providers", {})
+            "provider": service.get('id', ''),  # 使用service_id作为provider
+            "model": target_model.get('name', ''),
+            "base_url": service.get('base_url', ''),
+            "api_key": api_key,
+            "temperature": target_model.get('temperature', 0.7),
+            "max_tokens": target_model.get('max_tokens', 500),
+            "top_p": target_model.get('top_p', 0.9),
+            "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
+            "providers": {}  # v2.0中不再使用此字段
+        }
+    
+    def _get_empty_vision_config(self):
+        """返回空的视觉模型配置"""
+        return {
+            "provider": "",
+            "model": "",
+            "base_url": "",
+            "api_key": "",
+            "temperature": 0.7,
+            "max_tokens": 500,
+            "top_p": 0.9,
+            "providers": {}
+        }
+
+    def get_translate_config(self):
+        """获取翻译服务配置（支持百度翻译和LLM翻译）"""
+        config = self.load_config()
+        current_service_info = config.get('current_services', {}).get('translate')
+        
+        # 适配新旧格式:支持字符串(旧)和字典(新)
+        if isinstance(current_service_info, str):
+            # 旧格式: "service_id"
+            current_service_id = current_service_info
+            current_model_name = None
+        elif isinstance(current_service_info, dict):
+            # 新格式: {"service": "service_id", "model": "model_name"}
+            current_service_id = current_service_info.get('service')
+            current_model_name = current_service_info.get('model')
+        else:
+            # 未设置，默认使用百度翻译
+            current_service_id = 'baidu'
+            current_model_name = None
+        
+        # 百度翻译特殊处理（使用独立的baidu_translate配置）
+        if current_service_id == 'baidu':
+            baidu_config = self.get_baidu_translate_config()
+            return {
+                "provider": "baidu",
+                "model": "",
+                "base_url": "",
+                "api_key": baidu_config.get('app_id', ''),
+                "secret_key": baidu_config.get('secret_key', ''),
+                "temperature": 0.7,
+                "max_tokens": 1000,
+                "top_p": 0.9,
+                "providers": {}
+            }
+        
+        # 查找对应的LLM服务
+        service = self._get_service_by_id(current_service_id)
+        if not service:
+            # 服务不存在，回退到百度翻译
+            baidu_config = self.get_baidu_translate_config()
+            return {
+                "provider": "baidu",
+                "model": "",
+                "base_url": "",
+                "api_key": baidu_config.get('app_id', ''),
+                "secret_key": baidu_config.get('secret_key', ''),
+                "temperature": 0.7,
+                "max_tokens": 1000,
+                "top_p": 0.9,
+                "providers": {}
+            }
+        
+        # 获取LLM模型列表
+        llm_models = service.get('llm_models', [])
+        
+        # 如果指定了模型名称,尝试查找
+        target_model = None
+        if current_model_name:
+            target_model = next((m for m in llm_models if m.get('name') == current_model_name), None)
+        
+        # 如果未找到指定模型,使用默认模型或第一个模型
+        if not target_model:
+            target_model = next((m for m in llm_models if m.get('is_default')), 
+                                llm_models[0] if llm_models else None)
+        
+        if not target_model:
+            # 没有可用模型，回退到百度翻译
+            baidu_config = self.get_baidu_translate_config()
+            return {
+                "provider": "baidu",
+                "model": "",
+                "base_url": "",
+                "api_key": baidu_config.get('app_id', ''),
+                "secret_key": baidu_config.get('secret_key', ''),
+                "temperature": 0.7,
+                "max_tokens": 1000,
+                "top_p": 0.9,
+                "providers": {}
+            }
+        
+        # 返回LLM翻译配置
+        api_key = service.get('api_key', '')
+        return {
+            "provider": service.get('id', ''),
+            "model": target_model.get('name', ''),
+            "base_url": service.get('base_url', ''),
+            "api_key": api_key,
+            "temperature": target_model.get('temperature', 0.7),
+            "max_tokens": target_model.get('max_tokens', 1000),
+            "top_p": target_model.get('top_p', 0.9),
+            "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
+            "providers": {}
         }
 
     def get_settings(self):
@@ -460,375 +899,850 @@ class ConfigManager:
 
         return self.save_config(config)
 
-    def update_llm_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, auto_unload=None, update_current=True):
-        """更新LLM配置"""
-        config = self.load_config()
-        if "llm" not in config:
-            config["llm"] = {"providers": {}}
-        if "providers" not in config["llm"]:
-            config["llm"]["providers"] = {}
 
-        # 仅更新提供的参数
-        if provider is not None:
-            # 只有当update_current为True时才更新current_provider
-            if update_current:
-                config["llm"]["current_provider"] = provider
 
-            # 确保provider存在于providers字典中
-            if provider not in config["llm"]["providers"]:
-                config["llm"]["providers"][provider] = {
-                    "model": self.default_config["llm"]["providers"].get(provider, {}).get("model", ""),
-                    "base_url": self.default_config["llm"]["providers"].get(provider, {}).get("base_url", ""),
-                    "api_key": "",
-                    "temperature": self.default_config["llm"]["providers"].get(provider, {}).get("temperature", 0.7),
-                    "max_tokens": self.default_config["llm"]["providers"].get(provider, {}).get("max_tokens", 1000),
-                    "top_p": self.default_config["llm"]["providers"].get(provider, {}).get("top_p", 0.9)
-                }
 
-        # 只有在同时提供provider和其他参数时才更新这些参数
-        if provider is not None and model is not None:
-            config["llm"]["providers"][provider]["model"] = model
-        if provider is not None and base_url is not None:
-            config["llm"]["providers"][provider]["base_url"] = base_url
-        if provider is not None and api_key is not None:
-            config["llm"]["providers"][provider]["api_key"] = api_key
-        if provider is not None and temperature is not None:
-            config["llm"]["providers"][provider]["temperature"] = temperature
-        if provider is not None and max_tokens is not None:
-            config["llm"]["providers"][provider]["max_tokens"] = max_tokens
-        if provider is not None and top_p is not None:
-            config["llm"]["providers"][provider]["top_p"] = top_p
-        if provider is not None and auto_unload is not None:
-            config["llm"]["providers"][provider]["auto_unload"] = auto_unload
-
-        return self.save_config(config)
-
-    def update_vision_config(self, provider=None, model=None, base_url=None, api_key=None, temperature=None, max_tokens=None, top_p=None, auto_unload=None, update_current=True):
-        """更新视觉模型配置"""
-        config = self.load_config()
-        if "vlm" not in config:
-            config["vlm"] = {"providers": {}}
-        if "providers" not in config["vlm"]:
-            config["vlm"]["providers"] = {}
-
-        # 仅更新提供的参数
-        if provider is not None:
-            # 只有当update_current为True时才更新current_provider
-            if update_current:
-                config["vlm"]["current_provider"] = provider
-
-            # 确保provider存在于providers字典中
-            if provider not in config["vlm"]["providers"]:
-                config["vlm"]["providers"][provider] = {
-                    "model": self.default_config["vlm"]["providers"].get(provider, {}).get("model", ""),
-                    "base_url": self.default_config["vlm"]["providers"].get(provider, {}).get("base_url", ""),
-                    "api_key": "",
-                    "temperature": self.default_config["vlm"]["providers"].get(provider, {}).get("temperature", 0.7),
-                    "max_tokens": self.default_config["vlm"]["providers"].get(provider, {}).get("max_tokens", 500),
-                    "top_p": self.default_config["vlm"]["providers"].get(provider, {}).get("top_p", 0.9)
-                }
-
-        # 只有在同时提供provider和其他参数时才更新这些参数
-        if provider is not None and model is not None:
-            config["vlm"]["providers"][provider]["model"] = model
-        if provider is not None and base_url is not None:
-            config["vlm"]["providers"][provider]["base_url"] = base_url
-        if provider is not None and api_key is not None:
-            config["vlm"]["providers"][provider]["api_key"] = api_key
-        if provider is not None and temperature is not None:
-            config["vlm"]["providers"][provider]["temperature"] = temperature
-        if provider is not None and max_tokens is not None:
-            config["vlm"]["providers"][provider]["max_tokens"] = max_tokens
-        if provider is not None and top_p is not None:
-            config["vlm"]["providers"][provider]["top_p"] = top_p
-        if provider is not None and auto_unload is not None:
-            config["vlm"]["providers"][provider]["auto_unload"] = auto_unload
-
-        return self.save_config(config)
-    def validate_and_fix_system_prompts(self):
-        """验证并补全系统提示词配置，按默认项补齐缺失项（不覆盖用户自定义）"""
-        try:
-            system_prompts = self.load_system_prompts()
-            need_update = False
-
-            # 逐类检查：扩写/翻译/反推
-            for prompt_type, default_prompts in self.default_system_prompts.items():
-                # 确保类型存在且为字典
-                if prompt_type not in system_prompts or not isinstance(system_prompts[prompt_type], dict):
-                    system_prompts[prompt_type] = {}
-                    need_update = True
-                    self._log(f"提示词类型缺失或格式不正确，已初始化: {prompt_type}")
-
-                # 按默认清单补齐缺失项，并为已存在项补齐缺失字段
-                for prompt_id, default_def in default_prompts.items():
-                    if prompt_id not in system_prompts[prompt_type]:
-                        system_prompts[prompt_type][prompt_id] = default_def
-                        need_update = True
-                        self._log(f"为 {prompt_type} 补充默认提示词: {prompt_id}")
-                    else:
-                        # 补齐缺失字段（如 name/role/content 等），不覆盖用户已有内容
-                        for key in default_def.keys():
-                            if key not in system_prompts[prompt_type][prompt_id]:
-                                system_prompts[prompt_type][prompt_id][key] = default_def[key]
-                                need_update = True
-                                self._log(f"为提示词 {prompt_id} 补齐字段: {key}")
-
-            if need_update:
-                self.save_system_prompts(system_prompts)
-                self._log("已完成系统提示词配置的验证和补全")
-        except Exception as e:
-            self._log(f"验证和补全系统提示词配置时出错: {str(e)}")
+    # --- 注意：validate_and_fix_system_prompts 已迁移到 migration_tool.py ---
+    # 系统提示词的验证和补全由 migration_tool 的增量更新逻辑统一处理
 
 
     def validate_and_fix_active_prompts(self):
-        """验证激活提示词是否存在，如果不存在则修复"""
+        """
+        验证激活提示词是否存在，如果不存在则修复
+        
+        注意：此方法只修复 active_prompts.json（切换到存在的提示词）
+        不会恢复 system_prompts.json 中被删除的内容（尊重用户的删除操作）
+        """
         try:
-            # 加载当前的系统提示词和激活提示词
             system_prompts = self.load_system_prompts()
             active_prompts = self.load_active_prompts()
 
-            # 标记是否需要更新系统提示词
-            need_update_system = False
             # 标记是否需要更新激活提示词
-            need_update_active = False
-
-            # 检查系统提示词类型是否为空，如果为空则从默认配置中恢复
-            prompt_types = {
-                "expand_prompts": "扩写提示词",
-                "translate_prompts": "翻译提示词",
-                "vision_prompts": "反推提示词"
-            }
-
-            for prompt_type, type_name in prompt_types.items():
-                if prompt_type not in system_prompts or not system_prompts[prompt_type]:
-                    self._log(f"警告：{type_name}类型为空，从默认配置中恢复...")
-                    system_prompts[prompt_type] = self.default_system_prompts[prompt_type]
-                    need_update_system = True
-
-            # 特别检查vision_prompts中是否包含中文和英文反推提示词
-            if "vision_prompts" in system_prompts:
-                # 检查是否有中文反推提示词
-                has_zh_vision = False
-                for key in system_prompts["vision_prompts"].keys():
-                    if key.startswith("vision_zh_"):
-                        has_zh_vision = True
-                        break
-
-                if not has_zh_vision:
-                    self._log("警告：系统提示词中没有中文反推提示词，从默认配置中恢复...")
-                    # 从默认配置中恢复所有中文反推提示词
-                    for key, value in self.default_system_prompts["vision_prompts"].items():
-                        if key.startswith("vision_zh_"):
-                            system_prompts["vision_prompts"][key] = value
-                            need_update_system = True
-
-                # 检查是否有英文反推提示词
-                has_en_vision = False
-                for key in system_prompts["vision_prompts"].keys():
-                    if key.startswith("vision_en_"):
-                        has_en_vision = True
-                        break
-
-                if not has_en_vision:
-                    self._log("警告：系统提示词中没有英文反推提示词，从默认配置中恢复...")
-                    # 从默认配置中恢复所有英文反推提示词
-                    for key, value in self.default_system_prompts["vision_prompts"].items():
-                        if key.startswith("vision_en_"):
-                            system_prompts["vision_prompts"][key] = value
-                            need_update_system = True
-
-            # 如果需要更新系统提示词，保存修复后的系统提示词
-            if need_update_system:
-                self.save_system_prompts(system_prompts)
-                self._log("已恢复缺失的提示词类型")
+            modified = False
 
             # 检查并修复扩写提示词
             if "expand" in active_prompts:
                 expand_id = active_prompts["expand"]
-                if expand_id not in system_prompts.get("expand_prompts", {}):
-                    self._log(f"警告：激活的扩写提示词 {expand_id} 不存在，尝试修复...")
-                    # 尝试获取第一个可用的扩写提示词
-                    expand_prompts = system_prompts.get("expand_prompts", {})
+                expand_prompts = system_prompts.get("expand_prompts", {})
+                
+                if expand_id not in expand_prompts:
+                    # 激活的提示词不存在，切换到第一个可用的
                     if expand_prompts:
                         first_expand_id = next(iter(expand_prompts))
                         active_prompts["expand"] = first_expand_id
-                        self._log(f"已将激活的扩写提示词修复为 {first_expand_id}")
-                        need_update_active = True
+                        self._log(f"激活的扩写提示词 '{expand_id}' 不存在，已切换到 '{first_expand_id}'")
+                        modified = True
                     else:
-                        # 如果没有可用的扩写提示词，使用默认值并确保它存在于系统提示词中
-                        default_expand_id = "expand_扩写-自然语言"
-                        active_prompts["expand"] = default_expand_id
-
-                        # 确保默认值存在于系统提示词中
-                        if default_expand_id not in system_prompts.get("expand_prompts", {}):
-                            if "expand_prompts" not in system_prompts:
-                                system_prompts["expand_prompts"] = {}
-                            system_prompts["expand_prompts"][default_expand_id] = self.default_system_prompts["expand_prompts"][default_expand_id]
-                            need_update_system = True
-
-                        self._log("未找到可用的扩写提示词，使用默认值并确保它存在于系统提示词中")
-                        need_update_active = True
+                        # 没有可用的扩写提示词，清空激活
+                        active_prompts["expand"] = ""
+                        self._log(f"警告：没有可用的扩写提示词")
+                        modified = True
 
             # 检查并修复中文反推提示词
             if "vision_zh" in active_prompts:
                 vision_zh_id = active_prompts["vision_zh"]
-                if vision_zh_id not in system_prompts.get("vision_prompts", {}):
-                    self._log(f"警告：激活的中文反推提示词 {vision_zh_id} 不存在，尝试修复...")
-                    # 尝试获取第一个可用的中文反推提示词
-                    vision_prompts = {k: v for k, v in system_prompts.get("vision_prompts", {}).items() if k.startswith("vision_zh_")}
-                    if vision_prompts:
-                        first_vision_zh_id = next(iter(vision_prompts))
-                        active_prompts["vision_zh"] = first_vision_zh_id
-                        self._log(f"已将激活的中文反推提示词修复为 {first_vision_zh_id}")
-                        need_update_active = True
+                vision_prompts = system_prompts.get("vision_prompts", {})
+                zh_prompts = {k: v for k, v in vision_prompts.items() if k.startswith("vision_zh_")}
+                
+                if vision_zh_id not in vision_prompts:
+                    if zh_prompts:
+                        first_id = next(iter(zh_prompts))
+                        active_prompts["vision_zh"] = first_id
+                        self._log(f"激活的中文反推提示词 '{vision_zh_id}' 不存在，已切换到 '{first_id}'")
+                        modified = True
                     else:
-                        # 如果没有可用的中文反推提示词，使用默认值并确保它存在于系统提示词中
-                        default_vision_zh_id = "vision_zh_全图反推(中文)"
-                        active_prompts["vision_zh"] = default_vision_zh_id
-
-                        # 确保默认值存在于系统提示词中
-                        if default_vision_zh_id not in system_prompts.get("vision_prompts", {}):
-                            if "vision_prompts" not in system_prompts:
-                                system_prompts["vision_prompts"] = {}
-                            system_prompts["vision_prompts"][default_vision_zh_id] = self.default_system_prompts["vision_prompts"][default_vision_zh_id]
-                            need_update_system = True
-
-                        self._log("未找到可用的中文反推提示词，使用默认值并确保它存在于系统提示词中")
-                        need_update_active = True
+                        active_prompts["vision_zh"] = ""
+                        self._log(f"警告：没有可用的中文反推提示词")
+                        modified = True
 
             # 检查并修复英文反推提示词
             if "vision_en" in active_prompts:
                 vision_en_id = active_prompts["vision_en"]
-                if vision_en_id not in system_prompts.get("vision_prompts", {}):
-                    self._log(f"警告：激活的英文反推提示词 {vision_en_id} 不存在，尝试修复...")
-                    # 尝试获取第一个可用的英文反推提示词
-                    vision_prompts = {k: v for k, v in system_prompts.get("vision_prompts", {}).items() if k.startswith("vision_en_")}
-                    if vision_prompts:
-                        first_vision_en_id = next(iter(vision_prompts))
-                        active_prompts["vision_en"] = first_vision_en_id
-                        self._log(f"已将激活的英文反推提示词修复为 {first_vision_en_id}")
-                        need_update_active = True
+                vision_prompts = system_prompts.get("vision_prompts", {})
+                en_prompts = {k: v for k, v in vision_prompts.items() if k.startswith("vision_en_")}
+                
+                if vision_en_id not in vision_prompts:
+                    if en_prompts:
+                        first_id = next(iter(en_prompts))
+                        active_prompts["vision_en"] = first_id
+                        self._log(f"激活的英文反推提示词 '{vision_en_id}' 不存在，已切换到 '{first_id}'")
+                        modified = True
                     else:
-                        # 如果没有可用的英文反推提示词，使用默认值并确保它存在于系统提示词中
-                        default_vision_en_id = "vision_en_全图反推(英文)"
-                        active_prompts["vision_en"] = default_vision_en_id
-
-                        # 确保默认值存在于系统提示词中
-                        if default_vision_en_id not in system_prompts.get("vision_prompts", {}):
-                            if "vision_prompts" not in system_prompts:
-                                system_prompts["vision_prompts"] = {}
-                            system_prompts["vision_prompts"][default_vision_en_id] = self.default_system_prompts["vision_prompts"][default_vision_en_id]
-                            need_update_system = True
-
-                        self._log("未找到可用的英文反推提示词，使用默认值并确保它存在于系统提示词中")
-                        need_update_active = True
-
-            # 如果需要更新系统提示词，保存修复后的系统提示词
-            if need_update_system:
-                self.save_system_prompts(system_prompts)
-                self._log("已完成系统提示词的验证和修复")
+                        active_prompts["vision_en"] = ""
+                        self._log(f"警告：没有可用的英文反推提示词")
+                        modified = True
 
             # 如果需要更新，保存修复后的激活提示词
-            if need_update_active:
+            if modified:
                 self.save_active_prompts(active_prompts)
                 self._log("已完成激活提示词的验证和修复")
 
-            # 如果系统提示词或激活提示词有更新，重新加载一次确保一致性
-            if need_update_system or need_update_active:
-                # 重新加载系统提示词和激活提示词
-                system_prompts = self.load_system_prompts()
-                active_prompts = self.load_active_prompts()
-                self._log("已重新加载提示词配置")
-
         except Exception as e:
-            self._log(f"验证和修复激活提示词时出错: {str(e)}")
+            self._log(f"验证激活提示词异常: {str(e)}")
+
+
 
     def validate_and_fix_model_params(self):
-        """验证并修复模型参数配置，确保所有提供商都包含必要的参数"""
+        """
+        验证并修复模型参数配置
+        注意: v2.0版本中，模型参数直接存储在 model_services 数组的模型对象中，
+        这个方法主要用于确保配置文件存在和格式正确
+        """
         try:
-            # 加载当前配置
             config = self.load_config()
-            need_update = False
+            
+            # 确保是 v2.0 格式
+            if not self._is_v2_config(config):
+                self._log("[config.json] 警告: 检测到旧版本配置，请手动创建新的配置文件或使用默认配置")
+                return
+            
+            # v2.0 格式中，参数已经在各个服务的模型列表中，无需额外验证
+            # 如果需要补全缺失的服务或模型参数，应该在服务商管理API中处理
+            
+        except Exception as e:
+            self._log(f"[config.json] 验证模型参数配置时出错: {str(e)}")
 
-            # 检查LLM配置，并补全新增提供商
-            if "llm" in config:
-                if "providers" not in config["llm"]:
-                    config["llm"]["providers"] = {}
-                    need_update = True
-                # 新增提供商预设
-                for p in ["302ai", "ollama"]:
-                    if p not in config["llm"]["providers"]:
-                        config["llm"]["providers"][p] = self.default_config["llm"]["providers"][p]
-                        need_update = True
-                        self._log(f"为LLM添加默认提供商: {p}")
-                for provider_name, provider_config in config["llm"]["providers"].items():
-                    # 检查并添加缺失的temperature参数
-                    if "temperature" not in provider_config:
-                        provider_config["temperature"] = 0.7
-                        need_update = True
-                        self._log(f"为LLM提供商 {provider_name} 添加默认temperature参数: 0.7")
 
-                    # 检查并添加缺失的max_tokens参数
-                    if "max_tokens" not in provider_config:
-                        provider_config["max_tokens"] = 1000
-                        need_update = True
-                        self._log(f"为LLM提供商 {provider_name} 添加默认max_tokens参数: 1000")
+    # --- API Key 安全相关方法（方案A）---
+    
+    @staticmethod
+    def mask_api_key(api_key: str) -> str:
+        """
+        掩码API Key，只显示首尾部分
+        用于前端安全显示，防止API Key在Network中明文可见
+        
+        参数:
+            api_key: 明文API Key
+            
+        返回:
+            str: 掩码后的API Key
+            
+        示例:
+            - sk-abc123xyz789 -> sk-abc***xyz789
+            - 短Key (< 8字符) -> ***
+            - 空字符串 -> ""
+        """
+        if not api_key:
+            return ""
+        if len(api_key) < 8:
+            return "***"
+        # 显示前6个字符和后4个字符
+        return f"{api_key[:6]}***{api_key[-4:]}"
+    
+    def get_llm_config_masked(self):
+        """
+        获取LLM配置（API Key掩码版本）
+        用于前端显示，不暴露完整API Key
+        
+        返回:
+            Dict: LLM配置，api_key字段被掩码
+        """
+        config = self.get_llm_config()
+        
+        if 'api_key' in config:
+            # 掩码API Key
+            config['api_key_masked'] = self.mask_api_key(config['api_key'])
+            config['api_key_exists'] = bool(config['api_key'])
+            # 移除明文API Key
+            del config['api_key']
+        
+        # 处理所有providers的API Key
+        if 'providers' in config:
+            for provider_name, provider_config in config['providers'].items():
+                if 'api_key' in provider_config:
+                    provider_config['api_key_masked'] = self.mask_api_key(provider_config['api_key'])
+                    provider_config['api_key_exists'] = bool(provider_config['api_key'])
+                    del provider_config['api_key']
+        
+        return config
+    
+    def get_vision_config_masked(self):
+        """
+        获取视觉模型配置（API Key掩码版本）
+        用于前端显示，不暴露完整API Key
+        
+        返回:
+            Dict: 视觉模型配置，api_key字段被掩码
+        """
+        config = self.get_vision_config()
+        
+        if 'api_key' in config:
+            # 掩码API Key
+            config['api_key_masked'] = self.mask_api_key(config['api_key'])
+            config['api_key_exists'] = bool(config['api_key'])
+            # 移除明文API Key
+            del config['api_key']
+        
+        # 处理所有providers的API Key
+        if 'providers' in config:
+            for provider_name, provider_config in config['providers'].items():
+                if 'api_key' in provider_config:
+                    provider_config['api_key_masked'] = self.mask_api_key(provider_config['api_key'])
+                    provider_config['api_key_exists'] = bool(provider_config['api_key'])
+                    del provider_config['api_key']
+        
+        return config
+    
+    # --- 服务商管理方法（CRUD）---
+    
+    def get_all_services(self):
+        """
+        获取所有服务商列表
+        
+        返回:
+            List[Dict]: 服务商列表
+        """
+        config = self.load_config()
+        
+        if self._is_v2_config(config):
+            return config.get('model_services', [])
+        else:
+            # v1.0不支持此功能
+            return []
+    
+    def get_service(self, service_id: str):
+        """
+        获取指定服务商的完整配置
+        
+        参数:
+            service_id: 服务商ID
+            
+        返回:
+            Dict: 服务商配置，不存在返回None
+        """
+        return self._get_service_by_id(service_id)
+    
+    def create_service(self, service_type: str, name: str = "", base_url: str = "", 
+                      api_key: str = "", description: str = ""):
+        """
+        创建新的服务商
+        
+        参数:
+            service_type: 服务类型 ('openai_compatible' 或 'ollama')
+            name: 服务商名称（如果为空，自动生成）
+            base_url: Base URL
+            api_key: API Key（明文存储）
+            description: 描述
+            
+        返回:
+            str: 新创建的service_id，失败返回None
+        """
+        try:
+            config = self.load_config()
+            
+            if not self._is_v2_config(config):
+                self._log("创建服务商失败: 配置版本过低，请先迁移到v2.0")
+                return None
+            
+            # 获取现有服务商列表
+            current_services = config.get('model_services', [])
+            
+            # 生成服务商ID和名称
+            service_id, auto_name = self._generate_service_id_and_name(service_type, current_services)
+            
+            # 如果用户没有提供名称，使用自动生成的名称
+            if not name:
+                name = auto_name
+            
+            # 创建服务配置
+            new_service = {
+                "id": service_id,
+                "type": service_type,
+                "name": name,
+                "description": description,
+                "base_url": base_url,
+                "api_key": api_key or "",
+                "disable_thinking": True,
+                "enable_advanced_params": True,
+                "filter_thinking_output": True,
+                "llm_models": [],
+                "vlm_models": []
+            }
+            
+            # Ollama特有配置
+            if service_type == "ollama":
+                new_service["auto_unload"] = True
+            
+            # 添加到配置
+            if 'model_services' not in config:
+                config['model_services'] = []
+            
+            config['model_services'].append(new_service)
+            
+            # 保存配置
+            if self.save_config(config):
+                self._log(f"成功创建服务商: {name} (ID: {service_id})")
+                return service_id
+            else:
+                self._log(f"保存服务商配置失败: {name}")
+                return None
+                
+        except Exception as e:
+            self._log(f"创建服务商异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+    
+    def _generate_service_id_and_name(self, service_type: str, current_services: list) -> tuple:
+        """
+        生成服务商ID和默认名称
+        
+        参数:
+            service_type: 服务类型
+            current_services: 现有服务商列表
+            
+        返回:
+            tuple: (service_id, default_name)
+        """
+        import random
+        
+        # 类型映射
+        type_map = {
+            "ollama": {
+                "name_prefix": "Ollama服务",
+                "id_prefix": "ollama"
+            },
+            "openai_compatible": {
+                "name_prefix": "通用服务",
+                "id_prefix": "service"
+            }
+        }
+        
+        # 获取类型配置
+        type_config = type_map.get(service_type, {
+            "name_prefix": "新服务",
+            "id_prefix": service_type
+        })
+        
+        name_prefix = type_config["name_prefix"]
+        id_prefix = type_config["id_prefix"]
+        
+        # 收集已使用的编号
+        existing_numbers = set()
+        for service in current_services:
+            sid = service.get('id', '')
+            # 匹配格式：{id_prefix}_{数字}
+            if sid.startswith(f"{id_prefix}_"):
+                try:
+                    num_str = sid.split('_')[-1]
+                    if num_str.isdigit():
+                        existing_numbers.add(int(num_str))
+                except:
+                    pass
+        
+        # 生成随机三位数（100-999），最多尝试100次
+        max_attempts = 100
+        for _ in range(max_attempts):
+            random_number = random.randint(100, 999)
+            if random_number not in existing_numbers:
+                break
+        else:
+            # 如果100次都重复，使用更大的随机数（4位数）
+            random_number = random.randint(1000, 9999)
+            while random_number in existing_numbers:
+                random_number = random.randint(1000, 9999)
+        
+        # 生成ID和名称
+        service_id = f"{id_prefix}_{random_number}"
+        default_name = f"{name_prefix}-{random_number}"
+        
+        return service_id, default_name
+    
+    def delete_service(self, service_id: str):
+        """
+        删除服务商
+        
+        参数:
+            service_id: 服务商ID
+            
+        返回:
+            bool: 成功返回True
+        """
+        try:
+            config = self.load_config()
+            
+            if not self._is_v2_config(config):
+                self._log("删除服务商失败: 配置版本过低")
+                return False
+            
+            services = config.get('model_services', [])
+            
+            # 查找并删除服务
+            original_length = len(services)
+            config['model_services'] = [s for s in services if s.get('id') != service_id]
+            
+            if len(config['model_services']) == original_length:
+                self._log(f"删除服务商失败: 服务商不存在 (ID: {service_id})")
+                return False
+            
+            # 如果删除的是当前服务，清除current_services引用
+            current_services = config.get('current_services', {})
+            if current_services.get('llm') == service_id:
+                current_services['llm'] = None
+            if current_services.get('vlm') == service_id:
+                current_services['vlm'] = None
+            if current_services.get('translate') == service_id:
+                current_services['translate'] = None
+            
+            # 保存配置
+            if self.save_config(config):
+                self._log(f"成功删除服务商: {service_id}")
+                return True
+            else:
+                self._log(f"保存配置失败")
+                return False
+                
+        except Exception as e:
+            self._log(f"删除服务商异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
 
-                    # 检查并添加缺失的top_p参数
-                    if "top_p" not in provider_config:
-                        provider_config["top_p"] = 0.9
-                        need_update = True
-                        self._log(f"为LLM提供商 {provider_name} 添加默认top_p参数: 0.9")
+    def update_services_order(self, service_ids: list) -> bool:
+        """
+        更新服务商顺序
 
-                    # 检查并添加缺失的auto_unload参数（仅Ollama）
-                    if provider_name == "ollama" and "auto_unload" not in provider_config:
-                        provider_config["auto_unload"] = True
-                        need_update = True
-                        self._log(f"为LLM提供商 {provider_name} 添加默认auto_unload参数: True")
+        参数:
+            service_ids: 服务商ID列表,按新顺序排列
 
-            # 检查视觉模型配置，并补全新增提供商
-            if "vlm" in config:
-                if "providers" not in config["vlm"]:
-                    config["vlm"]["providers"] = {}
-                    need_update = True
-                # 新增提供商预设
-                for p in ["302ai", "ollama"]:
-                    if p not in config["vlm"]["providers"]:
-                        config["vlm"]["providers"][p] = self.default_config["vlm"]["providers"][p]
-                        need_update = True
-                        self._log(f"为视觉模型添加默认提供商: {p}")
-                for provider_name, provider_config in config["vlm"]["providers"].items():
-                    # 检查并添加缺失的temperature参数
-                    if "temperature" not in provider_config:
-                        provider_config["temperature"] = 0.7
-                        need_update = True
-                        self._log(f"为视觉模型提供商 {provider_name} 添加默认temperature参数: 0.7")
+        返回:
+            bool: 成功返回True
+        """
+        try:
+            config = self.load_config()
 
-                    # 检查并添加缺失的max_tokens参数
-                    if "max_tokens" not in provider_config:
-                        provider_config["max_tokens"] = 500
-                        need_update = True
-                        self._log(f"为视觉模型提供商 {provider_name} 添加默认max_tokens参数: 500")
+            if not self._is_v2_config(config):
+                self._log("更新服务商顺序失败: 配置版本过低")
+                return False
 
-                    # 检查并添加缺失的top_p参数
-                    if "top_p" not in provider_config:
-                        provider_config["top_p"] = 0.9
-                        need_update = True
-                        self._log(f"为视觉模型提供商 {provider_name} 添加默认top_p参数: 0.9")
+            services = config.get('model_services', [])
 
-                    # 检查并添加缺失的auto_unload参数（仅Ollama）
-                    if provider_name == "ollama" and "auto_unload" not in provider_config:
-                        provider_config["auto_unload"] = True
-                        need_update = True
-                        self._log(f"为视觉模型提供商 {provider_name} 添加默认auto_unload参数: True")
+            # 创建ID到服务的映射
+            service_map = {s.get('id'): s for s in services}
 
-            # 如果有更新，保存配置
-            if need_update:
-                self.save_config(config)
-                self._log("已完成模型参数配置的验证和修复")
+            # 验证所有service_id都存在
+            for service_id in service_ids:
+                if service_id not in service_map:
+                    self._log(f"更新服务商顺序失败: 服务商不存在 (ID: {service_id})")
+                    return False
+
+            # 按新顺序重建services数组
+            new_services = []
+            for service_id in service_ids:
+                new_services.append(service_map[service_id])
+
+            # 添加未在service_ids中的服务(防止遗漏)
+            for service_id, service in service_map.items():
+                if service_id not in service_ids:
+                    new_services.append(service)
+                    self._log(f"警告: 服务商 {service_id} 不在新顺序中,已追加到末尾")
+
+            config['model_services'] = new_services
+
+            # 保存配置
+            if self.save_config(config):
+                self._log(f"成功更新服务商顺序: {', '.join(service_ids)}")
+                return True
+            else:
+                self._log("保存配置失败")
+                return False
 
         except Exception as e:
-            self._log(f"验证和修复模型参数时出错: {str(e)}")
+            self._log(f"更新服务商顺序异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    
+    def update_service(self, service_id: str, **kwargs):
+        """
+        更新服务商配置
+        
+        参数:
+            service_id: 服务商ID
+            **kwargs: 要更新的字段（name, description, base_url, api_key, auto_unload等）
+            
+        返回:
+            bool: 成功返回True
+        """
+        try:
+            config = self.load_config()
+            
+            if not self._is_v2_config(config):
+                self._log("更新服务商失败: 配置版本过低")
+                return False
+            
+            # 查找服务
+            services = config.get('model_services', [])
+            service = None
+            service_index = -1
+            
+            for i, s in enumerate(services):
+                if s.get('id') == service_id:
+                    service = s
+                    service_index = i
+                    break
+            
+            if not service:
+                self._log(f"更新服务商失败: 服务商不存在 (ID: {service_id})")
+                return False
+            
+            # 更新字段
+            if 'name' in kwargs:
+                service['name'] = kwargs['name']
+            
+            if 'description' in kwargs:
+                service['description'] = kwargs['description']
+            
+            if 'base_url' in kwargs:
+                service['base_url'] = kwargs['base_url']
+            
+            if 'api_key' in kwargs:
+                # 直接使用明文API Key
+                service['api_key'] = kwargs['api_key'] or ""
+            
+            if 'auto_unload' in kwargs and service.get('type') == 'ollama':
+                service['auto_unload'] = kwargs['auto_unload']
+            
+            if 'disable_thinking' in kwargs:
+                service['disable_thinking'] = kwargs['disable_thinking']
+            
+            if 'enable_advanced_params' in kwargs:
+                service['enable_advanced_params'] = kwargs['enable_advanced_params']
+            
+            if 'filter_thinking_output' in kwargs:
+                service['filter_thinking_output'] = kwargs['filter_thinking_output']
+            
+            # 更新services数组
+            config['model_services'][service_index] = service
+            
+            # 保存配置
+            if self.save_config(config):
+                self._log(f"成功更新服务商: {service_id}")
+                return True
+            else:
+                self._log(f"保存配置失败")
+                return False
+                
+        except Exception as e:
+            self._log(f"更新服务商异常: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def set_current_service(self, service_type: str, service_id: str, model_name: str = None):
+        """
+        设置当前使用的服务商和模型
+        
+        参数:
+            service_type: 服务类型 ('llm', 'vlm', 或 'translate')
+            service_id: 服务商ID
+            model_name: 模型名称(可选,如果不提供则使用该服务的默认模型或第一个模型)
+            
+        返回:
+            bool: 成功返回True
+        """
+        try:
+            config = self.load_config()
+            
+            if not self._is_v2_config(config):
+                self._log("设置当前服务商失败: 配置版本过低")
+                return False
+            
+            # ---百度翻译特殊处理---
+            # 百度翻译使用独立的baidu_translate配置,不在model_services中
+            if service_id == 'baidu':
+                # 百度翻译支持LLM服务类型(旧兼容)和translate服务类型
+                if service_type not in ['llm', 'translate']:
+                    self._log(f"设置当前服务商失败: 百度翻译不支持{service_type}服务类型")
+                    return False
+                
+                # 确保baidu_translate配置存在
+                if 'baidu_translate' not in config:
+                    config['baidu_translate'] = {"app_id": "", "secret_key": ""}
+                
+                # 确保current_services结构存在
+                if 'current_services' not in config:
+                    config['current_services'] = {}
+                
+                # 设置百度为当前服务(无模型概念)
+                config['current_services'][service_type] = {
+                    "service": "baidu",
+                    "model": ""
+                }
+                
+                # 保存配置
+                if self.save_config(config):
+                    self._log(f"当前服务商已切换: 百度翻译 ({service_type})")
+                    return True
+                else:
+                    self._log("设置当前服务商失败: 保存配置失败")
+                    return False
+            
+            # ---其他服务:验证服务存在---
+            service = self._get_service_by_id(service_id)
+            if not service:
+                self._log(f"设置当前服务商失败: 服务商不存在 (ID: {service_id})")
+                return False
+            
+            # 根据service_type确定模型列表字段
+            model_list_key = f'{service_type}_models'
+            if service_type == 'translate':
+                model_list_key = 'llm_models'
+            
+            # 如果提供了model_name,验证模型是否存在
+            if model_name:
+                model_list = service.get(model_list_key, [])
+                model_exists = any(m.get('name') == model_name for m in model_list)
+                
+                if not model_exists:
+                    self._log(f"设置当前服务商失败: 模型不存在 (模型: {model_name}, 服务: {service_id})")
+                    return False
+           
+            # 确保current_services结构存在
+            if 'current_services' not in config:
+                config['current_services'] = {}
+            
+            # 获取当前服务信息(兼容旧格式)
+            current_info = config['current_services'].get(service_type)
+            
+            # 设置新格式的current_services
+            if model_name:
+                # 明确指定了模型
+                config['current_services'][service_type] = {
+                    "service": service_id,
+                    "model": model_name
+                }
+            else:
+                # 未指定模型,使用默认模型或第一个模型
+                model_list = service.get(model_list_key, [])
+                
+                # 如果是百度服务,没有模型
+                if service.get('id') == 'baidu' or service.get('type') == 'baidu':
+                    config['current_services'][service_type] = {
+                        "service": service_id,
+                        "model": ""
+                    }
+                else:
+                    # 查找默认模型或第一个模型
+                    default_model = next((m for m in model_list if m.get('is_default')), 
+                                        model_list[0] if model_list else None)
+                    
+                    if default_model:
+                        config['current_services'][service_type] = {
+                            "service": service_id,
+                            "model": default_model.get('name', '')
+                        }
+                    else:
+                        # 没有模型,只设置服务
+                        config['current_services'][service_type] = {
+                            "service": service_id,
+                            "model": ""
+                        }
+            
+            # 保存配置
+            if self.save_config(config):
+                service_name = service.get('name', service_id)
+                log_model = f" | 模型:{model_name}" if model_name else ""
+                self._log(f"成功设置当前{service_type}服务: {service_name}{log_model}")
+                return True
+            else:
+                self._log(f"保存配置失败")
+                return False
+                
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    # --- 模型管理方法 ---
+    
+    def add_model_to_service(self, service_id: str, model_type: str, model_name: str, 
+                            temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 512):
+        """添加模型到服务商"""
+        try:
+            config = self.load_config()
+            services = config.get('model_services', [])
+            
+            for i, service in enumerate(services):
+                if service.get('id') == service_id:
+                    model_list_key = 'llm_models' if model_type == 'llm' else 'vlm_models'
+                    
+                    if model_list_key not in service:
+                        service[model_list_key] = []
+                    
+                    # 检查是否已存在
+                    if any(m.get('name') == model_name for m in service[model_list_key]):
+                        self._log(f"模型已存在: {model_name}")
+                        return False
+                    
+                    # 添加新模型
+                    new_model = {
+                        "name": model_name,
+                        "is_default": len(service[model_list_key]) == 0,
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "max_tokens": max_tokens
+                    }
+                    service[model_list_key].append(new_model)
+                    config['model_services'][i] = service
+                    
+                    if self.save_config(config):
+                        self._log(f"成功添加模型: {model_name}")
+                        return True
+                    return False
+            
+            self._log(f"服务商不存在: {service_id}")
+            return False
+        except Exception as e:
+            self._log(f"添加模型异常: {str(e)}")
+            return False
+    
+    def delete_model_from_service(self, service_id: str, model_type: str, model_name: str):
+        """从服务商删除模型"""
+        try:
+            config = self.load_config()
+            services = config.get('model_services', [])
+            
+            for i, service in enumerate(services):
+                if service.get('id') == service_id:
+                    model_list_key = 'llm_models' if model_type == 'llm' else 'vlm_models'
+                    
+                    if model_list_key not in service:
+                        return False
+                    
+                    original_length = len(service[model_list_key])
+                    service[model_list_key] = [m for m in service[model_list_key] if m.get('name') != model_name]
+                    
+                    if len(service[model_list_key]) == original_length:
+                        self._log(f"模型不存在: {model_name}")
+                        return False
+                    
+                    # 如果删除的是默认模型，设置第一个为默认
+                    if len(service[model_list_key]) > 0:
+                        if not any(m.get('is_default') for m in service[model_list_key]):
+                            service[model_list_key][0]['is_default'] = True
+                    
+                    config['model_services'][i] = service
+                    
+                    if self.save_config(config):
+                        self._log(f"成功删除模型: {model_name}")
+                        return True
+                    return False
+            
+            self._log(f"服务商不存在: {service_id}")
+            return False
+        except Exception as e:
+            self._log(f"删除模型异常: {str(e)}")
+            return False
+    
+    def set_default_model(self, service_id: str, model_type: str, model_name: str):
+        """设置默认模型"""
+        try:
+            config = self.load_config()
+            services = config.get('model_services', [])
+            
+            for i, service in enumerate(services):
+                if service.get('id') == service_id:
+                    model_list_key = 'llm_models' if model_type == 'llm' else 'vlm_models'
+                    
+                    if model_list_key not in service:
+                        return False
+                    
+                    found = False
+                    for model in service[model_list_key]:
+                        if model.get('name') == model_name:
+                            model['is_default'] = True
+                            found = True
+                        else:
+                            model['is_default'] = False
+                    
+                    if not found:
+                        self._log(f"模型不存在: {model_name}")
+                        return False
+                    
+                    config['model_services'][i] = service
+                    
+                    if self.save_config(config):
+                        self._log(f"成功设置默认模型: {model_name}")
+                        return True
+                    return False
+            
+            self._log(f"服务商不存在: {service_id}")
+            return False
+        except Exception as e:
+            self._log(f"设置默认模型异常: {str(e)}")
+            return False
+    
+    def update_model_order(self, service_id: str, model_type: str, model_names: list):
+        """更新模型顺序"""
+        try:
+            config = self.load_config()
+            services = config.get('model_services', [])
+            
+            for i, service in enumerate(services):
+                if service.get('id') == service_id:
+                    model_list_key = 'llm_models' if model_type == 'llm' else 'vlm_models'
+                    
+                    if model_list_key not in service:
+                        return False
+                    
+                    # 创建模型字典
+                    model_dict = {m.get('name'): m for m in service[model_list_key]}
+                    
+                    # 按新顺序重新排列
+                    new_model_list = []
+                    for name in model_names:
+                        if name in model_dict:
+                            new_model_list.append(model_dict[name])
+                    
+                    service[model_list_key] = new_model_list
+                    config['model_services'][i] = service
+                    
+                    if self.save_config(config):
+                        self._log(f"成功更新模型顺序")
+                        return True
+                    return False
+            
+            self._log(f"服务商不存在: {service_id}")
+            return False
+        except Exception as e:
+            self._log(f"更新模型顺序异常: {str(e)}")
+            return False
+    
+    def update_model_parameter(self, service_id: str, model_type: str, model_name: str, 
+                               parameter_name: str, parameter_value):
+        """更新模型参数"""
+        try:
+            config = self.load_config()
+            services = config.get('model_services', [])
+            
+            for i, service in enumerate(services):
+                if service.get('id') == service_id:
+                    model_list_key = 'llm_models' if model_type == 'llm' else 'vlm_models'
+                    
+                    if model_list_key not in service:
+                        return False
+                    
+                    # 查找模型并更新参数
+                    for model in service[model_list_key]:
+                        if model.get('name') == model_name:
+                            model[parameter_name] = parameter_value
+                            config['model_services'][i] = service
+                            
+                            if self.save_config(config):
+                                self._log(f"成功更新模型参数: {model_name}.{parameter_name} = {parameter_value}")
+                                return True
+                            return False
+                    
+                    self._log(f"模型不存在: {model_name}")
+                    return False
+            
+            self._log(f"服务商不存在: {service_id}")
+            return False
+        except Exception as e:
+            self._log(f"更新模型参数异常: {str(e)}")
+            return False
 
 # 创建全局配置管理器实例
 config_manager = ConfigManager()

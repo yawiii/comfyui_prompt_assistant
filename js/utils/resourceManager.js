@@ -4,6 +4,7 @@
  */
 
 import { logger } from './logger.js';
+import { APIService } from '../services/api.js';
 
 class ResourceManager {
     // 资源缓存
@@ -186,7 +187,7 @@ class ResourceManager {
             { id: 'prompt-assistant-common-styles', file: 'common.css' },
             { id: 'prompt-assistant-styles', file: 'assistant.css' },
             { id: 'prompt-assistant-popup-styles', file: 'popup.css' },
-            { id: 'prompt-assistant-settings-styles', file: 'settings.css' }
+            { id: 'prompt-assistant-ui-components-styles', file: 'uiComponents.css' }
         ];
 
         stylesToLoad.forEach(style => {
@@ -227,7 +228,7 @@ class ResourceManager {
      */
     static getTagUrl() {
         // 使用API路由获取标签数据
-        return '/prompt_assistant/api/config/tags';
+        return APIService.getApiUrl('/config/tags');
     }
 
     /**
@@ -235,7 +236,7 @@ class ResourceManager {
      */
     static getUserTagUrl() {
         // 使用API路由获取用户自定义标签数据
-        return '/prompt_assistant/api/config/tags_user';
+        return APIService.getApiUrl('/config/tags_user');
     }
 
     /**
@@ -392,12 +393,178 @@ class ResourceManager {
         return stats.tags;
     }
 
+    // ---CSV标签系统---
+
+    /**
+     * 获取CSV文件列表
+     */
+    static async getTagFileList() {
+        try {
+            const response = await fetch(APIService.getApiUrl('/config/tags_files'));
+            const result = await response.json();
+            if (result.success) {
+                return result.files || [];
+            }
+            logger.error(`获取标签文件列表失败 | ${result.error}`);
+            return [];
+        } catch (error) {
+            logger.error(`获取标签文件列表失败 | ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 获取用户选择的标签文件
+     */
+    static async getSelectedTagFile() {
+        try {
+            const response = await fetch(APIService.getApiUrl('/config/tags_selection'));
+            const result = await response.json();
+            if (result.success) {
+                return result.selection?.selected_file || 'default.csv';
+            }
+            return 'default.csv';
+        } catch (error) {
+            logger.error(`获取标签选择失败 | ${error.message}`);
+            return 'default.csv';
+        }
+    }
+
+    /**
+     * 保存用户选择的标签文件
+     */
+    static async setSelectedTagFile(filename) {
+        try {
+            const response = await fetch(APIService.getApiUrl('/config/tags_selection'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ selected_file: filename })
+            });
+            const result = await response.json();
+            return result.success;
+        } catch (error) {
+            logger.error(`保存标签选择失败 | ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 加载CSV标签数据
+     * @param {string} filename - CSV文件名
+     * @param {boolean} forceReload - 是否强制重新加载(当前总是重新加载)
+     */
+    static async loadTagsCsv(filename, forceReload = false) {
+        try {
+            const response = await fetch(APIService.getApiUrl(`/config/tags_csv/${filename}`));
+            const result = await response.json();
+            if (result.success) {
+                this.#tagCache = result.data;
+                const stats = this.#getTagStats(result.data);
+                logger.log(`CSV标签加载完成 | 文件:${filename} | 分类:${stats.categories} | 标签:${stats.tags}`);
+                return result.data;
+            }
+            logger.error(`加载CSV标签失败 | ${result.error}`);
+            return {};
+        } catch (error) {
+            logger.error(`加载CSV标签失败 | ${error.message}`);
+            return {};
+        }
+    }
+
+    /**
+     * 保存CSV标签数据
+     */
+    static async saveTagsCsv(filename, data) {
+        try {
+            const response = await fetch(APIService.getApiUrl(`/config/tags_csv/${filename}`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ data })
+            });
+            const result = await response.json();
+            if (result.success) {
+                logger.log(`CSV标签保存成功 | 文件:${filename}`);
+                return true;
+            }
+            logger.error(`保存CSV标签失败 | ${result.error}`);
+            return false;
+        } catch (error) {
+            logger.error(`保存CSV标签失败 | ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 获取收藏列表
+     */
+    static async getFavorites() {
+        try {
+            const response = await fetch(APIService.getApiUrl('/config/favorites'));
+            const result = await response.json();
+            if (result.success) {
+                return result.favorites || [];
+            }
+            return [];
+        } catch (error) {
+            logger.error(`获取收藏列表失败 | ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * 添加收藏
+     */
+    static async addFavorite(tagValue, tagName = null, category = null) {
+        try {
+            const body = { tag_value: tagValue };
+            if (tagName) {
+                body.tag_name = tagName;
+            }
+            if (category) {
+                body.category = category;
+            }
+            const response = await fetch(APIService.getApiUrl('/config/favorites/add'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await response.json();
+            return result.success;
+        } catch (error) {
+            logger.error(`添加收藏失败 | ${error.message}`);
+            return false;
+        }
+    }
+
+    /**
+     * 移除收藏
+     */
+    static async removeFavorite(tagValue, category = null) {
+        try {
+            const body = { tag_value: tagValue };
+            if (category) {
+                body.category = category;
+            }
+            const response = await fetch(APIService.getApiUrl('/config/favorites/remove'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            const result = await response.json();
+            return result.success;
+        } catch (error) {
+            logger.error(`移除收藏失败 | ${error.message}`);
+            return false;
+        }
+    }
+
     /**
      * 检查是否已初始化
      */
     static isInitialized() {
         return this.#initialized;
     }
+
 
     // ====================== 资源清理 ======================
 
@@ -431,6 +598,30 @@ class ResourceManager {
         await this.init();
 
         logger.log("资源管理器 | 资源已清理并重新初始化");
+    }
+
+    /**
+     * 保存用户自定义标签数据
+     */
+    static async saveUserTags(data) {
+        try {
+            const response = await fetch(APIService.getApiUrl('/config/tags_user'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await response.json();
+            if (result.success) {
+                logger.log("用户标签数据保存成功");
+                this.#userTagCache = data; // 更新缓存
+                return true;
+            }
+            logger.error(`保存用户标签数据失败 | ${result.error}`);
+            return false;
+        } catch (error) {
+            logger.error(`保存用户标签数据失败 | ${error.message}`);
+            return false;
+        }
     }
 
     /**

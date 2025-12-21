@@ -8,35 +8,17 @@ import re
 from comfy.model_management import InterruptProcessingException
 
 from ..services.llm import LLMService
-from ..services.error_util import format_api_error
+from ..utils.common import format_api_error, format_model_with_thinking, generate_request_id, log_prepare, log_error, TASK_EXPAND, SOURCE_NODE
+from ..services.thinking_control import build_thinking_suppression
+from .base import LLMNodeBase
 
 
-# 定义ANSI颜色代码常量
-GREEN = "\033[32m"
-BLUE = "\033[34m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
-
-
-class PromptExpand:
+class PromptExpand(LLMNodeBase):
     """
-    文本扩写节点
-    - 输入"原文"，根据所选扩写规则模板或临时规则进行扩写
+    提示词增强节点
+    - 输入"source_text"，根据所选规则模板或自定义规则进行增强/扩写
     - 仅包含一个字符串输入和一个字符串输出
     """
-    # 定义日志前缀
-    LOG_PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"  # 绿色：结果阶段
-    REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"  # 蓝色：准备阶段
-    PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"  # 黄色：API调用阶段
-    
-    # 提供商显示名称映射
-    PROVIDER_DISPLAY_MAP = {
-        "zhipu": "智谱",
-        "siliconflow": "硅基流动",
-        "302ai": "302.AI",
-        "ollama": "Ollama",
-        "custom": "自定义"
-    }
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -51,97 +33,100 @@ class PromptExpand:
             expand_prompts = system_prompts.get('expand_prompts', {}) or {}
             active_expand_id = system_prompts.get('active_prompts', {}).get('expand')
 
-        # 构建提示词模板选项（显示name）
+        # 构建提示词模板选项（支持分类格式：类别/规则名称）
         prompt_template_options = []
-        id_to_name = {}
+        id_to_display_name = {}
         for key, value in expand_prompts.items():
+            # 过滤掉不在后端显示的规则
+            show_in = value.get('showIn', ["frontend", "node"])
+            if 'node' not in show_in:
+                continue
+
             name = value.get('name', key)
-            id_to_name[key] = name
-            prompt_template_options.append(name)
+            category = value.get('category', '')
+            # 如果有分类，显示为 "类别/规则名称"，否则直接显示规则名称
+            display_name = f"{category}/{name}" if category else name
+            id_to_display_name[key] = display_name
+            prompt_template_options.append(display_name)
 
         # 默认选项回退
         default_template_name = prompt_template_options[0] if prompt_template_options else "扩写-自然语言"
-        if active_expand_id and active_expand_id in id_to_name:
-            default_template_name = id_to_name[active_expand_id]
+        if active_expand_id and active_expand_id in id_to_display_name:
+            default_template_name = id_to_display_name[active_expand_id]
+        
+        # ---动态获取LLM服务/模型列表---
+        service_options = cls.get_llm_service_options()
+        default_service = service_options[0] if service_options else "智谱"
 
         return {
             "required": {
                 # 规则模板：来自系统配置的所有扩写规则
-                "规则模板": (prompt_template_options or ["扩写-自然语言"], {"default": default_template_name}),
-                # 临时规则开关：BOOLEAN，并添加中文开关标签
-                "临时规则": ("BOOLEAN", {"default": False, "label_on": "启用", "label_off": "禁用"}),
-                # 临时规则内容输入框：仅在启用临时规则时生效
-                "临时规则内容": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容，仅在启用'临时规则'时生效"}),
-                # 用户提示词：与原文合并后提交
-                "用户提示词": ("STRING", {"multiline": True, "default": "", "placeholder": "填写的要扩写的提示词原文，若存在原文端口输入和内容输入，将合并提交"}),
-                # 扩写服务（使用LLM提供商）
-                "扩写服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
-                # Ollama自动释放：仅对Ollama服务生效
-                "Ollama自动释放": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "⚠️ 该选项仅在选择了Ollama服务时生效"}),
+                "rule": (prompt_template_options or ["扩写-自然语言"], {"default": default_template_name, "tooltip": "Choose a preset rule for prompt enhancement"}),
+                # 临时规则开关
+                "custom_rule": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Enable to use custom rule content below instead of preset"}),
+                # 临时规则内容输入框
+                "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "在此输入临时规则，仅在启用'临时规则'时生效"}),
+                # 用户提示词
+                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "填写的要优化的提示词原文，若存在原文端口输入和内容输入，将合并提交"}),
+                # 扩写服务
+                "llm_service": (service_options, {"default": default_service, "tooltip": "Select LLM service and model"}),
+                # Ollama自动释放显存
+                "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),
             },
             "optional": {
-                # 原文输入端口：非必选
-                "原文": ("STRING", {"default": "", "multiline": True, "defaultInput": True, "placeholder": "输入需要扩写的文本..."}),
+                # 原文输入端口
+                "source_text": ("STRING", {"default": "", "multiline": True, "defaultInput": True, "placeholder": "Input text to enhance..."}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
             }
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("扩写结果",)
-    FUNCTION = "expand"
-    CATEGORY = "✨提示词小助手"
+    RETURN_NAMES = ("enhanced_text",)
+    FUNCTION = "enhance"
+    CATEGORY = "✨Prompt Assistant"
     OUTPUT_NODE = False
 
     @classmethod
-    def IS_CHANGED(cls, 规则模板=None, 临时规则=None, 临时规则内容=None, 用户提示词=None, 扩写服务=None, Ollama自动释放=None, 原文=None):
+    def IS_CHANGED(cls, rule=None, custom_rule=None, custom_rule_content=None, user_prompt=None, llm_service=None, ollama_auto_unload=None, source_text=None, unique_id=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
         """
-        text_hash = hashlib.md5(((原文 or "")).encode('utf-8')).hexdigest()
-        temp_rule_hash = hashlib.md5((临时规则内容 or "").encode('utf-8')).hexdigest()
-        user_hint_hash = hashlib.md5((用户提示词 or "").encode('utf-8')).hexdigest()
+        text_hash = hashlib.md5(((source_text or "")).encode('utf-8')).hexdigest()
+        temp_rule_hash = hashlib.md5((custom_rule_content or "").encode('utf-8')).hexdigest()
+        user_hint_hash = hashlib.md5((user_prompt or "").encode('utf-8')).hexdigest()
 
         input_hash = hash((
-            规则模板,
-            bool(临时规则),
+            rule,
+            bool(custom_rule),
             temp_rule_hash,
             user_hint_hash,
-            扩写服务,
-            bool(Ollama自动释放),
+            llm_service,
+            bool(ollama_auto_unload),
             text_hash,
         ))
         return input_hash
 
-    def expand(self, 规则模板, 临时规则, 临时规则内容, 用户提示词, 扩写服务, Ollama自动释放, 原文=None):
+    def enhance(self, rule, custom_rule, custom_rule_content, user_prompt, llm_service, ollama_auto_unload, source_text=None, unique_id=None):
         """
-        扩写文本函数
-
-        Args:
-            原文: 输入的文本（可为空）
-            规则模板: 选择的扩写规则模板名称（来自系统配置）
-            临时规则: 是否启用临时规则（BOOLEAN）
-            临时规则内容: 临时规则的内容（启用时生效）
-            用户提示词: 附加的用户提示信息，将与原文合并提交
-            扩写服务: LLM提供商（智谱/硅基流动/自定义）
-            Ollama自动释放: 是否在调用完成后自动释放Ollama模型（仅对Ollama生效）
-
-        Returns:
-            tuple: 扩写结果
+        增强/扩写文本函数
         """
         try:
             # 允许原文为空，但原文与用户提示词至少有一项非空
-            原文 = (原文 or "").strip()
-            用户提示词 = (用户提示词 or "").strip()
-            if not 原文 and not 用户提示词:
+            source_text = (source_text or "").strip()
+            user_prompt = (user_prompt or "").strip()
+            if not source_text and not user_prompt:
                 return ("",)
 
             # 准备系统提示词（规则）
             system_message = None
-            rule_name = "临时规则" if (临时规则 and 临时规则内容) else 规则模板
+            rule_name = "Custom Rule" if (custom_rule and custom_rule_content) else rule
 
-            if 临时规则 and 临时规则内容:
+            if custom_rule and custom_rule_content:
                 # 使用临时规则
-                system_message = {"role": "system", "content": 临时规则内容}
+                system_message = {"role": "system", "content": custom_rule_content}
             else:
                 # 使用模板：从config_manager获取系统提示词配置
                 from ..config_manager import config_manager
@@ -149,206 +134,138 @@ class PromptExpand:
                 expand_prompts = system_prompts.get('expand_prompts', {}) if system_prompts else {}
 
                 # 查找选定的提示词模板（按显示名称匹配）
+                # 显示名称格式：有分类时为 "类别/规则名称"，无分类时为 "规则名称"
                 template_found = False
                 for key, value in expand_prompts.items():
-                    if value.get('name') == 规则模板:
+                    name = value.get('name', key)
+                    category = value.get('category', '')
+                    # 构建与下拉列表一致的显示名称
+                    display_name = f"{category}/{name}" if category else name
+                    if display_name == rule:
                         system_message = {"role": value.get('role', 'system'), "content": value.get('content', '')}
                         template_found = True
                         break
                 if not template_found:
-                    # 允许用键名直接匹配
+                    # 允许用规则名称或键名直接匹配（兼容旧格式）
                     for key, value in expand_prompts.items():
-                        if key == 规则模板:
+                        if value.get('name') == rule or key == rule:
                             system_message = {"role": value.get('role', 'system'), "content": value.get('content', '')}
                             template_found = True
                             break
                 if not template_found or not system_message or not system_message.get('content'):
                     # 回退到默认
                     system_message = {"role": "system", "content": "你是一名提示词扩写专家，请将用户给定文本扩写为更完整、更具可读性和可执行性的提示词。"}
-                    rule_name = "默认规则"
+                    rule_name = "Default Rule"
 
-            # 选择服务提供商
-            provider_map = {
-                "智谱": "zhipu",
-                "硅基流动": "siliconflow",
-                "302.AI": "302ai",
-                "Ollama": "ollama",
-                "自定义": "custom",
-            }
-            selected_provider = provider_map.get(扩写服务)
-            if not selected_provider:
-                raise ValueError(f"不支持的扩写服务: {扩写服务}")
-
-            # 获取对应provider的配置
+            # ---解析服务/模型字符串---
+            service_id, model_name = self.parse_service_model(llm_service)
+            if not service_id:
+                raise ValueError(f"Invalid service selection: {llm_service}")
+            
+            # ---获取服务配置---
             from ..config_manager import config_manager
-            provider_config = self._get_provider_config(config_manager, selected_provider)
-            if not provider_config:
-                provider_display = {"zhipu": "智谱", "siliconflow": "硅基流动", "302ai": "302.AI", "ollama": "Ollama", "custom": "自定义"}.get(selected_provider, selected_provider)
-                raise ValueError(f"未找到{provider_display}的配置，请先完成API配置")
+            service = config_manager.get_service(service_id)
+            if not service:
+                raise ValueError(f"Service config not found: {llm_service}")
+            
+            # ---构建provider_config---
+            # 查找指定的模型或默认模型
+            llm_models = service.get('llm_models', [])
+            target_model = None
+            
+            if model_name:
+                # 查找指定的模型
+                target_model = next((m for m in llm_models if m.get('name') == model_name), None)
+            
+            if not target_model:
+                # 使用默认模型或第一个模型
+                target_model = next((m for m in llm_models if m.get('is_default')), 
+                                    llm_models[0] if llm_models else None)
+            
+            if not target_model:
+                raise ValueError(f"Service {llm_service} has no available models")
+            
+            # 构建配置对象
+            provider_config = {
+                'provider': service_id,
+                'model': target_model.get('name', ''),
+                'base_url': service.get('base_url', ''),
+                'api_key': service.get('api_key', ''),
+                'temperature': target_model.get('temperature', 0.7),
+                'max_tokens': target_model.get('max_tokens', 1000),
+                'top_p': target_model.get('top_p', 0.9),
+            }
+            
+            # Ollama特殊处理:添加auto_unload配置
+            if service.get('type') == 'ollama':
+                provider_config['auto_unload'] = ollama_auto_unload
 
             # 执行扩写（异步线程 + 可中断）
-            request_id = f"expand_{int(time.time())}_{random.randint(1000, 9999)}"
+            request_id = generate_request_id("exp", None, unique_id)
             
             # 合并原文与用户提示词
-            # 合并顺序：输入端口(原文)在前，节点输入框(用户提示词)在后
-            combined_text = 用户提示词 if not 原文 else (f"{原文}\n\n{用户提示词}" if 用户提示词 else 原文)
+            # 合并顺序：输入端口(source_text)在前，节点输入框(user_prompt)在后
+            combined_text = user_prompt if not source_text else (f"{source_text}\n\n{user_prompt}" if user_prompt else source_text)
             
-            # 准备阶段日志（合并为一条）
-            print(f"{self.REQUEST_PREFIX} 扩写准备 | 服务:{扩写服务} | 模型:{provider_config.get('model')} | 规则:{rule_name} | 长度:{len(combined_text)} | 请求ID:{request_id}")
+            # 检查是否关闭思维链
+            model_name = provider_config.get('model')
+            disable_thinking_enabled = service.get('disable_thinking', True)
+            thinking_extra = build_thinking_suppression(service_id, model_name) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model_name, bool(thinking_extra))
+            
+            # 获取服务显示名称
+            service_display_name = service.get('name', service_id)
 
-            result_container = {}
-            thread = threading.Thread(
-                target=self._run_llm_expand,
-                args=(combined_text, system_message, request_id, result_container, selected_provider, provider_config, 扩写服务, Ollama自动释放)
+            # 准备阶段日志
+            log_prepare(TASK_EXPAND, request_id, SOURCE_NODE, service_display_name, model_display, rule_name, {"长度": len(combined_text)})
+
+            # 检查API密钥和模型
+            api_key = provider_config.get('api_key', '')
+            model = provider_config.get('model', '')
+            
+            if not api_key or not model:
+                raise ValueError(f"Please configure API key and model for {llm_service}")
+
+            # 执行扩写（异步线程 + 可中断）
+            result = self._run_llm_task(
+                LLMService.expand_prompt,
+                service_id,
+                prompt=combined_text,
+                request_id=request_id,
+                stream_callback=None,
+                custom_provider=service_id,
+                custom_provider_config=provider_config,
+                system_message_override=system_message,
+                task_type=TASK_EXPAND,
+                source=SOURCE_NODE
             )
-            thread.start()
-
-            # 等待扩写完成，同时检查中断
-            while thread.is_alive():
-                try:
-                    import nodes
-                    nodes.before_node_execution()
-                except:
-                    print(f"{self.LOG_PREFIX} 检测到中断信号，正在终止扩写任务...")
-                    result_container['interrupted'] = True
-                    thread.join(timeout=1.0)
-                    if thread.is_alive():
-                        print(f"{self.LOG_PREFIX} 扩写线程未能及时响应中断")
-                    raise InterruptProcessingException()
-                time.sleep(0.1)
-
-            result = result_container.get('result')
 
             if result and result.get('success'):
                 expanded_text = result.get('data', {}).get('expanded', '').strip()
                 if not expanded_text:
-                    error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
-                    print(f"{self.LOG_PREFIX} 扩写失败 | 错误:{error_msg}")
-                    raise RuntimeError(f"扩写失败: {error_msg}")
+                    error_msg = 'API returned empty result'
+                    log_error(TASK_EXPAND, request_id, error_msg, source=SOURCE_NODE)
+                    raise RuntimeError(f"Enhancement failed: {error_msg}")
                 # 结果阶段日志由服务层统一输出，节点层不再重复打印
                 return (expanded_text,)
             else:
-                error_msg = result.get('error', '扩写失败，未知错误') if result else '扩写服务未返回结果'
-                print(f"{self.LOG_PREFIX} 扩写失败: {error_msg}")
-                raise RuntimeError(f"扩写失败: {error_msg}")
+                error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
+                # 如果是中断错误,直接抛出InterruptProcessingException,不打印日志(由基类打印)
+                if error_msg == "任务被中断":
+                    raise InterruptProcessingException()
+                log_error(TASK_EXPAND, request_id, error_msg, source=SOURCE_NODE)
+                raise RuntimeError(f"Enhancement failed: {error_msg}")
 
         except InterruptProcessingException:
-            print(f"{self.LOG_PREFIX} 扩写任务被用户取消")
+            # 不打印日志,由基类统一打印
             raise
         except Exception as e:
-            error_msg = format_api_error(e, 扩写服务)
-            print(f"{self.LOG_PREFIX} 扩写异常: {error_msg}")
-            raise RuntimeError(f"扩写异常: {error_msg}")
+            error_msg = format_api_error(e, llm_service)
+            log_error(TASK_EXPAND, request_id, error_msg, source=SOURCE_NODE)
+            raise RuntimeError(f"Enhancement error: {error_msg}")
 
-    def _get_provider_config(self, config_manager, provider):
-        """获取指定provider的配置（LLM）"""
-        llm_config = config_manager.get_llm_config()
-        if 'providers' in llm_config and provider in llm_config['providers']:
-            return llm_config['providers'][provider]
-        return None
+    # _get_provider_config 方法已由基类 LLMNodeBase 提供
     
-    async def _unload_ollama_model(self, model: str, provider_config: dict, auto_unload: bool):
-        """
-        卸载Ollama模型以释放显存和内存
-        
-        参数:
-            model: 模型名称
-            provider_config: 提供商配置字典
-            auto_unload: 是否启用自动释放（来自节点参数）
-        """
-        try:
-            # 检查是否启用自动释放（使用节点参数，不从provider_config读取）
-            if not auto_unload:
-                return
-            
-            # 获取base_url
-            base_url = provider_config.get('base_url', 'http://localhost:11434')
-            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
-            if base_url.endswith('/v1'):
-                base_url = base_url[:-3]
-            
-            # 调用Ollama API卸载模型
-            url = f"{base_url}/api/generate"
-            payload = {
-                "model": model,
-                "keep_alive": 0  # 立即卸载模型
-            }
-            
-            print(f"{self.PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
-            
-            import httpx
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(url, json=payload)
-                
-        except Exception as e:
-            # 释放失败不影响主流程，只记录警告
-            print(f"{self.LOG_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
-
-    def _run_llm_expand(self, text, system_message, request_id, result_container, provider, provider_config, service_name, auto_unload):
-        """在独立线程中运行LLM扩写"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            # 获取API密钥和模型
-            api_key = provider_config.get('api_key', '')
-            model = provider_config.get('model', '')
-            temperature = provider_config.get('temperature', 0.7)
-            top_p = provider_config.get('top_p', 0.9)
-            max_tokens = provider_config.get('max_tokens', 1500)
-
-            if not api_key or not model:
-                result_container['result'] = {
-                    "success": False,
-                    "error": f"请先配置{provider}的API密钥和模型"
-                }
-                return
-
-            # 检查是否启用直连模式
-            bypass_proxy = False
-            try:
-                from ..config_manager import config_manager as cm
-                settings = cm.get_settings()
-                bypass_proxy = settings.get('PromptAssistant.Settings.BypassProxy', False)
-            except Exception:
-                pass
-            
-            direct_mode_tag = "(直连)" if bypass_proxy else ""
-
-            # 获取提供商显示名称
-            provider_display_name = PromptExpand.PROVIDER_DISPLAY_MAP.get(provider, provider)
-
-            # 统一走服务层（含Gemini/网关兼容、思维链抑制、降级与重试）
-            service_result = loop.run_until_complete(
-                LLMService.expand_prompt(
-                    prompt=text,
-                    request_id=request_id,
-                    stream_callback=None,
-                    custom_provider=provider,
-                    custom_provider_config=provider_config,
-                    system_message_override=system_message
-                )
-            )
-
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result_container['result'] = service_result
-
-            # 结果日志由服务层统一打印
-
-        except Exception as e:
-            result_container['result'] = {
-                "success": False,
-                "error": format_api_error(e, provider_display_name)
-            }
-            print(f"{self.LOG_PREFIX} 扩写失败 | 服务:{provider_display_name} | 错误:{result_container['result']['error']}")
-        finally:
-            loop.close()
 
 
 # 节点映射，用于向ComfyUI注册节点
@@ -358,6 +275,5 @@ NODE_CLASS_MAPPINGS = {
 
 # 节点显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "PromptExpand": "✨提示词扩写",
+    "PromptExpand": "✨Prompt Enhance",
 }
-

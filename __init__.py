@@ -11,10 +11,8 @@ from .node.kontext_preset_node import NODE_CLASS_MAPPINGS as KONTEXT_PRESET_NODE
 from .node.kontext_preset_node import NODE_DISPLAY_NAME_MAPPINGS as KONTEXT_PRESET_NODE_DISPLAY_NAME_MAPPINGS
 from .node.expand_node import NODE_CLASS_MAPPINGS as EXPAND_NODE_CLASS_MAPPINGS
 from .node.expand_node import NODE_DISPLAY_NAME_MAPPINGS as EXPAND_NODE_DISPLAY_NAME_MAPPINGS
-
-# ANSI颜色常量
-GREEN = "\033[92m"
-RESET = "\033[0m"
+from .node.video_caption_node import NODE_CLASS_MAPPINGS as VIDEO_CAPTION_NODE_CLASS_MAPPINGS
+from .node.video_caption_node import NODE_DISPLAY_NAME_MAPPINGS as VIDEO_CAPTION_NODE_DISPLAY_NAME_MAPPINGS
 
 # 模块常量定义
 NODE_CLASS_MAPPINGS = {
@@ -22,6 +20,7 @@ NODE_CLASS_MAPPINGS = {
     **KONTEXT_PRESET_NODE_CLASS_MAPPINGS,
     **TRANSLATE_NODE_CLASS_MAPPINGS,
     **EXPAND_NODE_CLASS_MAPPINGS,
+    **VIDEO_CAPTION_NODE_CLASS_MAPPINGS,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -29,6 +28,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     **KONTEXT_PRESET_NODE_DISPLAY_NAME_MAPPINGS,
     **TRANSLATE_NODE_DISPLAY_NAME_MAPPINGS,
     **EXPAND_NODE_DISPLAY_NAME_MAPPINGS,
+    **VIDEO_CAPTION_NODE_DISPLAY_NAME_MAPPINGS,
 }
 WEB_DIRECTORY = "./js"
 
@@ -80,8 +80,12 @@ VERSION = get_version()
 # 执行初始化操作
 inject_version_to_frontend()
 
+# 禁用httpx的详细日志，避免打断单行动态显示
+import logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 # 打印初始化信息
-print(f"✨提示词小助手 V{VERSION} {GREEN}已启动{RESET}")
+print(f"✨提示词小助手 V{VERSION} 已启动")
 
 
 

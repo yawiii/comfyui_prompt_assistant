@@ -5,751 +5,212 @@
 
 import { app } from "../../../../scripts/app.js";
 import { logger } from '../utils/logger.js';
-import { PromptAssistant, updateAutoTranslateIndicators } from "./PromptAssistant.js";
+import { PromptAssistant } from "./PromptAssistant.js";
+import { ImageCaption } from "./imageCaption.js";
 import { EventManager } from "../utils/eventManager.js";
 import { ResourceManager } from "../utils/resourceManager.js";
 import { HistoryCacheService, TagCacheService, TranslateCacheService, CACHE_CONFIG } from "../services/cache.js";
 import { UIToolkit } from "../utils/UIToolkit.js";
 import { FEATURES, handleFeatureChange } from "../services/features.js";
-import { tagConfigManager } from "./tagConfigManager.js";
+import { APIService } from "../services/api.js";
+
 import { apiConfigManager } from "./apiConfigManager.js";
 import { rulesConfigManager } from "./rulesConfigManager.js";
+import {
+    createSettingsDialog,
+    closeModalWithAnimation,
+    createFormGroup,
+    createInputGroup,
+    createSelectGroup,
+    createHorizontalFormGroup,
+    createLoadingButton
+} from "./uiComponents.js";
 
 // 标记是否是首次加载页面
 let isFirstLoad = true;
 
+// ---服务选择器配置---
+const SERVICE_TYPES = {
+    translate: {
+        name: '翻译',
+        configEndpoint: '/config/translate',
+        serviceType: 'translate',
+        filterKey: 'llm_models',
+        includeBaidu: true
+    },
+    llm: {
+        name: '提示词优化',
+        configEndpoint: '/config/llm',
+        serviceType: 'llm',
+        filterKey: 'llm_models',
+        includeBaidu: false
+    },
+    vlm: {
+        name: '图像反推',
+        configEndpoint: '/config/vision',
+        serviceType: 'vlm',
+        filterKey: 'vlm_models',
+        includeBaidu: false
+    }
+};
+
+// ---服务选择器---
+const serviceSelector = {
+    _servicesCache: null,
+    _cacheTime: 0,
+    _cacheDuration: 5000, // 缓存5秒
+
+    // 获取服务列表（带缓存）
+    async getServices() {
+        const now = Date.now();
+        if (this._servicesCache && (now - this._cacheTime) < this._cacheDuration) {
+            return this._servicesCache;
+        }
+
+        try {
+            const response = await fetch(APIService.getApiUrl('/services'));
+            if (response.ok) {
+                const data = await response.json();
+                if (data.success) {
+                    this._servicesCache = data.services || [];
+                    this._cacheTime = now;
+                    return this._servicesCache;
+                }
+            }
+        } catch (error) {
+            logger.error(`获取服务列表失败: ${error.message}`);
+        }
+        return [];
+    },
+
+    // 获取指定类型的当前服务ID
+    async getCurrentService(type) {
+        const config = SERVICE_TYPES[type];
+        if (!config) return null;
+
+        try {
+            const response = await fetch(APIService.getApiUrl(config.configEndpoint));
+            if (response.ok) {
+                const data = await response.json();
+                return data.provider || null;
+            }
+        } catch (error) {
+            logger.error(`获取${config.name}当前服务失败: ${error.message}`);
+        }
+        return null;
+    },
+
+    // 设置指定类型的服务
+    async setCurrentService(type, serviceId) {
+        const config = SERVICE_TYPES[type];
+        if (!config) return false;
+
+        try {
+            const response = await fetch(APIService.getApiUrl('/services/current'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    service_type: config.serviceType,
+                    service_id: serviceId
+                })
+            });
+
+            if (response.ok) {
+                logger.log(`${config.name}服务切换 | 服务ID: ${serviceId}`);
+                return true;
+            }
+        } catch (error) {
+            logger.error(`切换${config.name}服务失败: ${error.message}`);
+        }
+        return false;
+    },
+
+    // 获取指定类型可用的服务选项列表
+    async getServiceOptions(type) {
+        const config = SERVICE_TYPES[type];
+        if (!config) return [];
+
+        const services = await this.getServices();
+        const options = [];
+
+        // 添加百度翻译选项（仅翻译类型）
+        if (config.includeBaidu) {
+            options.push({ value: 'baidu', text: '百度翻译' });
+        }
+
+        // 过滤并添加其他服务
+        services
+            .filter(service => {
+                const models = service[config.filterKey];
+                return models && models.length > 0;
+            })
+            .forEach(service => {
+                options.push({
+                    value: service.id,
+                    text: service.name || service.id
+                });
+            });
+
+        return options;
+    }
+};
+
+// ---版本检查工具函数---
+
 /**
- * 创建通用的设置弹窗
- * @param {Object} options 弹窗配置选项
- * @param {string} options.title 弹窗标题
- * @param {Function} options.renderContent 渲染弹窗内容的函数
- * @param {Function} options.renderNotice 渲染通知区域的函数（可选，显示在标题和内容之间）
- * @param {Function} options.onSave 保存按钮点击回调
- * @param {Function} options.onCancel 取消按钮点击回调（可选）
- * @param {boolean} options.isConfirmDialog 是否是确认对话框（可选）
- * @param {string} options.saveButtonText 保存按钮文本（可选）
- * @param {string} options.cancelButtonText 取消按钮文本（可选）
- * @param {string} options.saveButtonIcon 保存按钮图标（可选）
- * @param {boolean} options.disableBackdropAndCloseOnClickOutside 禁用遮罩层和点击外部关闭（可选）
+ * 从 GitHub 获取最新发布版本号
+ * @returns {Promise<string|null>} 返回最新版本号，格式如 "1.2.3"，失败返回 null
  */
-export function createSettingsDialog(options) {
+async function fetchLatestVersion() {
     try {
-        const {
-            title,
-            renderContent,
-            renderNotice = null,
-            onSave,
-            onCancel = null,
-            isConfirmDialog = false,
-            saveButtonText = '保存',
-            cancelButtonText = '取消',
-            saveButtonIcon = 'pi-check',
-            dialogClassName = null,
-            disableBackdropAndCloseOnClickOutside = false,
-        } = options;
-
-        let overlay = null;
-        if (!disableBackdropAndCloseOnClickOutside) {
-            // 创建遮罩层
-            overlay = document.createElement('div');
-            overlay.className = 'settings-modal-overlay';
-            document.body.appendChild(overlay);
-        }
-
-
-        // 创建弹窗
-        const modal = document.createElement('div');
-        modal.className = 'settings-modal';
-
-        // 如果提供了额外的对话框类名，添加到modal
-        if (dialogClassName) {
-            modal.classList.add(dialogClassName);
-        }
-
-        // 如果是确认对话框，设置特殊样式
-        if (isConfirmDialog) {
-            // 只有在没有提供自定义类名的情况下才设置默认宽度
-            if (!dialogClassName) {
-                modal.style.width = 'min(90vw, 400px)';
-            }
-            modal.style.minHeight = 'auto';
-            // 确保确认对话框显示在其他弹窗上方
-            if (overlay) {
-                overlay.style.zIndex = 'calc(var(--settings-modal-z-index) + 10)';
-            }
-            modal.style.zIndex = 'calc(var(--settings-modal-z-index) + 11)';
-        }
-
-        // 表单修改状态
-        let isFormModified = false;
-
-        // 处理关闭弹窗的逻辑
-        const handleCloseModal = async (saveAction) => {
-            // 如果是保存操作，直接保存并关闭，不弹出确认对话框
-            if (saveAction) {
-                try {
-                    await onSave(content);
-                    closeModalWithAnimation(modal, overlay);
-                } catch (error) {
-                    app.extensionManager.toast.add({
-                        severity: "error",
-                        summary: "保存失败",
-                        detail: error.message,
-                        life: 3000
-                    });
-                }
-                return;
-            }
-
-            // 只有在表单被修改且不是确认对话框时才显示确认对话框
-            if (isFormModified && !isConfirmDialog) {
-                // 创建确认对话框
-                createSettingsDialog({
-                    title: '确认操作',
-                    isConfirmDialog: true,
-                    saveButtonText: '返回',
-                    saveButtonIcon: 'pi-undo',
-                    cancelButtonText: '关闭',
-                    renderContent: (content) => {
-                        content.style.textAlign = 'center';
-                        content.style.padding = '1rem';
-
-                        const confirmMessage = document.createElement('p');
-                        confirmMessage.textContent = '配置已修改，是否保存？';
-                        confirmMessage.style.margin = '0';
-                        confirmMessage.style.fontSize = '1rem';
-
-                        content.appendChild(confirmMessage);
-                    },
-                    onSave: () => {
-                        // 返回按钮只关闭确认对话框，不执行保存操作
-                        // 这里不需要做任何操作，因为默认的对话框关闭逻辑会在点击按钮后执行
-                    },
-                    onCancel: () => {
-                        // 如果定义了onCancel回调，则执行它
-                        if (onCancel) {
-                            onCancel();
-                        }
-                        // 关闭主对话框
-                        closeModalWithAnimation(modal, overlay);
-                    }
-                });
-            } else {
-                // 没有修改或是确认对话框，直接关闭
-                if (onCancel && !isConfirmDialog) {
-                    onCancel();
-                }
-                closeModalWithAnimation(modal, overlay);
-            }
-        };
-
-        if (!disableBackdropAndCloseOnClickOutside) {
-            // 点击遮罩层关闭弹窗
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) {
-                    handleCloseModal(false);
-                }
-            });
-        }
-
-        // 创建弹窗头部
-        const header = document.createElement('div');
-        header.className = 'p-dialog-header';
-
-        const titleSpan = document.createElement('span');
-        titleSpan.className = 'p-dialog-title';
-        titleSpan.textContent = title;
-
-        const closeButton = document.createElement('button');
-        closeButton.className = 'p-dialog-header-icon p-dialog-header-close p-link';
-        closeButton.setAttribute('aria-label', '关闭');
-        closeButton.innerHTML = '<span class="pi pi-times"></span>';
-        closeButton.onclick = () => {
-            handleCloseModal(false);
-        };
-
-        const headerIcons = document.createElement('div');
-        headerIcons.className = 'p-dialog-header-icons';
-        headerIcons.appendChild(closeButton);
-
-        header.appendChild(titleSpan);
-        header.appendChild(headerIcons);
-
-        // 创建通知区域（在标题和内容之间）
-        let noticeArea = null;
-        if (renderNotice) {
-            noticeArea = document.createElement('div');
-            noticeArea.className = 'p-dialog-notice';
-            renderNotice(noticeArea);
-        }
-
-        // 创建弹窗内容
-        const content = document.createElement('div');
-        content.className = 'p-dialog-content';
-
-        // 监听表单变化
-        const trackFormChanges = (formElement) => {
-            // 为所有输入元素添加变更监听
-            const inputs = formElement.querySelectorAll('input, textarea, select');
-            inputs.forEach(input => {
-                const originalValue = input.type === 'checkbox' ? input.checked : input.value;
-
-                input.addEventListener('change', () => {
-                    const currentValue = input.type === 'checkbox' ? input.checked : input.value;
-                    // 只有当值真正改变时才标记为已修改
-                    if (currentValue !== originalValue) {
-                        isFormModified = true;
-                    }
-                });
-
-                if (input.tagName.toLowerCase() === 'textarea' || input.type === 'text') {
-                    input.addEventListener('input', () => {
-                        const currentValue = input.value;
-                        // 只有当值真正改变时才标记为已修改
-                        if (currentValue !== originalValue) {
-                            isFormModified = true;
-                        }
-                    });
-                }
-            });
-
-            // 监听自定义下拉框变化
-            const dropdowns = formElement.querySelectorAll('.p-dropdown');
-            dropdowns.forEach(dropdown => {
-                // 存储原始选中值
-                const hiddenSelect = dropdown.querySelector('select');
-                const originalValue = hiddenSelect ? hiddenSelect.value : '';
-
-                const observer = new MutationObserver(() => {
-                    const currentValue = hiddenSelect ? hiddenSelect.value : '';
-                    // 只有当值真正改变时才标记为已修改
-                    if (currentValue !== originalValue) {
-                        isFormModified = true;
-                    }
-                });
-                observer.observe(dropdown, { attributes: true, childList: true, subtree: true });
-            });
-        };
-
-        // 渲染内容并跟踪变化
-        renderContent(content);
-
-        // 如果不是确认对话框且内容中有表单，添加变更跟踪
-        if (!isConfirmDialog) {
-            const forms = content.querySelectorAll('form');
-            forms.forEach(trackFormChanges);
-
-            // 如果没有找到表单，则监视整个内容区域
-            if (forms.length === 0) {
-                trackFormChanges(content);
-            }
-        }
-
-        // 创建弹窗底部
-        const footer = document.createElement('div');
-        footer.className = 'p-dialog-footer';
-
-        const cancelButton = document.createElement('button');
-        cancelButton.className = 'p-button p-component p-button-secondary';
-        cancelButton.innerHTML = `<span class="p-button-icon-left pi pi-times"></span><span class="p-button-label">${cancelButtonText}</span>`;
-
-        // 为不同类型的对话框设置不同的关闭行为
-        if (isConfirmDialog) {
-            cancelButton.onclick = () => {
-                // 对于确认对话框，“关闭”按钮应执行onCancel回调（该回调负责关闭主窗口），然后关闭自己
-                if (onCancel) {
-                    onCancel();
-                }
-                closeModalWithAnimation(modal, overlay);
-            };
-        } else {
-            cancelButton.onclick = () => {
-                // 对于普通对话框，使用标准的关闭处理逻辑
-                handleCloseModal(false);
-            };
-        }
-
-        const saveButton = document.createElement('button');
-        saveButton.className = 'p-button p-component';
-        saveButton.innerHTML = `<span class="p-button-icon-left pi ${saveButtonIcon}"></span><span class="p-button-label">${saveButtonText}</span>`;
-        saveButton.onclick = () => {
-            // 如果是确认对话框中的返回按钮，直接关闭确认对话框
-            if (isConfirmDialog) {
-                try {
-                    // 对于确认对话框，先执行onSave回调，然后关闭弹窗
-                    const result = onSave && onSave(content);
-                    // 如果onSave返回Promise，等待其完成
-                    if (result instanceof Promise) {
-                        result.then(() => {
-                            closeModalWithAnimation(modal, overlay);
-                        }).catch(error => {
-                            logger.error(`确认对话框处理失败: ${error.message}`);
-                            closeModalWithAnimation(modal, overlay);
-                        });
-                    } else {
-                        // 普通返回值，直接关闭
-                        closeModalWithAnimation(modal, overlay);
-                    }
-                } catch (error) {
-                    logger.error(`确认对话框处理失败: ${error.message}`);
-                    closeModalWithAnimation(modal, overlay);
-                }
-            } else {
-                handleCloseModal(true);
-            }
-        };
-
-        footer.appendChild(cancelButton);
-        footer.appendChild(saveButton);
-
-        // 添加拖动功能
-        let isDragging = false;
-        let startX = 0;
-        let startY = 0;
-        let offsetX = 0;
-        let offsetY = 0;
-
-        const startDragging = (e) => {
-            if (e.target === closeButton || closeButton.contains(e.target)) return;
-
-            e.preventDefault();
-            isDragging = true;
-
-            // 获取鼠标相对于弹窗的偏移量
-            const rect = modal.getBoundingClientRect();
-            offsetX = e.clientX - rect.left;
-            offsetY = e.clientY - rect.top;
-
-            // 移除居中定位
-            modal.style.transform = 'none';
-            modal.style.left = rect.left + 'px';
-            modal.style.top = rect.top + 'px';
-
-            // 添加拖动状态
-            modal.classList.add('dragging');
-
-            document.addEventListener('mousemove', onDrag);
-            document.addEventListener('mouseup', stopDragging);
-        };
-
-        const onDrag = (e) => {
-            if (!isDragging) return;
-            e.preventDefault();
-
-            // 计算新位置（考虑鼠标在弹窗内的偏移量）
-            let newLeft = e.clientX - offsetX;
-            let newTop = e.clientY - offsetY;
-
-            // 获取视口和弹窗尺寸
-            const viewportWidth = window.innerWidth;
-            const viewportHeight = window.innerHeight;
-            const modalRect = modal.getBoundingClientRect();
-            const modalWidth = modalRect.width;
-            const modalHeight = modalRect.height;
-
-            // 边界检查（保持10px边距）
-            const margin = 10;
-            newLeft = Math.max(margin, Math.min(newLeft, viewportWidth - modalWidth - margin));
-            newTop = Math.max(margin, Math.min(newTop, viewportHeight - modalHeight - margin));
-
-            // 更新位置
-            modal.style.left = `${newLeft}px`;
-            modal.style.top = `${newTop}px`;
-        };
-
-        const stopDragging = () => {
-            isDragging = false;
-            modal.classList.remove('dragging');
-            document.removeEventListener('mousemove', onDrag);
-            document.removeEventListener('mouseup', stopDragging);
-        };
-
-        header.addEventListener('mousedown', startDragging);
-
-        // 组装弹窗
-        modal.appendChild(header);
-        if (noticeArea) {
-            modal.appendChild(noticeArea);
-        }
-        modal.appendChild(content);
-        modal.appendChild(footer);
-
-        // 显示弹窗和遮罩层
-        document.body.appendChild(modal);
-
-        // 添加显示动画
-        requestAnimationFrame(() => {
-            modal.classList.add('modal-show');
-            if (overlay) {
-                overlay.classList.add('overlay-show');
-            }
+        const response = await fetch('https://api.github.com/repos/yawiii/comfyui_prompt_assistant/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github.v3+json' },
+            cache: 'no-cache'
         });
 
-        return modal;
+        if (!response.ok) {
+            logger.warn(`[版本检查] GitHub API 请求失败: ${response.status}`);
+            return null;
+        }
+
+        const data = await response.json();
+        // 移除 tag_name 中的 'v' 前缀（如果有）
+        const version = data.tag_name?.replace(/^v/, '');
+        logger.debug(`[版本检查] 获取到最新版本: ${version}`);
+        return version || null;
     } catch (error) {
-        logger.error(`创建设置弹窗失败: ${error.message}`);
-        app.extensionManager.toast.add({
-            severity: "error",
-            summary: "创建弹窗失败",
-            detail: error.message || "创建设置弹窗过程中发生错误",
-            life: 3000
-        });
+        logger.warn(`[版本检查] 获取最新版本失败: ${error.message}`);
+        return null;
     }
 }
 
 /**
- * 关闭弹窗时添加动画效果
- * @param {HTMLElement} modal 弹窗元素
- * @param {HTMLElement} overlay 遮罩层元素
+ * 比较两个版本号
+ * @param {string} v1 - 第一个版本号
+ * @param {string} v2 - 第二个版本号
+ * @returns {number} v1 > v2 返回 1，v1 < v2 返回 -1，v1 === v2 返回 0
  */
-export function closeModalWithAnimation(modal, overlay) {
-    // 添加关闭动画类
-    modal.classList.remove('modal-show');
-    modal.classList.add('modal-hide');
-    if (overlay) {
-        overlay.classList.remove('overlay-show');
-        overlay.classList.add('overlay-hide');
+function compareVersion(v1, v2) {
+    // 将版本号分割为数字数组
+    const parts1 = v1.split('.').map(n => parseInt(n, 10) || 0);
+    const parts2 = v2.split('.').map(n => parseInt(n, 10) || 0);
+
+    // 确保两个数组长度相同
+    const maxLength = Math.max(parts1.length, parts2.length);
+
+    for (let i = 0; i < maxLength; i++) {
+        const num1 = parts1[i] || 0;
+        const num2 = parts2[i] || 0;
+
+        if (num1 > num2) return 1;
+        if (num1 < num2) return -1;
     }
 
-    // 等待动画完成后移除弹窗和遮罩层
-    setTimeout(() => {
-        if (modal.parentNode) {
-            modal.parentNode.removeChild(modal);
-        }
-        if (overlay && overlay.parentNode) {
-            overlay.parentNode.removeChild(overlay);
-        }
-    }, 300); // 与 CSS transition 时间相匹配
+    return 0;
 }
 
-/**
- * 创建表单组
- * @param {string} title 表单组标题
- * @param {Array<{text: string, url: string}>} links 标题右侧的链接数组
- * @param {Object} [options] 额外可选项
- * @param {string} [options.prefixText] 链接前的前缀纯文本（不作为链接，不包在标签内）
- * @returns {HTMLElement} 表单组容器
- */
-export function createFormGroup(title, links = [], options = {}) {
-    const { prefixText = null } = options;
 
-    const group = document.createElement('div');
-    group.className = 'settings-form-section';
-
-    const titleContainer = document.createElement('div');
-    titleContainer.className = 'settings-form-section-header';
-    titleContainer.style.display = 'flex';
-    titleContainer.style.alignItems = 'center';
-    titleContainer.style.justifyContent = 'space-between';
-    titleContainer.style.marginBottom = '10px';
-
-    const titleElem = document.createElement('h3');
-    titleElem.className = 'settings-form-section-title';
-    titleElem.textContent = title;
-    titleElem.style.margin = '0';
-
-    const linksContainer = document.createElement('div');
-    linksContainer.style.display = 'flex';
-    linksContainer.style.gap = '8px';
-    linksContainer.style.alignItems = 'center';
-
-    if (links.length > 0) {
-        const serviceLinksContainer = document.createElement('div');
-        serviceLinksContainer.className = 'settings-service-links';
-
-        // 可选的前缀文本，保持与链接字号一致（不包在<a>标签内）
-        if (prefixText) {
-            const prefix = document.createElement('span');
-            prefix.className = 'settings-service-prefix';
-            prefix.textContent = prefixText;
-            serviceLinksContainer.appendChild(prefix);
-        }
-
-        links.forEach((linkInfo, index) => {
-            if (index > 0) {
-                // 添加分隔符
-                const separator = document.createElement('span');
-                separator.textContent = '｜';
-                separator.className = 'settings-service-separator';
-                serviceLinksContainer.appendChild(separator);
-            }
-
-            const link = document.createElement('a');
-            link.href = linkInfo.url;
-            link.target = '_blank';
-            link.textContent = linkInfo.text;
-            link.className = 'settings-service-link';
-
-            serviceLinksContainer.appendChild(link);
-        });
-
-        linksContainer.appendChild(serviceLinksContainer);
-    }
-
-    titleContainer.appendChild(titleElem);
-    titleContainer.appendChild(linksContainer);
-    group.appendChild(titleContainer);
-
-    return group;
-}
-
-/**
- * 创建输入框组
- * @param {string} label 标签文本
- * @param {string} placeholder 占位符文本
- * @param {string} type 输入框类型
- * @returns {Object} 包含 group 和 input 的对象
- */
-export function createInputGroup(label, placeholder, type = 'text') {
-    const group = document.createElement('div');
-    group.className = 'settings-form-group';
-
-    const labelElem = document.createElement('label');
-    labelElem.className = 'settings-form-label';
-    labelElem.textContent = label;
-
-    const input = document.createElement('input');
-    input.className = 'p-inputtext p-component flex-1';
-    input.type = type;
-    input.placeholder = placeholder;
-
-    group.appendChild(labelElem);
-    group.appendChild(input);
-
-    return { group, input };
-}
-
-/**
- * 创建下拉选择框组
- * @param {string} label 标签文本
- * @param {Array<{value: string, text: string}>} options 选项列表
- * @param {string} [initialValue=null] 初始选中的值
- * @returns {Object} 包含 group 和 select 的对象
- */
-export function createSelectGroup(label, options, initialValue = null) {
-    const group = document.createElement('div');
-    group.className = 'settings-form-group';
-
-    const labelElem = document.createElement('label');
-    labelElem.className = 'settings-form-label';
-    labelElem.textContent = label;
-
-    // Main Container
-    const dropdownContainer = document.createElement('div');
-    // 增加自定义样式类 pa-dropdown，保留 p-dropdown 以兼容现有逻辑（如脏检查与布局选择器）
-    dropdownContainer.className = 'pa-dropdown p-dropdown p-component w-full';
-    dropdownContainer.style.position = 'relative'; // Needed for panel positioning
-
-    // Hidden select for form data and accessibility
-    const select = document.createElement('select');
-    const hiddenContainer = document.createElement('div');
-    hiddenContainer.className = 'p-hidden-accessible';
-    hiddenContainer.appendChild(select);
-
-    // Visible Part: Label and Trigger
-    const dropdownLabel = document.createElement('span');
-    dropdownLabel.className = 'pa-dropdown-label p-dropdown-label p-inputtext';
-
-    const dropdownTrigger = document.createElement('div');
-    dropdownTrigger.className = 'pa-dropdown-trigger p-dropdown-trigger';
-    dropdownTrigger.innerHTML = '<span class="p-dropdown-trigger-icon pi pi-chevron-down"></span>';
-
-    // Dropdown Panel (the menu)
-    const dropdownPanel = document.createElement('div');
-    dropdownPanel.className = 'pa-dropdown-panel p-dropdown-panel p-component settings-modal-dropdown-panel';
-    dropdownPanel.style.display = 'none'; // Initially hidden
-    dropdownPanel.style.zIndex = '10001'; // 确保层级足够高
-
-    const dropdownItemsWrapper = document.createElement('div');
-    dropdownItemsWrapper.className = 'p-dropdown-items-wrapper';
-
-    const dropdownList = document.createElement('ul');
-    dropdownList.className = 'p-dropdown-items';
-    dropdownList.setAttribute('role', 'listbox');
-
-    // Populate options
-    options.forEach(opt => {
-        const optionEl = document.createElement('option');
-        optionEl.value = opt.value;
-        optionEl.textContent = opt.text;
-        select.appendChild(optionEl);
-
-        const itemEl = document.createElement('li');
-        itemEl.className = 'p-dropdown-item';
-        itemEl.textContent = opt.text;
-        itemEl.dataset.value = opt.value;
-        itemEl.setAttribute('role', 'option');
-
-        itemEl.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // Update highlight
-            dropdownList.querySelectorAll('.p-dropdown-item').forEach(el => el.classList.remove('p-highlight'));
-            itemEl.classList.add('p-highlight');
-
-            select.value = opt.value;
-            closePanel();
-            select.dispatchEvent(new Event('change', { bubbles: true }));
-        });
-
-        dropdownList.appendChild(itemEl);
-    });
-
-    // Set initial display value
-    const valueToSet = initialValue !== null && options.some(o => o.value === initialValue)
-        ? initialValue
-        : (options.length > 0 ? options[0].value : null);
-
-    if (valueToSet !== null) {
-        const selectedOption = options.find(o => o.value === valueToSet);
-        if (selectedOption) {
-            dropdownLabel.textContent = selectedOption.text;
-            select.value = selectedOption.value;
-            // Set initial highlight
-            const initialItem = dropdownList.querySelector(`.p-dropdown-item[data-value="${select.value}"]`);
-            if (initialItem) {
-                initialItem.classList.add('p-highlight');
-            }
-        }
-    } else {
-        dropdownLabel.textContent = ' '; // Placeholder
-    }
-
-    // Assemble dropdown
-    dropdownItemsWrapper.appendChild(dropdownList);
-    dropdownPanel.appendChild(dropdownItemsWrapper);
-
-    dropdownContainer.appendChild(hiddenContainer);
-    dropdownContainer.appendChild(dropdownLabel);
-    dropdownContainer.appendChild(dropdownTrigger);
-
-    group.appendChild(labelElem);
-    group.appendChild(dropdownContainer);
-
-    // --- Event Handling ---
-    let isOpen = false;
-
-    // 更新面板位置的函数
-    const updatePanelPosition = () => {
-        if (!isOpen) return;
-
-        const rect = dropdownContainer.getBoundingClientRect();
-        dropdownPanel.style.top = rect.bottom + 'px';
-        dropdownPanel.style.left = rect.left + 'px';
-        dropdownPanel.style.width = rect.width + 'px';
-    };
-
-    const closePanel = () => {
-        if (!isOpen) return;
-        isOpen = false;
-
-        dropdownPanel.classList.add('p-hidden');
-        dropdownPanel.classList.remove('p-enter-active');
-        dropdownContainer.classList.remove('p-dropdown-open', 'p-focus');
-
-        // 移除事件监听器
-        window.removeEventListener('resize', updatePanelPosition);
-        window.removeEventListener('scroll', updatePanelPosition, true);
-
-        // 等待动画完成后再移除面板和事件监听
-        setTimeout(() => {
-            if (dropdownPanel.parentNode === document.body) {
-                document.body.removeChild(dropdownPanel);
-            }
-            document.removeEventListener('click', handleOutsideClick, true);
-        }, 120); // 与CSS中的transition时间相匹配
-    };
-
-    const openPanel = () => {
-        isOpen = true;
-
-        // 将面板临时附加到 body 上以避免裁切
-        document.body.appendChild(dropdownPanel);
-
-        // 计算下拉框相对于视口的位置
-        const rect = dropdownContainer.getBoundingClientRect();
-
-        // 设置面板样式
-        dropdownPanel.style.position = 'fixed';
-        dropdownPanel.style.display = 'block';
-        dropdownPanel.style.top = rect.bottom + 'px';
-        dropdownPanel.style.left = rect.left + 'px';
-        dropdownPanel.style.width = rect.width + 'px';
-        // 样式由 CSS 中的 .pa-dropdown-panel 接管，避免依赖 PrimeVue 变量
-
-        dropdownPanel.classList.remove('p-hidden');
-        // 强制重排，确保动画生效
-        dropdownPanel.offsetHeight;
-        dropdownPanel.classList.add('p-enter-active');
-        dropdownContainer.classList.add('p-dropdown-open', 'p-focus');
-
-        document.addEventListener('click', handleOutsideClick, true);
-
-        // 添加窗口大小变化和滚动事件监听器，以便重新定位面板
-        window.addEventListener('resize', updatePanelPosition);
-        window.addEventListener('scroll', updatePanelPosition, true);
-    };
-
-    const handleOutsideClick = (e) => {
-        // 如果点击的是下拉框本身，切换状态
-        if (dropdownContainer.contains(e.target)) {
-            e.stopPropagation();
-            if (isOpen) {
-                closePanel();
-            } else {
-                openPanel();
-            }
-            return;
-        }
-        // 如果点击的是其他区域，关闭面板
-        closePanel();
-    };
-
-    // 初始化面板状态
-    dropdownPanel.classList.add('p-hidden');
-    dropdownContainer.addEventListener('click', handleOutsideClick);
-
-    select.addEventListener('change', () => {
-        const selectedOption = options.find(o => o.value === select.value);
-        if (selectedOption) {
-            dropdownLabel.textContent = selectedOption.text;
-            // Update highlight
-            dropdownList.querySelectorAll('.p-dropdown-item').forEach(el => {
-                if (el.dataset.value === select.value) {
-                    el.classList.add('p-highlight');
-                } else {
-                    el.classList.remove('p-highlight');
-                }
-            });
-        }
-    });
-
-    return { group, select };
-}
-
-/**
- * 创建水平布局的表单组
- * @param {Array<{label: string, element: HTMLElement}>} items 表单项数组
- * @returns {HTMLElement} 水平布局的表单组
- */
-export function createHorizontalFormGroup(items) {
-    const group = document.createElement('div');
-    group.className = 'settings-form-group horizontal';
-
-    items.forEach(item => {
-        const container = document.createElement('div');
-
-        const label = document.createElement('label');
-        label.className = 'settings-form-label';
-        label.textContent = item.label;
-
-        container.appendChild(label);
-        container.appendChild(item.element);
-
-        group.appendChild(container);
-    });
-
-    return group;
-}
+// ====================== 设置管理 ======================
 
 /**
  * 显示API配置弹窗
@@ -788,72 +249,104 @@ function showRulesConfigModal() {
 }
 
 /**
- * 显示标签配置弹窗
+ * 创建服务选择器下拉框
+ * @param {string} type - 服务类型: 'translate' | 'llm' | 'vlm'
+ * @param {string} label - 显示名称
+ * @returns {HTMLElement} 设置行元素
  */
-function showTagsConfigModal() {
-    try {
-        logger.debug('打开标签配置弹窗');
-        // 使用tagConfigManager实例显示标签配置弹窗
-        tagConfigManager.showTagsConfigModal();
-    } catch (error) {
-        logger.error(`打开标签配置弹窗失败: ${error.message}`);
-        app.extensionManager.toast.add({
-            severity: "error",
-            summary: "打开配置失败",
-            detail: error.message || "打开配置弹窗过程中发生错误",
-            life: 3000
-        });
-    }
-}
+function createServiceSelector(type, label) {
+    const row = document.createElement("tr");
+    row.className = "promptwidget-settings-row";
 
-// ====================== 设置管理 ======================
+    const labelCell = document.createElement("td");
+    labelCell.className = "comfy-menu-label";
+    row.appendChild(labelCell);
 
-/**
- * 创建加载按钮
- */
-function createLoadingButton(text, onClick, showSuccessToast = true) {
-    const button = document.createElement('button');
-    button.className = 'p-button p-component p-button-primary';
-    button.style.width = '208px'; // 相当于w-52
-    button.innerHTML = `<span class="p-button-label">${text}</span>`;
+    const selectCell = document.createElement("td");
 
-    button.addEventListener('click', async () => {
-        if (button.disabled) return;
+    // 创建加载占位容器
+    const container = document.createElement("div");
+    container.style.minWidth = "180px";
+    container.innerHTML = '<span style="color: var(--p-text-muted-color); font-size: 12px;">加载中...</span>';
 
-        // 开始加载状态
-        button.disabled = true;
-        button.classList.add('p-disabled');
+    selectCell.appendChild(container);
+    row.appendChild(selectCell);
 
+    // 异步加载服务列表
+    (async () => {
         try {
-            await onClick();
+            // 获取服务列表和当前选中的服务
+            const [options, currentService] = await Promise.all([
+                serviceSelector.getServiceOptions(type),
+                serviceSelector.getCurrentService(type)
+            ]);
 
-            // 只有在 showSuccessToast 为 true 时才显示成功提示
-            if (showSuccessToast) {
-                app.extensionManager.toast.add({
-                    severity: "success",
-                    summary: "清理已清理完成",
-                    life: 3000
-                });
+            // 清空容器
+            container.innerHTML = '';
+
+            if (options.length === 0) {
+                container.innerHTML = '<span style="color: var(--p-text-muted-color); font-size: 12px;">暂无可用服务</span>';
+                return;
             }
 
-        } catch (error) {
-            // 显示错误提示
-            app.extensionManager.toast.add({
-                severity: "error",
-                summary: "操作失败",
-                detail: error.message || "操作过程中发生错误",
-                life: 3000
-            });
-            logger.error(`按钮操作失败: ${error.message}`);
-        } finally {
-            // 恢复按钮状态
-            button.disabled = false;
-            button.classList.remove('p-disabled');
-        }
-    });
+            // 使用 createSelectGroup 创建下拉框（不显示浮动标签，与官方样式一致）
+            const { group, select } = createSelectGroup(label, options, currentService, { showLabel: false });
 
-    return button;
+            // 将 group 的子元素添加到容器（不需要外层 group 的样式）
+            while (group.firstChild) {
+                container.appendChild(group.firstChild);
+            }
+
+            // 监听变更事件
+            select.addEventListener('change', async () => {
+                const newValue = select.value;
+                if (!newValue) return;
+
+                // 获取下拉框容器并添加禁用样式
+                const dropdownContainer = container.querySelector('.pa-dropdown');
+                if (dropdownContainer) {
+                    dropdownContainer.style.opacity = '0.6';
+                    dropdownContainer.style.pointerEvents = 'none';
+                }
+
+                try {
+                    const success = await serviceSelector.setCurrentService(type, newValue);
+                    if (success) {
+                        logger.log(`设置${label}服务 | 服务: ${newValue}`);
+                    } else {
+                        logger.error(`设置${label}服务失败`);
+                        // 还原选择
+                        const oldValue = await serviceSelector.getCurrentService(type);
+                        if (oldValue) {
+                            select.value = oldValue;
+                            // 更新显示的标签
+                            const dropdownLabel = container.querySelector('.pa-dropdown-label');
+                            const selectedOption = options.find(o => o.value === oldValue);
+                            if (dropdownLabel && selectedOption) {
+                                dropdownLabel.textContent = selectedOption.text;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    logger.error(`设置${label}服务异常: ${error.message}`);
+                } finally {
+                    // 恢复可用状态
+                    if (dropdownContainer) {
+                        dropdownContainer.style.opacity = '';
+                        dropdownContainer.style.pointerEvents = '';
+                    }
+                }
+            });
+
+        } catch (error) {
+            logger.error(`加载${label}服务列表失败: ${error.message}`);
+            container.innerHTML = '<span style="color: var(--p-red-400); font-size: 12px;">加载失败</span>';
+        }
+    })();
+
+    return row;
 }
+
 
 /**
  * 注册设置选项
@@ -946,6 +439,113 @@ export function registerSettings() {
                     }
                 },
 
+                // 小助手创建方式设置
+                {
+                    id: "PromptAssistant.Settings.CreationMode",
+                    name: "小助手创建方式（提示词）",
+                    category: ["✨提示词小助手", "系统", "提示词小助手创建方式"],
+                    type: "combo",
+                    options: [
+                        { text: "自动创建", value: "auto" },
+                        { text: "选中节点时创建", value: "manual" }
+                    ],
+                    defaultValue: "auto",
+                    tooltip: "自动创建：节点创建或加载时自动显示小助手；选中节点时创建：仅选中节点时显示",
+                    onChange: (value) => {
+                        logger.log(`小助手创建方式变更 | 模式:${value === 'auto' ? '自动创建' : '选中节点时创建'}`);
+                        // 如果切换到自动创建，立即尝试初始化所有节点
+                        if (value === 'auto' && window.FEATURES.enabled && app.graph) {
+                            const nodes = app.graph._nodes || [];
+                            nodes.forEach(node => {
+                                if (node && !node._promptAssistantInitialized) {
+                                    app.promptAssistant.checkAndSetupNode(node);
+                                }
+                            });
+                        }
+                    }
+                },
+
+                // 反推小助手创建方式设置
+                {
+                    id: "PromptAssistant.Settings.ImageCaptionCreationMode",
+                    name: "小助手创建方式（图像反推）",
+                    category: ["✨提示词小助手", "系统", "图像小助手创建方式"],
+                    type: "combo",
+                    options: [
+                        { text: "自动创建", value: "auto" },
+                        { text: "选中节点时创建", value: "manual" }
+                    ],
+                    defaultValue: "auto",
+                    tooltip: "自动创建：节点创建或加载时自动显示反推小助手；选中节点时创建：仅选中节点时显示",
+                    onChange: (value) => {
+                        logger.log(`反推小助手创建方式变更 | 模式:${value === 'auto' ? '自动创建' : '选中节点时创建'}`);
+                        // 如果切换到自动创建，立即尝试初始化所有节点
+                        if (value === 'auto' && window.FEATURES.enabled && window.FEATURES.imageCaption && app.graph) {
+                            const nodes = app.graph._nodes || [];
+                            nodes.forEach(node => {
+                                if (node && !node._imageCaptionInitialized) {
+                                    app.imageCaption.checkAndSetupNode(node);
+                                }
+                            });
+                        }
+                    }
+                },
+
+                // 小助手布局（提示词）
+                {
+                    id: "PromptAssistant.Location",
+                    name: "小助手布局（提示词）",
+                    category: ["✨提示词小助手", "界面", "提示词小助手布局"],
+                    type: "combo",
+                    options: [
+                        // { text: "左上（横向）", value: "top-left-h" },
+                        // { text: "左上（垂直）", value: "top-left-v" },
+                        // { text: "中上（横向）", value: "top-center-h" },
+                        // { text: "⇗ ━", value: "top-right-h" },
+                        // { text: "⇗ ┃", value: "top-right-v" },
+                        { text: "右中（垂直）", value: "right-center-v" },
+                        { text: "右下（横向）", value: "bottom-right-h" },
+                        { text: "右下（垂直）", value: "bottom-right-v" },
+                        { text: "下中（横向）", value: "bottom-center-h" },
+                        { text: "左下（横向）", value: "bottom-left-h" },
+                        // { text: "左下（垂直）", value: "bottom-left-v" },
+                        // { text: "左中（垂直）", value: "left-center-v" }
+                    ],
+                    defaultValue: "bottom-right-h", // 默认右下横向
+                    tooltip: "设置提示词小助手在输入框周围的布局和展开方向",
+                    onChange: (value) => {
+                        logger.log(`提示词小助手布局变更 | 布局:${value}`);
+                        // 通知所有实例更新布局（通过 CSS 类处理）
+                        PromptAssistant.instances.forEach(widget => {
+                            if (widget.container && widget.container.setAnchorPosition) {
+                                widget.container.setAnchorPosition(value);
+                            }
+                        });
+                    }
+                },
+                // 小助手位置设置（图像反推）
+                {
+                    id: "ImageCaption.Location",
+                    name: "小助手布局（图像反推）",
+                    category: ["✨提示词小助手", "界面", "图像小助手布局"],
+                    type: "combo",
+                    options: [
+                        { text: "横", value: "bottom-left-h" },
+                        { text: "竖", value: "bottom-left-v" }
+                    ],
+                    defaultValue: "bottom-left-h", // 默认横向
+                    tooltip: "设置图像反推小助手的展开方向（位置固定在左下角）",
+                    onChange: (value) => {
+                        logger.log(`图像反推小助手布局变更 | 布局:${value}`);
+                        // 通知所有实例更新布局
+                        ImageCaption.instances.forEach(assistant => {
+                            if (assistant.container && assistant.container.setAnchorPosition) {
+                                assistant.container.setAnchorPosition(value);
+                            }
+                        });
+                    },
+                },
+
                 // API 配置按钮
                 {
                     id: "PromptAssistant.Features.APIConfig",
@@ -971,29 +571,37 @@ export function registerSettings() {
                     }
                 },
 
-                // 跳过代理直连开关
+                // ---服务类别设置---
+                // 翻译服务选择
                 {
-                    id: "PromptAssistant.Settings.BypassProxy",
-                    name: "跳过代理直连",
-                    category: ["✨提示词小助手", " 配置", "网络设置"],
-                    type: "boolean",
-                    defaultValue: false,
-                    tooltip: "仅当开启代理时，智谱和硅基流动等国内服务使用报错时，再尝试打开。",
-                    onChange: (value) => {
-                        logger.log(`跳过代理直连 - 已${value ? "启用" : "禁用"}`);
+                    id: "PromptAssistant.Service.Translate",
+                    name: "选择翻译服务",
+                    category: ["✨提示词小助手", " 配置", "翻译"],
+                    tooltip: "选择一个服务商用于翻译，也可以通过右键翻译按钮来切换",
+                    type: () => {
+                        return createServiceSelector('translate', '翻译');
                     }
                 },
 
-                // 强制使用HTTP方式请求开关
+                // 提示词优化服务选择
                 {
-                    id: "PromptAssistant.Settings.ForceHTTP",
-                    name: " HTTP API 接口",
-                    category: ["✨提示词小助手", " 配置", "HTTP-API"],
-                    type: "boolean",
-                    defaultValue: false,
-                    tooltip: "打开后，制使用HTTP API接口请求。绕过OpenAI SDK的请求。",
-                    onChange: (value) => {
-                        logger.log(`强制使用HTTP方式请求 - 已${value ? "启用" : "禁用"}`);
+                    id: "PromptAssistant.Service.LLM",
+                    name: "选择提示词优化服务",
+                    category: ["✨提示词小助手", " 配置", "提示词优化"],
+                    tooltip: "选择一个服务商用于提示词优化，也可以通过右键提示词优化按钮来切换",
+                    type: () => {
+                        return createServiceSelector('llm', '提示词优化');
+                    }
+                },
+
+                // 图像反推服务选择
+                {
+                    id: "PromptAssistant.Service.VLM",
+                    name: "选择图像反推服务",
+                    category: ["✨提示词小助手", " 配置", "图像反推"],
+                    tooltip: "选择一个服务商用于图像反推，也可以通过右键反推按钮来切换",
+                    type: () => {
+                        return createServiceSelector('vlm', '图像反推');
                     }
                 },
 
@@ -1032,16 +640,16 @@ export function registerSettings() {
                 // 扩写功能
                 {
                     id: "PromptAssistant.Features.Expand",
-                    name: "启用扩写功能",
-                    category: ["✨提示词小助手", "小助手功能开关", "扩写功能"],
+                    name: "启用提示词优化功能",
+                    category: ["✨提示词小助手", "小助手功能开关", "提示词优化功能"],
                     type: "boolean",
                     defaultValue: true,
-                    tooltip: "开启或关闭扩写功能",
+                    tooltip: "开启或关闭提示词优化功能",
                     onChange: (value) => {
                         const oldValue = FEATURES.expand;
                         FEATURES.expand = value;
-                        handleFeatureChange('扩写功能', value, oldValue);
-                        logger.log(`扩写功能 - 已${value ? "启用" : "禁用"}`);
+                        handleFeatureChange('提示词优化功能', value, oldValue);
+                        logger.log(`提示词优化功能 - 已${value ? "启用" : "禁用"}`);
                     }
                 },
 
@@ -1126,25 +734,7 @@ export function registerSettings() {
                     }
                 },
 
-                // 自动翻译功能 - 暂时禁用
-                /*
-                {
-                    id: "PromptAssistant.Features.AutoTranslate",
-                    name: "自动翻译",
-                    category: ["✨提示词小助手", " 翻译功能设置", "自动翻译"],
-                    type: "boolean",
-                    defaultValue: false,
-                    tooltip: "开启后，工作流运行时将自动翻译CLIP节点的中文文本，前端显示保持不变",
-                    onChange: (value) => {
-                        const oldValue = FEATURES.autoTranslate;
-                        FEATURES.autoTranslate = value;
-                        handleFeatureChange('自动翻译', value, oldValue);
-                        updateAutoTranslateIndicators(value);
 
-                        logger.log(`自动翻译 - 已${value ? "启用" : "禁用"}`);
-                    }
-                },
-                */
 
                 // 图像反推功能
                 {
@@ -1159,6 +749,22 @@ export function registerSettings() {
                         FEATURES.imageCaption = value;
                         handleFeatureChange('图像反推', value, oldValue);
                         logger.log(`图像反推功能 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
+                // 节点帮助翻译功能
+                {
+                    id: "PromptAssistant.Features.NodeHelpTranslator",
+                    name: "启用节点信息翻译",
+                    category: ["✨提示词小助手", "小助手功能开关", "节点信息翻译"],
+                    type: "boolean",
+                    defaultValue: true,
+                    tooltip: "开启或关闭ComfyUI侧边栏节点帮助文档的翻译功能",
+                    onChange: (value) => {
+                        const oldValue = FEATURES.nodeHelpTranslator;
+                        FEATURES.nodeHelpTranslator = value;
+                        handleFeatureChange('节点信息翻译', value, oldValue);
+                        logger.log(`节点信息翻译功能 - 已${value ? "启用" : "禁用"}`);
                     }
                 },
 
@@ -1183,6 +789,30 @@ export function registerSettings() {
                     }
                 },
 
+                // 显示流式输出进度
+                {
+                    id: "PromptAssistant.Settings.ShowStreamingProgress",
+                    name: "显示流式输出进度",
+                    category: ["✨提示词小助手", "系统", "终端日志"],
+                    type: "boolean",
+                    defaultValue: true,
+                    tooltip: "开启后，控制台会显示流式输出过程，在某些终端可能导致刷屏；关闭后只显示静态的'生成中...'。",
+                    onChange: async (value) => {
+                        FEATURES.showStreamingProgress = value;
+                        // 通知后端更新设置
+                        try {
+                            await fetch(APIService.getApiUrl('/settings/streaming_progress'), {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ enabled: value })
+                            });
+                        } catch (error) {
+                            logger.error(`更新流式进度设置失败: ${error.message}`);
+                        }
+                        logger.log(`流式输出进度 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
                 {
                     id: "PromptAssistant.Settings.IconOpacity",
                     name: " 小助手图标不透明度",
@@ -1191,7 +821,7 @@ export function registerSettings() {
                     min: 0,
                     max: 100,
                     step: 1,
-                    defaultValue: 30,
+                    defaultValue: 20,
                     tooltip: "设置折叠后小助手图标的不透明度",
                     onChange: (value) => {
                         // 将0-100的值转换为0-1的透明度
@@ -1302,27 +932,7 @@ export function registerSettings() {
                     }
                 },
 
-                // 翻译方法选择
-                {
-                    id: "PromptAssistant.Settings.TranslateType",
-                    name: "翻译方法",
-                    category: ["✨提示词小助手", " 翻译功能设置", "翻译方法"],
-                    type: "combo",
-                    defaultValue: "baidu",
-                    options: [
-                        { text: "百度翻译", value: "baidu" },
-                        { text: "大语言模型翻译", value: "llm" }
-                    ],
-                    tooltip: "可选百度机翻或者大语言模型翻译，注意：大语言模型翻译速度比较慢，格式可能会发生变化。",
-                    onChange: (value) => {
-                        // 直接修改 app.settings 对象
-                        if (!app.settings) {
-                            app.settings = {};
-                        }
-                        app.settings["PromptAssistant.Settings.TranslateType"] = value;
-                        logger.debug("翻译方式已更新：" + value);
-                    }
-                },
+
 
                 // 关于插件信息
                 {
@@ -1337,6 +947,21 @@ export function registerSettings() {
                         cell.style.display = "flex";
                         cell.style.alignItems = "center";
                         cell.style.gap = "12px";
+                        // 版本徽标容器（整体可点击跳转最新版本）
+                        const versionLink = document.createElement("a");
+                        versionLink.href = "https://github.com/yawiii/comfyui_prompt_assistant/releases/latest";
+                        versionLink.target = "_blank";
+                        versionLink.style.textDecoration = "none";
+                        versionLink.style.display = "flex";
+                        versionLink.style.alignItems = "center";
+                        versionLink.style.cursor = "pointer";
+
+                        const versionContainer = document.createElement("div");
+                        versionContainer.style.display = "flex";
+                        versionContainer.style.alignItems = "center";
+                        versionContainer.style.gap = "8px";
+                        versionLink.appendChild(versionContainer);
+
                         // 版本徽标
                         const versionBadge = document.createElement("img");
                         versionBadge.alt = "Version";
@@ -1347,13 +972,42 @@ export function registerSettings() {
                         if (!window.PromptAssistant_Version) {
                             logger.error("未找到版本号，徽标将无法正确显示");
                             versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-%E6%9C%AA%E7%9F%A5-red?style=flat`;
+                            versionContainer.appendChild(versionBadge);
                         } else {
-                            const version = window.PromptAssistant_Version;
-                            versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-${version}-green?style=flat`;
-                            logger.debug(`版本号徽标已更新: ${version}`);
+                            const currentVersion = window.PromptAssistant_Version;
+                            // 初始显示当前版本
+                            versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-${currentVersion}-green?style=flat`;
+                            logger.debug(`[版本检查] 当前版本: ${currentVersion}`);
+                            versionContainer.appendChild(versionBadge);
+
+                            // 异步检查最新版本
+                            fetchLatestVersion().then(latestVersion => {
+                                if (latestVersion && compareVersion(latestVersion, currentVersion) > 0) {
+                                    // 发现新版本，使用单个徽标展示“有新版本” + "当前版本→最新版本"
+
+                                    const labelText = "有新版本";
+                                    const messageText = `${currentVersion}→${latestVersion}`;
+                                    const labelEncoded = encodeURIComponent(labelText);
+                                    const messageEncoded = encodeURIComponent(messageText);
+
+                                    // shields.io: /badge/label-message-color
+                                    // label 使用与默认徽标相同的深灰色(#555555)，message 使用橙色
+                                    versionBadge.src = `https://img.shields.io/badge/${labelEncoded}-${messageEncoded}-orange?style=flat&labelColor=555555`;
+                                    versionBadge.style.cursor = "pointer";
+                                    versionBadge.title = `当前版本: ${currentVersion}\n最新版本: ${latestVersion}\n点击前往下载`;
+
+                                    logger.info(`[版本检查] 发现新版本 ${currentVersion} → ${latestVersion}`);
+                                } else if (latestVersion) {
+                                    // 已是最新版本
+                                    versionBadge.title = `当前已是最新版本: ${currentVersion}`;
+                                    logger.debug(`[版本检查] 当前已是最新版本: ${currentVersion}`);
+                                }
+                            }).catch(error => {
+                                logger.warn(`[版本检查] 版本检查过程出错: ${error.message}`);
+                            });
                         }
 
-                        cell.appendChild(versionBadge);
+                        cell.appendChild(versionLink);
 
                         // GitHub 徽标
                         const authorTag = document.createElement("a");
@@ -1364,7 +1018,7 @@ export function registerSettings() {
                         authorTag.style.alignItems = "center";
                         const authorBadge = document.createElement("img");
                         authorBadge.alt = "Static Badge";
-                        authorBadge.src = "https://img.shields.io/badge/Github-Yawiii-blue?style=flat&logo=github&logoColor=black&labelColor=%23FFFFFF&color=%2307A3D7";
+                        authorBadge.src = "https://img.shields.io/github/stars/yawiii/comfyui_prompt_assistant?style=flat&logo=github&logoColor=%23292F34&label=Yawiii&labelColor=%23FFFFFF&color=blue";
                         authorBadge.style.display = "block";
                         authorBadge.style.height = "20px";
                         authorTag.appendChild(authorBadge);
@@ -1419,7 +1073,7 @@ export function registerSettings() {
                             qrFallbackTimer = setTimeout(() => {
                                 // 检查是否已标记为已回退
                                 if (wechatQrImg.dataset.fallbackApplied === '1') return;
-                                
+
                                 // 检查图片是否已开始加载（naturalHeight > 0 说明图片正在加载）
                                 if (wechatQrImg.naturalHeight > 0) {
                                     Logger.log(2, '远程二维码加载中，延长等待时间');
@@ -1481,9 +1135,9 @@ export function registerSettings() {
                 // 规则配置按钮
                 {
                     id: "PromptAssistant.Features.RulesConfig",
-                    name: "扩写和反推规则修改",
+                    name: "提示词优化和反推规则修改",
                     category: ["✨提示词小助手", " 配置", "规则"],
-                    tooltip: "可以自定义扩写规则，和反推提示词规则，使得提示词生成更加符合你的需求",
+                    tooltip: "可以自定义提示词优化规则，和反推提示词规则，使得提示词生成更加符合你的需求",
                     type: () => {
                         const row = document.createElement("tr");
                         row.className = "promptwidget-settings-row";
@@ -1503,29 +1157,6 @@ export function registerSettings() {
                     }
                 },
 
-                // 标签配置按钮
-                {
-                    id: "PromptAssistant.Features.TagsConfig",
-                    name: "自定义和标签管理",
-                    category: ["✨提示词小助手", " 配置", "标签管理"],
-                    type: () => {
-                        const row = document.createElement("tr");
-                        row.className = "promptwidget-settings-row";
-
-                        const labelCell = document.createElement("td");
-                        labelCell.className = "comfy-menu-label";
-                        row.appendChild(labelCell);
-
-                        const buttonCell = document.createElement("td");
-                        const button = createLoadingButton("标签管理器", async () => {
-                            showTagsConfigModal();
-                        }, false);
-
-                        buttonCell.appendChild(button);
-                        row.appendChild(buttonCell);
-                        return row;
-                    }
-                }
             ]
         });
 

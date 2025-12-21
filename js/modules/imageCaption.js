@@ -12,6 +12,10 @@ import { APIService } from '../services/api.js';
 import { HistoryCacheService } from '../services/cache.js';
 import { buttonMenu } from "../services/btnMenu.js";
 import { rulesConfigManager } from "./rulesConfigManager.js";
+import { nodeMountService, RENDER_MODE } from "../services/NodeMountService.js";
+import { AssistantContainer, ANCHOR_POSITION } from "./AssistantContainer.js";
+import { PopupManager } from "../utils/popupManager.js";
+
 
 
 class ImageCaption {
@@ -203,7 +207,7 @@ class ImageCaption {
             logger.log("图像小助手初始化完成");
             return true;
         } catch (error) {
-            logger.error(`图像小助手初始化失败 | 错误: ${error.message}`);
+            logger.error(() => `图像小助手初始化失败 | 错误: ${error.message}`);
             this.initialized = false;
             return false;
         }
@@ -328,7 +332,7 @@ class ImageCaption {
                 // 创建新的小助手实例
                 const assistant = this.setupNodeAssistant(node);
                 if (assistant) {
-                    logger.log(`创建图像小助手 | ID: ${node.id}`);
+                    logger.log(() => `创建图像小助手 | ID: ${node.id}`);
                 }
             }
         }
@@ -400,75 +404,86 @@ class ImageCaption {
         if (!assistant?.node) return null;
 
         try {
-            // 创建内部内容容器
-            const innerContentDiv = document.createElement('div');
-            innerContentDiv.className = 'image-assistant-inner';
+            // 获取位置设置
+            const locationSetting = app.ui.settings.getSettingValue(
+                "ImageCaption.Location",
+                "bottom-left-h"
+            );
 
-            // 创建主容器
-            const containerDiv = document.createElement('div');
-            containerDiv.className = 'image-assistant-container image-assistant-transition';
-            containerDiv.dataset.nodeId = assistant.nodeId;
-
-            // 添加内容容器到主容器
-            containerDiv.appendChild(innerContentDiv);
-
-            // 创建悬停区域 - 用于检测鼠标悬停
-            const hoverAreaDiv = document.createElement('div');
-            hoverAreaDiv.className = 'image-assistant-hover-area';
-            // 由于初始状态为折叠，所以显示悬停区域
-            hoverAreaDiv.style.display = 'block';
-            containerDiv.appendChild(hoverAreaDiv);
-
-            // 创建折叠状态指示器图标
-            const indicatorDiv = document.createElement('div');
-            indicatorDiv.className = 'image-assistant-indicator animate-creation';
-
-            // 从ResourceManager获取图标并添加到指示器
-            const mainIcon = ResourceManager.getIcon('icon-main.svg');
-            if (mainIcon) {
-                indicatorDiv.appendChild(mainIcon);
-            }
-
-            containerDiv.appendChild(indicatorDiv);
-
-            // 保存引用
-            assistant.element = containerDiv;
-            assistant.innerContent = innerContentDiv;
-            assistant.hoverArea = hoverAreaDiv;
-            assistant.indicator = indicatorDiv;
-            assistant.buttons = {};
-            assistant.isCollapsed = true; // 初始状态为折叠
-
-            // 初始化UI组件和事件
-            this.addFunctionButtons(assistant);
-
-            // 默认隐藏状态
-            containerDiv.style.display = 'none';
-
-            // 使用固定定位样式
-            containerDiv.style.position = 'fixed';
-            containerDiv.style.zIndex = '1';
-            document.body.appendChild(containerDiv);
-
-            // 初始状态为折叠，添加折叠样式类
-            containerDiv.classList.add('collapsed');
-
-            // 延迟设置位置
-            requestAnimationFrame(() => {
-                this._setupUIPosition(assistant);
+            // Create AssistantContainer instance
+            const container = new AssistantContainer({
+                nodeId: assistant.nodeId,
+                type: 'image', // Uses image-assistant-container class
+                anchorPosition: locationSetting,
+                enableDragSort: true,
+                onButtonOrderChange: (order) => {
+                    // Order preservation handled by container
+                },
+                shouldCollapse: () => {
+                    return !this._checkAssistantActiveState(assistant);
+                }
             });
 
-            // 设置展开折叠事件
-            this._setupCollapseExpandEvents(assistant);
+            // Render
+            const containerEl = container.render();
 
-            // 移除动画类的定时器
-            setTimeout(() => {
-                if (indicatorDiv && indicatorDiv.classList.contains('animate-creation')) {
-                    indicatorDiv.classList.remove('animate-creation');
+            // Set Icon
+            const mainIcon = ResourceManager.getIcon('icon-main.svg');
+            if (mainIcon && container.indicator) {
+                container.indicator.innerHTML = '';
+                container.indicator.appendChild(mainIcon);
+            }
+
+            // Save references
+            assistant.container = container;
+            assistant.element = containerEl;
+            assistant.innerContent = container.content;
+            assistant.hoverArea = container.hoverArea;
+            assistant.indicator = container.indicator;
+            assistant.buttons = {};
+
+            // Sync state properties
+            Object.defineProperty(assistant, 'isCollapsed', {
+                get: () => container.isCollapsed,
+                set: (val) => {
+                    if (val) container.collapse(); else container.expand();
                 }
-            }, 1000);
+            });
+            Object.defineProperty(assistant, 'isTransitioning', {
+                get: () => container.isTransitioning,
+                set: (val) => { container.isTransitioning = val; }
+            });
 
-            return containerDiv;
+            // Add buttons
+            this.addFunctionButtons(assistant);
+
+            // Restore order
+            container.restoreOrder();
+
+            // 初始设置
+            // 注意：原始代码设置位置固定并追加到 body
+            // AssistantContainer 创建元素但不挂载。
+            // 原始代码：
+            // containerDiv.style.position = 'fixed';
+            // document.body.appendChild(containerDiv);
+
+            // 我们遵循原始逻辑，将 Image Assistant 追加到 body
+            containerEl.style.position = 'fixed';
+            containerEl.style.zIndex = '1';
+            document.body.appendChild(containerEl);
+
+            // 延迟设置位置
+            // 优化：使用 requestAnimationFrame 确保在下一次重绘前更新位置
+            requestAnimationFrame(() => {
+                this._setupUIPosition(assistant);
+                if (container) container.updateDimensions();
+            });
+
+            // 折叠/展开设置由 container 处理
+            // 移除手动事件设置
+
+            return containerEl;
+
         } catch (error) {
             logger.error(`图像小助手UI创建失败 | ID: ${assistant.nodeId} | ${error.message}`);
             return null;
@@ -493,11 +508,35 @@ class ImageCaption {
             },
             // 添加中文反推按钮的右键菜单
             contextMenu: async (assistant) => {
+                // 获取服务列表和当前激活状态
+                let services = [];
+                let currentVLMService = null;
+                let currentVLMModel = null;
+
+                // 获取中文反推规则
                 let activePromptId = null;
                 let visionPrompts = [];
 
                 try {
-                    const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                    // 获取服务列表
+                    const servicesResp = await fetch(APIService.getApiUrl('/services'));
+                    if (servicesResp.ok) {
+                        const servicesData = await servicesResp.json();
+                        if (servicesData.success) {
+                            services = servicesData.services || [];
+                        }
+                    }
+
+                    // 获取当前激活的VLM服务和模型
+                    const vlmResp = await fetch(APIService.getApiUrl('/config/vision'));
+                    if (vlmResp.ok) {
+                        const vlmConfig = await vlmResp.json();
+                        currentVLMService = vlmConfig.provider || null;
+                        currentVLMModel = vlmConfig.model || null;
+                    }
+
+                    // 获取中文反推规则
+                    const response = await fetch(APIService.getApiUrl('/config/system_prompts'));
                     if (response.ok) {
                         const data = await response.json();
                         activePromptId = data.active_prompts?.vision_zh || null;
@@ -507,11 +546,18 @@ class ImageCaption {
                             originalOrder.forEach(key => {
                                 if (key.startsWith('vision_zh')) {
                                     const prompt = data.vision_prompts[key];
-                                    visionPrompts.push({
-                                        id: key,
-                                        name: prompt.name || key,
-                                        isActive: key === activePromptId
-                                    });
+                                    const showIn = prompt.showIn || ['frontend', 'node'];
+
+                                    // 仅当配置包含 'frontend' 时才在前端菜单显示
+                                    if (showIn.includes('frontend')) {
+                                        visionPrompts.push({
+                                            id: key,
+                                            name: prompt.name || key,
+                                            category: prompt.category || '',
+                                            showIn: showIn,
+                                            isActive: key === activePromptId
+                                        });
+                                    }
                                 }
                             });
                             visionPrompts.sort((a, b) =>
@@ -520,20 +566,72 @@ class ImageCaption {
                         }
                     }
                 } catch (error) {
-                    logger.error(`获取中文反推提示词失败: ${error.message}`);
+                    logger.error(() => `获取中文反推配置失败: ${error.message}`);
                 }
 
-                if (visionPrompts.length === 0) {
-                    return [{ label: '未找到提示词', disabled: true }];
-                }
+                // 创建服务菜单项(只显示有VLM模型的服务)
+                const serviceMenuItems = services
+                    .filter(service => service.vlm_models && service.vlm_models.length > 0)
+                    .map(service => {
+                        const isCurrentService = currentVLMService === service.id;
 
-                // 添加分割线和规则管理按钮
-                const menuItems = visionPrompts.map(prompt => ({
+                        // 创建模型子菜单
+                        const modelChildren = (service.vlm_models || []).map(model => {
+                            const isCurrentModel = isCurrentService && currentVLMModel === model.name;
+                            return {
+                                label: model.display_name || model.name,
+                                icon: `<span class="pi ${isCurrentModel ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                                onClick: async (context) => {
+                                    try {
+                                        const res = await fetch(APIService.getApiUrl('/services/current'), {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ service_type: 'vlm', service_id: service.id, model_name: model.name })
+                                        });
+                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                        const modelLabel = model.display_name || model.name;
+                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name} - ${modelLabel}`);
+                                        logger.log(`视觉服务切换 | 服务: ${service.name} | 模型: ${modelLabel}`);
+                                    } catch (err) {
+                                        logger.error(`切换视觉模型失败: ${err.message}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                    }
+                                }
+                            };
+                        });
+
+                        return {
+                            label: service.name || service.id,
+                            icon: `<span class="pi ${isCurrentService ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: async (context) => {
+                                try {
+                                    const res = await fetch(APIService.getApiUrl('/services/current'), {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ service_type: 'vlm', service_id: service.id })
+                                    });
+                                    if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                    UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name}`);
+                                    logger.log(`视觉服务切换 | 服务: ${service.name}`);
+                                } catch (err) {
+                                    logger.error(`切换视觉服务失败: ${err.message}`);
+                                    UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                }
+                            },
+                            children: modelChildren.length > 0 ? modelChildren : undefined
+                        };
+                    });
+
+                // ---创建规则菜单项（支持分类分组）---
+                const ruleMenuItems = [];
+
+                // 辅助函数：创建单个规则菜单项
+                const createRuleMenuItem = (prompt) => ({
                     label: prompt.name,
                     icon: `<span class="pi ${prompt.isActive ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
                     onClick: async (context) => {
                         try {
-                            const response = await fetch('/prompt_assistant/api/config/active_prompt', {
+                            const response = await fetch(APIService.getApiUrl('/config/active_prompt'), {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ type: 'vision_zh', prompt_id: prompt.id })
@@ -548,10 +646,37 @@ class ImageCaption {
                             UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${error.message}`);
                         }
                     }
-                }));
+                });
 
-                menuItems.push({ type: 'separator' });
-                menuItems.push({
+                // 按分类分组规则
+                const uncategorizedPrompts = visionPrompts.filter(p => !p.category);
+                const categorizedPrompts = visionPrompts.filter(p => p.category);
+
+                // 收集所有分类并排序
+                const categories = [...new Set(categorizedPrompts.map(p => p.category))].sort();
+
+                // 添加无分类的规则（放在顶层）
+                uncategorizedPrompts.forEach(prompt => {
+                    ruleMenuItems.push(createRuleMenuItem(prompt));
+                });
+
+                // 添加分类分组（每个分类作为二级菜单）
+                categories.forEach(category => {
+                    const promptsInCategory = categorizedPrompts.filter(p => p.category === category);
+                    const hasActivePrompt = promptsInCategory.some(p => p.isActive);
+
+                    ruleMenuItems.push({
+                        label: category,
+                        icon: `<span class="pi ${hasActivePrompt ? 'pi-folder-open' : 'pi-folder'}"></span>`,
+                        submenuAlign: 'center',
+                        children: promptsInCategory.map(prompt => createRuleMenuItem(prompt))
+                    });
+                });
+
+
+                // 添加规则管理选项
+                ruleMenuItems.push({ type: 'separator' });
+                ruleMenuItems.push({
                     label: '规则管理',
                     icon: '<span class="pi pi-pen-to-square"></span>',
                     onClick: () => {
@@ -559,47 +684,16 @@ class ImageCaption {
                     }
                 });
 
-                // 在规则管理下方添加 服务选择 子菜单（视觉模型提供商）
-                try {
-                    const resp = await fetch('/prompt_assistant/api/config/vision');
-                    if (resp.ok) {
-                        const cfg = await resp.json();
-                        const providers = cfg.providers || {};
-                        const current = cfg.provider || null;
-                        const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
-                        const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
-                        const children = order
-                            .filter(key => Object.prototype.hasOwnProperty.call(providers, key))
-                            .map(key => ({
-                                label: providerNameMap[key] || key,
-                                icon: `<span class=\"pi ${current === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}\"></span>`,
-                                onClick: async (context) => {
-                                    try {
-                                        const res = await fetch('/prompt_assistant/api/config/vision', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ current_provider: key })
-                                        });
-                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
-                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
-                                    } catch (err) {
-                                        logger.error(`切换视觉模型提供商失败: ${err.message}`);
-                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
-                                    }
-                                }
-                            }));
-                        menuItems.push({
-                            label: '服务选择',
-                            icon: '<span class="pi pi-sparkles"></span>',
-                            children
-                        });
+                return [
+                    ...ruleMenuItems,
+                    // { type: 'separator' },
+                    {
+                        label: "选择服务",
+                        icon: '<span class="pi pi-sparkles"></span>',
+                        submenuAlign: 'bottom',
+                        children: serviceMenuItems
                     }
-                } catch (e) {
-                    logger.error(`加载视觉模型提供商失败: ${e.message}`);
-                }
-
-                return menuItems;
-
+                ];
             }
         });
 
@@ -615,11 +709,35 @@ class ImageCaption {
             },
             // 添加英文反推按钮的右键菜单
             contextMenu: async (assistant) => {
+                // 获取服务列表和当前激活状态
+                let services = [];
+                let currentVLMService = null;
+                let currentVLMModel = null;
+
+                // 获取英文反推规则
                 let activePromptId = null;
                 let visionPrompts = [];
 
                 try {
-                    const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                    // 获取服务列表
+                    const servicesResp = await fetch(APIService.getApiUrl('/services'));
+                    if (servicesResp.ok) {
+                        const servicesData = await servicesResp.json();
+                        if (servicesData.success) {
+                            services = servicesData.services || [];
+                        }
+                    }
+
+                    // 获取当前激活的VLM服务和模型
+                    const vlmResp = await fetch(APIService.getApiUrl('/config/vision'));
+                    if (vlmResp.ok) {
+                        const vlmConfig = await vlmResp.json();
+                        currentVLMService = vlmConfig.provider || null;
+                        currentVLMModel = vlmConfig.model || null;
+                    }
+
+                    // 获取英文反推规则
+                    const response = await fetch(APIService.getApiUrl('/config/system_prompts'));
                     if (response.ok) {
                         const data = await response.json();
                         activePromptId = data.active_prompts?.vision_en || null;
@@ -629,11 +747,18 @@ class ImageCaption {
                             originalOrder.forEach(key => {
                                 if (key.startsWith('vision_en')) {
                                     const prompt = data.vision_prompts[key];
-                                    visionPrompts.push({
-                                        id: key,
-                                        name: prompt.name || key,
-                                        isActive: key === activePromptId
-                                    });
+                                    const showIn = prompt.showIn || ['frontend', 'node'];
+
+                                    // 仅当配置包含 'frontend' 时才在前端菜单显示
+                                    if (showIn.includes('frontend')) {
+                                        visionPrompts.push({
+                                            id: key,
+                                            name: prompt.name || key,
+                                            category: prompt.category || '',
+                                            showIn: showIn,
+                                            isActive: key === activePromptId
+                                        });
+                                    }
                                 }
                             });
                             visionPrompts.sort((a, b) =>
@@ -642,20 +767,72 @@ class ImageCaption {
                         }
                     }
                 } catch (error) {
-                    logger.error(`获取英文反推提示词失败: ${error.message}`);
+                    logger.error(`获取英文反推配置失败: ${error.message}`);
                 }
 
-                if (visionPrompts.length === 0) {
-                    return [{ label: '未找到提示词', disabled: true }];
-                }
+                // 创建服务菜单项(只显示有VLM模型的服务)
+                const serviceMenuItems = services
+                    .filter(service => service.vlm_models && service.vlm_models.length > 0)
+                    .map(service => {
+                        const isCurrentService = currentVLMService === service.id;
 
-                // 添加分割线和规则管理按钮
-                const menuItems = visionPrompts.map(prompt => ({
+                        // 创建模型子菜单
+                        const modelChildren = (service.vlm_models || []).map(model => {
+                            const isCurrentModel = isCurrentService && currentVLMModel === model.name;
+                            return {
+                                label: model.display_name || model.name,
+                                icon: `<span class="pi ${isCurrentModel ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                                onClick: async (context) => {
+                                    try {
+                                        const res = await fetch(APIService.getApiUrl('/services/current'), {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ service_type: 'vlm', service_id: service.id, model_name: model.name })
+                                        });
+                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                        const modelLabel = model.display_name || model.name;
+                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name} - ${modelLabel}`);
+                                        logger.log(`视觉服务切换 | 服务: ${service.name} | 模型: ${modelLabel}`);
+                                    } catch (err) {
+                                        logger.error(`切换视觉模型失败: ${err.message}`);
+                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                    }
+                                }
+                            };
+                        });
+
+                        return {
+                            label: service.name || service.id,
+                            icon: `<span class="pi ${isCurrentService ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
+                            onClick: async (context) => {
+                                try {
+                                    const res = await fetch(APIService.getApiUrl('/services/current'), {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ service_type: 'vlm', service_id: service.id })
+                                    });
+                                    if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
+                                    UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name}`);
+                                    logger.log(`视觉服务切换 | 服务: ${service.name}`);
+                                } catch (err) {
+                                    logger.error(`切换视觉服务失败: ${err.message}`);
+                                    UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
+                                }
+                            },
+                            children: modelChildren.length > 0 ? modelChildren : undefined
+                        };
+                    });
+
+                // ---创建规则菜单项（支持分类分组）---
+                const ruleMenuItems = [];
+
+                // 辅助函数：创建单个规则菜单项
+                const createRuleMenuItem = (prompt) => ({
                     label: prompt.name,
                     icon: `<span class="pi ${prompt.isActive ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}"></span>`,
                     onClick: async (context) => {
                         try {
-                            const response = await fetch('/prompt_assistant/api/config/active_prompt', {
+                            const response = await fetch(APIService.getApiUrl('/config/active_prompt'), {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ type: 'vision_en', prompt_id: prompt.id })
@@ -670,10 +847,37 @@ class ImageCaption {
                             UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${error.message}`);
                         }
                     }
-                }));
+                });
 
-                menuItems.push({ type: 'separator' });
-                menuItems.push({
+                // 按分类分组规则
+                const uncategorizedPrompts = visionPrompts.filter(p => !p.category);
+                const categorizedPrompts = visionPrompts.filter(p => p.category);
+
+                // 收集所有分类并排序
+                const categories = [...new Set(categorizedPrompts.map(p => p.category))].sort();
+
+                // 添加无分类的规则（放在顶层）
+                uncategorizedPrompts.forEach(prompt => {
+                    ruleMenuItems.push(createRuleMenuItem(prompt));
+                });
+
+                // 添加分类分组（每个分类作为二级菜单）
+                categories.forEach(category => {
+                    const promptsInCategory = categorizedPrompts.filter(p => p.category === category);
+                    const hasActivePrompt = promptsInCategory.some(p => p.isActive);
+
+                    ruleMenuItems.push({
+                        label: category,
+                        icon: `<span class="pi ${hasActivePrompt ? 'pi-folder-open' : 'pi-folder'}"></span>`,
+                        submenuAlign: 'center',
+                        children: promptsInCategory.map(prompt => createRuleMenuItem(prompt))
+                    });
+                });
+
+
+                // 添加规则管理选项
+                ruleMenuItems.push({ type: 'separator' });
+                ruleMenuItems.push({
                     label: '规则管理',
                     icon: '<span class="pi pi-pen-to-square"></span>',
                     onClick: () => {
@@ -681,56 +885,27 @@ class ImageCaption {
                     }
                 });
 
-                // 在规则管理下方添加 服务选择 子菜单（视觉模型提供商）
-                try {
-                    const resp = await fetch('/prompt_assistant/api/config/vision');
-                    if (resp.ok) {
-                        const cfg = await resp.json();
-                        const providers = cfg.providers || {};
-                        const current = cfg.provider || null;
-                        const providerNameMap = { zhipu: '智谱', siliconflow: '硅基流动', "302ai": '302.AI', ollama: 'Ollama', custom: '自定义' };
-                        const order = ['zhipu', 'siliconflow', '302ai', 'ollama', 'custom'];
-                        const children = order
-                            .filter(key => Object.prototype.hasOwnProperty.call(providers, key))
-                            .map(key => ({
-                                label: providerNameMap[key] || key,
-                                icon: `<span class=\"pi ${current === key ? 'pi-check-circle active-status' : 'pi-circle-off inactive-status'}\"></span>`,
-                                onClick: async (context) => {
-                                    try {
-                                        const res = await fetch('/prompt_assistant/api/config/vision', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ current_provider: key })
-                                        });
-                                        if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
-                                        UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${providerNameMap[key] || key}`);
-                                    } catch (err) {
-                                        logger.error(`切换视觉模型提供商失败: ${err.message}`);
-                                        UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
-                                    }
-                                }
-                            }));
-                        menuItems.push({
-                            label: '服务选择',
-                            icon: '<span class="pi pi-sparkles"></span>',
-                            children
-                        });
+                return [
+                    ...ruleMenuItems,
+                    // { type: 'separator' },
+                    {
+                        label: "选择服务",
+                        icon: '<span class="pi pi-sparkles"></span>',
+                        submenuAlign: 'bottom',
+                        children: serviceMenuItems
                     }
-                } catch (e) {
-                    logger.error(`加载视觉模型提供商失败: ${e.message}`);
-                }
-
-                return menuItems;
-
+                ];
             }
         });
 
-        // 按顺序添加元素：中文按钮 -> 英文按钮
+        // Create buttons
+
+
         if (buttonZh) {
-            assistant.innerContent.appendChild(buttonZh);
+            assistant.container.addButton(buttonZh, 'caption_zh');
         }
         if (buttonEn) {
-            assistant.innerContent.appendChild(buttonEn);
+            assistant.container.addButton(buttonEn, 'caption_en');
         }
     }
 
@@ -743,14 +918,35 @@ class ImageCaption {
 
         try {
             const node = assistant.node;
-            if (!node || !node.imgs || node.imgs.length === 0) {
-                throw new Error('未找到有效的图像');
+
+            // Vue Node 2.0 模式：从 DOM 获取当前显示的图像
+            // 传统 LiteGraph 模式：使用 node.imgs 属性
+            let currentImage = null;
+            const isVueMode = nodeMountService.isVueNodesMode();
+
+            if (isVueMode) {
+                // Vue Node 2.0 模式：从节点容器的 DOM 中获取图像
+                const nodeContainer = document.querySelector(`[data-node-id="${node.id}"]`);
+                if (nodeContainer) {
+                    // 查找节点容器内的 img 元素（优先查找预览图像）
+                    const imgElement = nodeContainer.querySelector('img');
+                    if (imgElement && imgElement.src) {
+                        // 使用 DOM 中的图像 src
+                        currentImage = imgElement.src;
+                        logger.debug(`[图像小助手-Vue模式] 从DOM获取图像 | 节点ID: ${node.id}`);
+                    }
+                }
             }
 
-            // 获取当前选中的图片
-            const currentImage = node.imgs[node.imageIndex || 0];
+            // 如果 Vue 模式未找到图像，或者是传统模式，使用 node.imgs
             if (!currentImage) {
-                throw new Error('未找到有效的图像');
+                if (!node.imgs || node.imgs.length === 0) {
+                    throw new Error('未找到有效的图像');
+                }
+                currentImage = node.imgs[node.imageIndex || 0];
+                if (!currentImage) {
+                    throw new Error('未找到有效的图像');
+                }
             }
 
             // 获取按钮元素
@@ -815,7 +1011,8 @@ class ImageCaption {
             );
 
             // 生成请求ID
-            currentRequestId = `${node.id}_${Date.now()}`;
+            // 生成请求ID
+            currentRequestId = APIService.generateRequestId('icap', null, node.id);
             // 保存到assistant对象中，以便取消操作
             assistant.currentRequestId = currentRequestId;
 
@@ -843,7 +1040,7 @@ class ImageCaption {
             // 获取当前激活的提示词内容
             let promptContent = '';
             try {
-                const response = await fetch('/prompt_assistant/api/config/system_prompts');
+                const response = await fetch(APIService.getApiUrl('/config/system_prompts'));
                 if (response.ok) {
                     const data = await response.json();
                     const activePromptKey = `vision_${lang}`;
@@ -1139,11 +1336,30 @@ class ImageCaption {
     _checkAssistantActiveState(assistant) {
         if (!assistant || !assistant.buttons) return false;
 
-        // 遍历所有按钮，检查是否有按钮处于active或processing状态
+        // 0. 检查是否正在切换弹窗（切换期间不允许折叠）
+        if (PopupManager._isTransitioning) {
+            console.log(`[ActiveState-Image] 阻止折叠 | 原因: PopupManager 正在切换弹窗`);
+            return true;
+        }
+
+        // 1. 检查右键菜单是否可见（并且属于当前 assistant）
+        if (buttonMenu.isMenuVisible && buttonMenu.menuContext?.widget === assistant) {
+            console.log(`[ActiveState-Image] 阻止折叠 | 原因: 右键菜单可见`);
+            return true;
+        }
+
+        // 2. 检查 PopupManager 的活动弹窗是否属于当前 assistant
+        if (PopupManager.activePopupInfo?.buttonInfo?.widget === assistant) {
+            console.log(`[ActiveState-Image] 阻止折叠 | 原因: PopupManager.activePopupInfo 匹配`);
+            return true;
+        }
+
+        // 3. 检查按钮的 active/processing 状态
         for (const buttonId in assistant.buttons) {
             const button = assistant.buttons[buttonId];
             if (button.classList.contains('button-active') ||
                 button.classList.contains('button-processing')) {
+                console.log(`[ActiveState-Image] 阻止折叠 | 原因: 按钮${buttonId}状态激活`);
                 return true;
             }
         }
@@ -1306,125 +1522,26 @@ class ImageCaption {
     /**
      * 展开小助手
      */
+
     _expandAssistant(assistant) {
-        if (!assistant || !assistant.element || !assistant.isCollapsed || assistant.isTransitioning) return;
-
-        assistant.isTransitioning = true;
-
-        // 隐藏悬停区域，避免覆盖按钮
-        if (assistant.hoverArea) {
-            assistant.hoverArea.style.display = 'none';
+        if (assistant && assistant.container) {
+            assistant.container.expand();
         }
-
-        const containerDiv = assistant.element;
-
-        // 计算展开后的宽度
-        let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
-
-        // 如果没有保存宽度或需要重新计算
-        if (!targetWidth || targetWidth === '') {
-            // 先移除折叠类，但保持不可见状态进行测量
-            containerDiv.classList.remove('collapsed');
-            const originalDisplay = containerDiv.style.display;
-            const originalOpacity = containerDiv.style.opacity;
-
-            // 临时设置样式以便测量
-            containerDiv.style.opacity = '0';
-            containerDiv.style.display = 'flex';
-            containerDiv.style.position = 'fixed';
-
-            // 强制回流并测量
-            void containerDiv.offsetWidth;
-
-            // 获取自然宽度
-            const naturalWidth = containerDiv.offsetWidth;
-            targetWidth = naturalWidth + 'px';
-
-            // 保存宽度供将来使用
-            containerDiv.style.setProperty('--expanded-width', targetWidth);
-
-            // 恢复原始样式
-            containerDiv.style.opacity = originalOpacity;
-            containerDiv.style.position = 'fixed';
-
-            // 重新应用折叠类以准备动画
-            containerDiv.classList.add('collapsed');
-            void containerDiv.offsetWidth; // 强制回流
-        }
-
-        // 手动设置宽度转换
-        containerDiv.style.width = '28px'; // 起始宽度
-
-        // 强制回流
-        void containerDiv.offsetWidth;
-
-        // 移除折叠类
-        containerDiv.classList.remove('collapsed');
-
-        // 设置目标宽度以触发过渡
-        containerDiv.style.width = targetWidth;
-
-        // 动画结束后清理
-        setTimeout(() => {
-            // 移除固定宽度，恢复自动宽度
-            containerDiv.style.width = '';
-            assistant.isCollapsed = false;
-            assistant.isTransitioning = false;
-        }, 300);
     }
+
 
     /**
      * 触发自动折叠
      */
+
     triggerAutoCollapse(assistant) {
-        // 如果widget没有初始化或者已经处于折叠状态，则不处理
-        if (!assistant || !assistant.element || assistant.isCollapsed || assistant.isTransitioning) return;
-
-        // 如果有活跃按钮，不自动折叠
-        if (this._checkAssistantActiveState(assistant)) return;
-
-        // 如果鼠标当前悬停在容器上，不自动折叠
-        if (assistant.isMouseOver) return;
-
-        // 清除可能已存在的自动折叠定时器
-        if (assistant._autoCollapseTimer) {
-            clearTimeout(assistant._autoCollapseTimer);
+        if (assistant && assistant.container) {
+            assistant.container.collapse();
         }
-
-        // 设置自动折叠定时器
-        assistant._autoCollapseTimer = setTimeout(() => {
-            // 再次检查条件
-            if (!assistant.isCollapsed && !assistant.isTransitioning &&
-                !this._checkAssistantActiveState(assistant) && !assistant.isMouseOver) {
-
-                const containerDiv = assistant.element;
-
-                // 保存当前宽度用于展开动画
-                if (containerDiv.offsetWidth > 0) {
-                    containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
-                }
-
-                // 设置过渡状态
-                assistant.isTransitioning = true;
-
-                // 直接添加折叠类
-                containerDiv.classList.add('collapsed');
-                assistant.isCollapsed = true;
-
-                // 显示悬停区域，用于检测鼠标悬停以展开UI
-                if (assistant.hoverArea) {
-                    assistant.hoverArea.style.display = 'block';
-                }
-
-                // 动画结束后重置过渡状态
-                setTimeout(() => {
-                    assistant.isTransitioning = false;
-                }, 300);
-            }
-
-            assistant._autoCollapseTimer = null;
-        }, 1000);
     }
+
+
+
 
     /**
      * 添加带图标的按钮
@@ -1477,12 +1594,78 @@ class ImageCaption {
 
     /**
      * 设置UI位置
+     * 支持 Vue node2.0 和 litegraph.js 两种渲染模式
      */
     _setupUIPosition(assistant) {
         if (!assistant?.element || !assistant?.node) return;
 
         const containerDiv = assistant.element;
+        const renderMode = nodeMountService.detectRenderMode();
 
+        // 保存渲染模式到assistant
+        assistant._renderMode = renderMode;
+
+        if (renderMode === RENDER_MODE.VUE_NODES) {
+            // Vue node2.0 模式：使用相对定位挂载到节点容器内
+            this._setupUIPositionVueNodes(assistant, containerDiv);
+        } else {
+            // litegraph.js 模式：使用fixed定位和画布坐标计算
+            this._setupUIPositionLitegraph(assistant, containerDiv);
+        }
+    }
+
+    /**
+     * Vue node2.0 模式下的定位逻辑
+     */
+    _setupUIPositionVueNodes(assistant, containerDiv) {
+        const containerInfo = nodeMountService.findImageNodeContainer(assistant.node);
+
+        if (!containerInfo || !containerInfo.container) {
+            logger.warn(`[图像小助手-Vue定位] 未找到节点容器 | ID: ${assistant.node.id}`);
+            // 降级到litegraph模式
+            this._setupUIPositionLitegraph(assistant, containerDiv);
+            return;
+        }
+
+        const { container: nodeContainer } = containerInfo;
+
+        // Vue模式：使用绝对定位，挂载到节点容器内
+        containerDiv.style.position = 'absolute';
+        containerDiv.style.left = '6px';
+        containerDiv.style.bottom = '6px';
+        containerDiv.style.right = 'auto';
+        containerDiv.style.top = 'auto';
+        containerDiv.style.zIndex = '10';
+
+        // 移除fixed定位相关样式
+        containerDiv.style.transform = 'none';
+
+        // 添加Vue模式标记类
+        containerDiv.classList.add('vue-node-mode');
+
+        // 从document.body移除（如果之前挂载过）
+        if (containerDiv.parentElement === document.body) {
+            document.body.removeChild(containerDiv);
+        }
+
+        // 挂载到节点容器
+        nodeContainer.appendChild(containerDiv);
+
+        // 添加清理函数
+        assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
+        assistant._eventCleanupFunctions.push(() => {
+            if (containerDiv && containerDiv.parentElement) {
+                containerDiv.parentElement.removeChild(containerDiv);
+            }
+        });
+
+        logger.debug(`[图像小助手-Vue定位] 完成 | 节点ID: ${assistant.node.id}`);
+    }
+
+    /**
+     * litegraph.js 模式下的定位逻辑（原有逻辑）
+     */
+    _setupUIPositionLitegraph(assistant, containerDiv) {
         // 更新位置的函数
         const updatePosition = () => {
             if (!assistant.element || !assistant.node) return;
@@ -1531,7 +1714,11 @@ class ImageCaption {
                 containerDiv.style.setProperty('--assistant-scale', scale);
 
             } catch (error) {
-                logger.error(`更新小助手位置失败: ${error.message}`);
+                // 仅在首次出错时记录
+                if (!assistant._lastPositionError) {
+                    logger.error(() => `更新小助手位置失败: ${error.message}`);
+                    assistant._lastPositionError = Date.now();
+                }
             }
         };
 
@@ -1549,17 +1736,18 @@ class ImageCaption {
         // 监听画布变化
         if (app.canvas) {
             // 监听画布重绘
+            // 优化：使用requestAnimationFrame在每一帧更新位置，或者直接利用 LiteGraph 的渲染循环
+            // 这里为了跟随平滑，直接在 drawBackground 钩子中更新
             const originalDrawBackground = app.canvas.onDrawBackground;
             app.canvas.onDrawBackground = function () {
                 const ret = originalDrawBackground?.apply(this, arguments);
-                // 直接调用updatePosition确保位置准确
                 updatePosition();
                 return ret;
             };
 
             // 添加画布重绘清理函数
             assistant._eventCleanupFunctions.push(() => {
-                if (originalDrawBackground) {
+                if (app.canvas.onDrawBackground === arguments.callee) {
                     app.canvas.onDrawBackground = originalDrawBackground;
                 }
             });
@@ -1797,202 +1985,10 @@ class ImageCaption {
      * 设置展开折叠事件
      */
     _setupCollapseExpandEvents(assistant) {
-        if (!assistant?.element) return;
-
-        const containerDiv = assistant.element;
-
-        // 记录原始宽度，用于展开动画
-        const saveOriginalWidth = () => {
-            if (!assistant.isCollapsed && containerDiv.offsetWidth > 0) {
-                containerDiv.style.setProperty('--expanded-width', `${containerDiv.offsetWidth}px`);
-            }
-        };
-
-        // 延迟保存宽度，确保DOM已完全渲染
-        setTimeout(saveOriginalWidth, 300);
-
-        // 折叠函数
-        const collapseAssistant = () => {
-            if (assistant.isCollapsed || assistant.isTransitioning) return;
-
-            // 保存当前宽度用于展开动画
-            saveOriginalWidth();
-            assistant.isTransitioning = true;
-
-            // 直接添加折叠类
-            containerDiv.classList.add('collapsed');
-            assistant.isCollapsed = true;
-
-            // 显示悬停区域，用于检测鼠标悬停以展开UI
-            assistant.hoverArea.style.display = 'block';
-
-            // 动画结束后重置过渡状态
-            setTimeout(() => {
-                assistant.isTransitioning = false;
-            }, 300);
-        };
-
-        // 展开函数
-        const expandAssistant = () => {
-            if (!assistant.isCollapsed || assistant.isTransitioning) return;
-
-            assistant.isTransitioning = true;
-
-            // 隐藏悬停区域，避免覆盖按钮
-            assistant.hoverArea.style.display = 'none';
-
-            // 计算展开后的宽度
-            let targetWidth = containerDiv.style.getPropertyValue('--expanded-width');
-
-            // 如果没有保存宽度或需要重新计算
-            if (!targetWidth || targetWidth === '') {
-                // 先移除折叠类，但保持不可见状态进行测量
-                containerDiv.classList.remove('collapsed');
-                const originalDisplay = containerDiv.style.display;
-                const originalOpacity = containerDiv.style.opacity;
-
-                // 临时设置样式以便测量
-                containerDiv.style.opacity = '0';
-                containerDiv.style.display = 'flex';
-                containerDiv.style.position = 'fixed';
-
-                // 强制回流并测量
-                void containerDiv.offsetWidth;
-
-                // 获取自然宽度
-                const naturalWidth = containerDiv.offsetWidth;
-                targetWidth = naturalWidth + 'px';
-
-                // 保存宽度供将来使用
-                containerDiv.style.setProperty('--expanded-width', targetWidth);
-
-                // 恢复原始样式
-                containerDiv.style.opacity = originalOpacity;
-                containerDiv.style.position = 'fixed';
-
-                // 重新应用折叠类以准备动画
-                containerDiv.classList.add('collapsed');
-                void containerDiv.offsetWidth; // 强制回流
-            }
-
-            // 手动设置宽度转换
-            containerDiv.style.width = '28px'; // 起始宽度
-
-            // 强制回流
-            void containerDiv.offsetWidth;
-
-            // 移除折叠类
-            containerDiv.classList.remove('collapsed');
-
-            // 设置目标宽度以触发过渡
-            containerDiv.style.width = targetWidth;
-
-            // 动画结束后清理
-            setTimeout(() => {
-                // 移除固定宽度，恢复自动宽度
-                containerDiv.style.width = '';
-                assistant.isCollapsed = false;
-                assistant.isTransitioning = false;
-            }, 300);
-        };
-
-        // 创建折叠定时器变量
-        let collapseTimer = null;
-        let autoCollapseTimer = null;
-
-        // 鼠标离开容器时折叠
-        const handleMouseLeave = () => {
-            // 如果有活跃按钮，不折叠
-            if (this._checkAssistantActiveState(assistant)) return;
-
-            // 设置延时，避免鼠标短暂离开就触发折叠
-            collapseTimer = setTimeout(() => {
-                collapseAssistant();
-            }, 500);
-        };
-
-        // 鼠标进入容器时取消折叠定时器
-        const handleMouseEnter = () => {
-            if (collapseTimer) {
-                clearTimeout(collapseTimer);
-                collapseTimer = null;
-            }
-
-            // 取消自动折叠定时器
-            if (autoCollapseTimer) {
-                clearTimeout(autoCollapseTimer);
-                autoCollapseTimer = null;
-            }
-
-            // 如果当前是折叠状态，则展开
-            if (assistant.isCollapsed) {
-                expandAssistant();
-            }
-        };
-
-        // 为容器添加鼠标事件
-        const removeContainerMouseLeave = EventManager.addDOMListener(containerDiv, 'mouseleave', handleMouseLeave);
-        const removeContainerMouseEnter = EventManager.addDOMListener(containerDiv, 'mouseenter', handleMouseEnter);
-
-        // 为悬停区域添加鼠标事件
-        const removeHoverAreaMouseEnter = EventManager.addDOMListener(assistant.hoverArea, 'mouseenter', handleMouseEnter);
-
-        // 添加清理函数
-        assistant._eventCleanupFunctions = assistant._eventCleanupFunctions || [];
-        assistant._eventCleanupFunctions.push(removeContainerMouseLeave);
-        assistant._eventCleanupFunctions.push(removeContainerMouseEnter);
-        assistant._eventCleanupFunctions.push(removeHoverAreaMouseEnter);
-
-        // 添加清理定时器的函数
-        assistant._eventCleanupFunctions.push(() => {
-            if (collapseTimer) {
-                clearTimeout(collapseTimer);
-                collapseTimer = null;
-            }
-            if (autoCollapseTimer) {
-                clearTimeout(autoCollapseTimer);
-                autoCollapseTimer = null;
-            }
-        });
-
-        // 创建后自动折叠功能
-        const setupAutoCollapse = () => {
-            // 如果有活跃按钮，不自动折叠
-            if (this._checkAssistantActiveState(assistant)) return;
-
-            // 设置自动折叠定时器，1秒后自动折叠
-            autoCollapseTimer = setTimeout(() => {
-                // 再次检查是否有活跃按钮或鼠标悬停在容器上
-                if (!this._checkAssistantActiveState(assistant) && !assistant.isMouseOver) {
-                    collapseAssistant();
-                }
-            }, 1000);
-        };
-
-        // 添加鼠标悬停状态跟踪
-        assistant.isMouseOver = false;
-        const trackMouseOver = () => {
-            assistant.isMouseOver = true;
-        };
-        const trackMouseOut = () => {
-            assistant.isMouseOver = false;
-        };
-
-        // 为容器和悬停区域添加鼠标悬停状态跟踪
-        const removeContainerMouseOverTracking = EventManager.addDOMListener(containerDiv, 'mouseover', trackMouseOver);
-        const removeContainerMouseOutTracking = EventManager.addDOMListener(containerDiv, 'mouseout', trackMouseOut);
-        const removeHoverAreaMouseOverTracking = EventManager.addDOMListener(assistant.hoverArea, 'mouseover', trackMouseOver);
-        const removeHoverAreaMouseOutTracking = EventManager.addDOMListener(assistant.hoverArea, 'mouseout', trackMouseOut);
-
-        // 添加清理函数
-        assistant._eventCleanupFunctions.push(removeContainerMouseOverTracking);
-        assistant._eventCleanupFunctions.push(removeContainerMouseOutTracking);
-        assistant._eventCleanupFunctions.push(removeHoverAreaMouseOverTracking);
-        assistant._eventCleanupFunctions.push(removeHoverAreaMouseOutTracking);
-
-        // 设置自动折叠（延迟执行，确保DOM已完全渲染）
-        setTimeout(setupAutoCollapse, 500);
+        // Event handling is delegated to AssistantContainer
     }
+
+
 
     /**
      * 设置按钮右键菜单

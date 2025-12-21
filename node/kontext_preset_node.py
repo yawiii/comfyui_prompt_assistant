@@ -14,33 +14,15 @@ from PIL import Image
 from comfy.model_management import InterruptProcessingException
 
 from ..services.vlm import VisionService
-from ..services.error_util import format_api_error
-
-# 定义ANSI颜色代码常量
-GREEN = "\033[32m"
-BLUE = "\033[34m"
-YELLOW = "\033[33m"
-RESET = "\033[0m"
+from ..utils.common import format_api_error, log_prepare, log_error, SOURCE_NODE, generate_request_id
+from .base import VLMNodeBase
 
 
-class KontextPresetNode:
+class KontextPresetNode(VLMNodeBase):
     """
     Kontext预设助手节点
     使用Kontext预设分析图像并生成创意转换指令
     """
-    # 定义日志前缀
-    LOG_PREFIX = f"{GREEN}[✨PromptAssistant]{RESET}"  # 绿色：结果阶段
-    REQUEST_PREFIX = f"{BLUE}[✨PromptAssistant]{RESET}"  # 蓝色：准备阶段
-    PROCESS_PREFIX = f"{YELLOW}[✨PromptAssistant]{RESET}"  # 黄色：API调用阶段
-    
-    # 提供商显示名称映射
-    PROVIDER_DISPLAY_MAP = {
-        "zhipu": "智谱",
-        "siliconflow": "硅基流动",
-        "302ai": "302.AI",
-        "ollama": "Ollama",
-        "custom": "自定义"
-    }
     
     # 缓存配置数据，避免重复从文件系统读取
     _kontext_config = None
@@ -50,8 +32,10 @@ class KontextPresetNode:
         """加载Kontext配置，使用缓存避免重复读取文件"""
         if cls._kontext_config is None:
             try:
-                config_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config")
-                kontext_presets_path = os.path.join(config_dir, "kontext_presets.json")
+                from ..config_manager import config_manager
+                # 使用 config_manager 的 kontext_presets_path (指向 rules 目录)
+                kontext_presets_path = config_manager.kontext_presets_path
+                
                 if os.path.exists(kontext_presets_path):
                     with open(kontext_presets_path, "r", encoding="utf-8") as f:
                         cls._kontext_config = json.load(f)
@@ -61,6 +45,7 @@ class KontextPresetNode:
                 print(f"{cls.LOG_PREFIX} 加载Kontext配置失败: {str(e)}")
                 cls._kontext_config = {}
         return cls._kontext_config
+
     
     @classmethod
     def INPUT_TYPES(cls):
@@ -79,79 +64,71 @@ class KontextPresetNode:
         # 如果没有选项，添加一个默认选项
         if not prompt_template_options:
             prompt_template_options = ["情境深度融合"]
+        
+        # ---动态获取VLM服务/模型列表---
+        service_options = cls.get_vlm_service_options()
+        default_service = service_options[0] if service_options else "智谱"
 
         return {
             "required": {
-                "图像": ("IMAGE",),
-                "Kontext预设": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "情境深度融合"}),
-                "视觉服务": (["智谱", "硅基流动", "302.AI", "Ollama", "自定义"], {"default": "智谱"}),
-                # Ollama自动释放：仅对Ollama视觉服务生效
-                "Ollama自动释放": ("BOOLEAN", {"default": True, "label_on": "启用", "label_off": "禁用", "tooltip": "⚠️ 该选项仅在选择了Ollama服务时生效"}),
+                "image": ("IMAGE",),
+                "kontext_preset": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "情境深度融合"}),
+                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求,将与预设一起发送给模型"}),
+                "vlm_service": (service_options, {"default": default_service, "tooltip": "Select VLM service and model"}),
+                # Ollama Automatic VRAM Unload
+                "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),
             },
         }
 
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("创意指令",)
+    RETURN_NAMES = ("creative_instruction",)
     FUNCTION = "analyze_image"
-    CATEGORY = "✨提示词小助手"
+    CATEGORY = "✨Prompt Assistant"
     OUTPUT_NODE = False
     
     @classmethod
-    def IS_CHANGED(cls, 图像=None, Kontext预设=None, 视觉服务=None, Ollama自动释放=None):
+    def IS_CHANGED(cls, image=None, kontext_preset=None, user_prompt=None, vlm_service=None, ollama_auto_unload=None):
         """
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
         """
-        # 计算图像的哈希值（只使用第一帧的部分数据，避免计算量过大）
-        img_hash = ""
-        if 图像 is not None:
-            try:
-                if len(图像.shape) == 4:
-                    # 取第一帧的中心区域作为哈希计算依据
-                    h, w = 图像.shape[1:3]
-                    center_h, center_w = h // 2, w // 2
-                    size = min(100, h // 4, w // 4)  # 限制计算区域大小
-                    img_data = 图像[0,
-                                      max(0, center_h - size):min(h, center_h + size),
-                                      max(0, center_w - size):min(w, center_w + size),
-                                      0].cpu().numpy().tobytes()
-                    img_hash = hashlib.md5(img_data).hexdigest()
-                else:
-                    # 如果不是4D张量，使用整个张量的哈希
-                    img_data = 图像.cpu().numpy().tobytes()
-                    img_hash = hashlib.md5(img_data).hexdigest()
-            except Exception:
-                img_hash = "0"
+        # 导入图像哈希工具函数
+        from ..utils.image import compute_image_hash
+        
+        # 计算图像的哈希值
+        img_hash = compute_image_hash(image)
 
         # 组合所有输入的哈希值
         input_hash = hash((
             img_hash,
-            Kontext预设,
-            视觉服务,
-            bool(Ollama自动释放)
+            kontext_preset,
+            user_prompt,
+            vlm_service,
+            bool(ollama_auto_unload)
         ))
 
         return input_hash
     
-    def analyze_image(self, 图像, Kontext预设, 视觉服务, Ollama自动释放):
+    def analyze_image(self, image, kontext_preset, user_prompt, vlm_service, ollama_auto_unload):
         """
         使用Kontext预设分析图像并生成创意转换指令
 
         Args:
-            图像: 输入的图像数据
-            Kontext预设: 选择的Kontext预设
-            视觉服务: 选择的视觉服务
+            image: 输入的图像数据
+            kontext_preset: 选择的Kontext预设
+            user_prompt: 用户补充的提示词
+            vlm_service: 选择的视觉服务
 
         Returns:
             tuple: 分析结果
         """
         try:
             # 检查输入
-            if 图像 is None:
+            if image is None:
                 raise ValueError("输入图像不能为空")
 
             # 将图像转换为base64编码
-            image_data = self._image_to_base64(图像)
+            image_data = self._image_to_base64(image)
 
             # 获取kontext配置
             config_data = self.__class__._load_kontext_config()
@@ -163,10 +140,10 @@ class KontextPresetNode:
             prompt_template = None
 
             # 查找选定的提示词模板
-            preset_name = Kontext预设
+            preset_name = kontext_preset
             template_found = False
             for key, value in kontext_presets.items():
-                if value.get('name') == Kontext预设:
+                if value.get('name') == kontext_preset:
                     prompt_template = value.get('content')
                     template_found = True
                     break
@@ -174,7 +151,7 @@ class KontextPresetNode:
             if not template_found:
                 # 尝试直接匹配键名
                 for key, value in kontext_presets.items():
-                    if key == Kontext预设 or key == f"kontext_{Kontext预设}":
+                    if key == kontext_preset or key == f"kontext_{kontext_preset}":
                         prompt_template = value.get('content')
                         template_found = True
                         break
@@ -188,192 +165,103 @@ class KontextPresetNode:
             final_prompt = prompt_template
             if kontext_prefix and kontext_suffix:
                 final_prompt = f"{kontext_prefix}\n\nThe Brief: {prompt_template}\n\n{kontext_suffix}"
+            
+            # 拼接用户提示词
+            if user_prompt and user_prompt.strip():
+                final_prompt = f"{final_prompt}\n\n用户补充要求：\n{user_prompt}"
 
-            # 映射视觉服务选项到provider
-            provider_map = {
-                "智谱": "zhipu",
-                "硅基流动": "siliconflow",
-                "302.AI": "302ai",
-                "Ollama": "ollama",
-                "自定义": "custom"
-            }
-
-            # 获取选定的provider
-            selected_provider = provider_map.get(视觉服务)
-            if not selected_provider:
-                raise ValueError(f"不支持的视觉服务: {视觉服务}")
-
-            # 获取对应provider的配置
+            # ---解析服务/模型字符串---
+            service_id, model_name = self.parse_service_model(vlm_service)
+            if not service_id:
+                raise ValueError(f"Invalid service selection: {vlm_service}")
+            
+            # ---获取服务配置---
             from ..config_manager import config_manager
-            provider_config = self._get_provider_config(config_manager, selected_provider)
-            if not provider_config:
-                raise ValueError(f"未找到{视觉服务}的配置，请先完成API配置")
+            service = config_manager.get_service(service_id)
+            if not service:
+                raise ValueError(f"Service config not found: {vlm_service}")
+            
+            # ---构建provider_config---
+            # 查找指定的模型或默认模型
+            vlm_models = service.get('vlm_models', [])
+            target_model = None
+            
+            if model_name:
+                # 查找指定的模型
+                target_model = next((m for m in vlm_models if m.get('name') == model_name), None)
+            
+            if not target_model:
+                # 使用默认模型或第一个模型
+                target_model = next((m for m in vlm_models if m.get('is_default')), 
+                                    vlm_models[0] if vlm_models else None)
+            
+            if not target_model:
+                raise ValueError(f"Service {vlm_service} has no available models")
+            
+            # 构建配置对象
+            provider_config = {
+                'provider': service_id,
+                'model': target_model.get('name', ''),
+                'base_url': service.get('base_url', ''),
+                'api_key': service.get('api_key', ''),
+                'temperature': target_model.get('temperature', 0.7),
+                'max_tokens': target_model.get('max_tokens', 500),
+                'top_p': target_model.get('top_p', 0.9),
+            }
+            
+            # Ollama特殊处理:添加auto_unload配置
+            if service.get('type') == 'ollama':
+                provider_config['auto_unload'] = ollama_auto_unload
 
             # 创建请求ID
             request_id = f"kontext_preset_{int(time.time())}_{random.randint(1000, 9999)}"
             
-            # 准备阶段日志（合并为一条）
-            print(f"{self.REQUEST_PREFIX} Kontext预设准备 | 服务:{视觉服务} | 模型:{provider_config.get('model')} | 预设:{preset_name} | 请求ID:{request_id}")
+            # 获取服务显示名称
+            service_display_name = service.get('name', service_id)
+            
+            # 准备阶段日志
+            log_prepare("Kontext预设", request_id, SOURCE_NODE, service_display_name, provider_config.get('model'), preset_name)
 
             # 执行图像分析
-            result = self._analyze_with_vision_service(image_data, final_prompt, selected_provider, provider_config, request_id, Ollama自动释放)
+            result = self._run_vision_task(
+                VisionService.analyze_image,
+                service_id,
+                image_data=image_data,
+                request_id=request_id,
+                stream_callback=None,
+                prompt_content=final_prompt,
+                custom_provider=service_id,
+                custom_provider_config=provider_config,
+                task_type="Kontext预设",
+                source=SOURCE_NODE
+            )
 
             if result and result.get('success'):
                 description = result.get('data', {}).get('description', '').strip()
                 if not description:
-                    error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
-                    print(f"{self.LOG_PREFIX} Kontext预设失败 | 错误:{error_msg}")
-                    raise RuntimeError(f"分析失败: {error_msg}")
+                    error_msg = 'API returned empty result'
+                    log_error("Kontext预设", request_id, error_msg, source=SOURCE_NODE)
+                    raise RuntimeError(f"Analysis failed: {error_msg}")
 
                 # 服务层已经打印了完成日志，这里不再重复
                 return (description,)
             else:
-                error_msg = result.get('error', '分析失败，未知错误') if result else '分析服务未返回结果'
-                print(f"{self.LOG_PREFIX} Kontext预设分析失败: {error_msg}")
-                raise RuntimeError(f"分析失败: {error_msg}")
+                error_msg = result.get('error', 'Unknown error') if result else 'No result returned'
+                # 如果是中断错误,直接打印日志并抛出InterruptProcessingException
+                if error_msg == "任务被中断":
+                    print(f"{self.LOG_PREFIX} ⛔️Task cancelled by user | RequestID:{request_id}")
+                    raise InterruptProcessingException()
+                log_error("Kontext预设", request_id, error_msg, source=SOURCE_NODE)
+                raise RuntimeError(f"Analysis failed: {error_msg}")
 
         except InterruptProcessingException:
-            print(f"{self.LOG_PREFIX} Kontext预设任务被用户取消")
+            print(f"{self.LOG_PREFIX} ⛔️Task cancelled by user | RequestID:{request_id}")
             raise
         except Exception as e:
-            error_msg = format_api_error(e, 视觉服务)
-            print(f"{self.LOG_PREFIX} Kontext预设节点异常: {error_msg}")
-            raise RuntimeError(f"分析异常: {error_msg}")
+            error_msg = format_api_error(e, vlm_service)
+            log_error("Kontext预设", request_id, error_msg, source=SOURCE_NODE)
+            raise RuntimeError(f"Analysis error: {error_msg}")
 
-    def _analyze_with_vision_service(self, image_data, prompt_template, provider, provider_config, request_id, auto_unload):
-        """使用视觉服务分析图像"""
-        try:
-            result_container = {}
-
-            # 在独立线程中运行图像分析
-            thread = threading.Thread(
-                target=self._run_async_vision_analysis,
-                args=(image_data, prompt_template, request_id, result_container, provider, provider_config, auto_unload)
-            )
-            thread.start()
-
-            # 等待分析完成，同时检查中断
-            while thread.is_alive():
-                # 检查是否被中断 - 这会抛出 InterruptProcessingException
-                try:
-                    import nodes
-                    nodes.before_node_execution()
-                except:
-                    # 如果检查中断时出现异常，说明被中断了
-                    print(f"{self.LOG_PREFIX} 检测到中断信号，正在终止分析任务...")
-                    # 设置结果容器为中断状态，让线程知道要停止
-                    result_container['interrupted'] = True
-                    # 等待线程结束或超时
-                    thread.join(timeout=1.0)
-                    if thread.is_alive():
-                        print(f"{self.LOG_PREFIX} 分析线程未能及时响应中断")
-                    raise InterruptProcessingException()
-
-                time.sleep(0.1)
-
-            return result_container.get('result')
-
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-    def _run_async_vision_analysis(self, image_data, prompt_template, request_id, result_container, provider, provider_config, auto_unload):
-        """在独立线程中运行异步图像分析任务（改为复用服务层，获得Gemini兼容与降级能力）"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result = loop.run_until_complete(
-                VisionService.analyze_image(
-                    image_data=image_data,
-                    request_id=request_id,
-                    stream_callback=None,
-                    prompt_content=prompt_template,
-                    custom_provider=provider,
-                    custom_provider_config=provider_config
-                )
-            )
-
-            if result_container.get('interrupted'):
-                result_container['result'] = {"success": False, "error": "任务被中断"}
-                return
-
-            result_container['result'] = result
-
-        except Exception as e:
-            error_message = format_api_error(e, provider)
-            result_container['result'] = {"success": False, "error": error_message}
-        finally:
-            loop.close()
-
-    def _get_provider_config(self, config_manager, provider):
-        """获取指定provider的配置"""
-        vision_config = config_manager.get_vision_config()
-        if 'providers' in vision_config and provider in vision_config['providers']:
-            return vision_config['providers'][provider]
-        return None
-    
-    async def _unload_ollama_model(self, model: str, provider_config: dict, auto_unload: bool):
-        """
-        卸载Ollama模型以释放显存和内存
-        
-        参数:
-            model: 模型名称
-            provider_config: 提供商配置字典
-            auto_unload: 是否启用自动释放（来自节点参数）
-        """
-        try:
-            # 检查是否启用自动释放（使用节点参数，不从provider_config读取）
-            if not auto_unload:
-                return
-            
-            # 获取base_url
-            base_url = provider_config.get('base_url', 'http://localhost:11434')
-            # 确保URL不以/v1结尾（Ollama原生API不需要/v1）
-            if base_url.endswith('/v1'):
-                base_url = base_url[:-3]
-            
-            # 调用Ollama API卸载模型
-            url = f"{base_url}/api/generate"
-            payload = {
-                "model": model,
-                "keep_alive": 0  # 立即卸载模型
-            }
-            
-            print(f"{self.PROCESS_PREFIX} Ollama自动释放显存 | 模型:{model}")
-            
-            import httpx
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(url, json=payload)
-                
-        except Exception as e:
-            # 释放失败不影响主流程，只记录警告
-            print(f"{self.LOG_PREFIX} Ollama模型释放失败（不影响结果） | 模型:{model} | 错误:{str(e)[:50]}")
-    
-    def _image_to_base64(self, image_tensor):
-        """将图像张量转换为base64编码"""
-        # 确保图像是正确的形状 [batch, height, width, channels]
-        if len(image_tensor.shape) == 4:
-            # 取第一张图片
-            image_tensor = image_tensor[0]
-        
-        # 将图像转换为numpy数组并缩放到0-255范围
-        image_np = (image_tensor.cpu().numpy() * 255).astype(np.uint8)
-        
-        # 创建PIL图像
-        image = Image.fromarray(image_np)
-        
-        # 将图像转换为JPEG格式的字节流
-        buffer = BytesIO()
-        image.save(buffer, format="JPEG", quality=95)
-        
-        # 将字节流转换为base64编码
-        encoded_image = base64.b64encode(buffer.getvalue()).decode('utf-8')
-        
-        # 返回带有MIME类型的data URL
-        return f"data:image/jpeg;base64,{encoded_image}"
 
 # 节点映射，用于向ComfyUI注册节点
 NODE_CLASS_MAPPINGS = {
@@ -382,5 +270,5 @@ NODE_CLASS_MAPPINGS = {
 
 # 节点显示名称映射
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "KontextPresetNode": "✨Kontext预设",
+    "KontextPresetNode": "✨Kontext Preset",
 } 

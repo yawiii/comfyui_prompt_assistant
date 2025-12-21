@@ -1,6 +1,6 @@
 /**
- * API配置管理器
- * 负责管理API配置弹窗和API相关设置
+ * API配置管理器 v2.0
+ * 支持动态服务商管理和多模型配置
  */
 
 import { app } from "../../../../scripts/app.js";
@@ -10,187 +10,54 @@ import {
     createFormGroup,
     createInputGroup,
     createSelectGroup,
-    createHorizontalFormGroup
-} from "./settings.js";
+    createHorizontalFormGroup,
+    createSwitchControl,
+    createConfirmPopup,
+    createContextMenu,
+    createTooltip,
+    createMultiSelectListbox
+} from "./uiComponents.js";
+import { APIService } from "../services/api.js";
+
+// Sortable库已通过script标签加载，直接使用全局变量
 
 class APIConfigManager {
+    // 预置服务商ID列表（不可编辑/删除）
+    static PRESET_SERVICE_IDS = ['zhipu', 'xFlow', 'ollama'];
+
     constructor() {
-        this.llmAllProviders = {};
-        this.visionAllProviders = {};
-        this.llmModel = null;
-        this.llmApiKey = null;
-        this.llmBaseUrl = null;
-        this.visionModel = null;
-        this.visionApiKey = null;
-        this.visionBaseUrl = null;
+        // 服务商数据
+        this.services = [];
+        this.currentServices = { llm: null, vlm: null };
+
+        // 百度翻译配置
+        this.baiduConfig = { app_id: '', secret_key: '' };
     }
 
     /**
      * 显示API配置弹窗
      */
-    showAPIConfigModal() {
+    async showAPIConfigModal() {
         try {
-            logger.debug('打开API配置弹窗');
+            logger.debug('打开API配置弹窗 v2.0');
 
             createSettingsDialog({
-                title: 'API管理器',
-                dialogClassName: 'api-config-dialog',
+                title: '<i class="pi pi-cog" style="margin-right: 8px;"></i>API管理器',
+                dialogClassName: 'api-config-dialog-v2',
                 disableBackdropAndCloseOnClickOutside: true,
+                hideFooter: true,  // 不显示底部的保存/取消按钮
                 renderNotice: (noticeArea) => {
-                    // 添加副标题说明
                     const subtitle = document.createElement('div');
-                    subtitle.style.cssText = `
-                        font-size: 12px;
-                        color: var(--p-text-muted-color);
-                        padding: 4px 40px 4px 40px;
-                        line-height: 1.6;
-                        text-align: left;
-                    `;
-                    subtitle.textContent = '⚠️本插件仅提供API调用，服务可用性、质量效果及收费标准均由第三方提供商以及所调用的模型能力决定。填写的APIkey仅保存在本地插件目录“config/config.json”文件中。请不要向别人分享config.json文件！避免APIkey泄露造成损失。本插件不对账号问题负责。';
+                    subtitle.className = 'api-config-warning';
+                    subtitle.textContent = '*免责声明：本插件仅提供 API 调用工具，第三方服务责任与本插件无关，插件所涉用户配置信息均存储于本地。对于因账号使用产生的任何问题，本插件不承担责任！';
                     noticeArea.appendChild(subtitle);
                 },
-                renderContent: (container) => {
+                renderContent: async (container) => {
+                    await this._loadAllConfigs();
                     this._createAPIConfigUI(container);
                 },
                 onSave: async () => {
-                    try {
-                        const container = document.querySelector('.settings-modal .p-dialog-content');
-                        const controls = container.formControls;
-
-                        // 先保存当前显示的提供商配置
-                        const currentLLMProvider = controls.llm.provider.value;
-                        this._saveLLMProviderConfig(currentLLMProvider);
-
-                        const currentVisionProvider = controls.vision.provider.value;
-                        this._saveVisionProviderConfig(currentVisionProvider);
-
-                        // 处理百度翻译配置
-                        const baiduConfig = {
-                            app_id: controls.baidu.appId.value.trim(),
-                        };
-                        const baiduSecretEl = controls.baidu.secret;
-                        const baiduSecretValue = baiduSecretEl.value.trim();
-                        const isBaiduMasked = baiduSecretValue === '••••••••••••••••••••••••••••••••••••••••••••••••';
-
-                        // 只有当密钥不是掩码，或者掩码不代表现有密钥时，才包含secret_key
-                        if (!isBaiduMasked || baiduSecretEl.dataset.hasKey !== 'true') {
-                            baiduConfig.secret_key = baiduSecretValue;
-                        }
-
-                        // 获取配置值
-                        const config = {
-                            baidu: baiduConfig,
-                            llm: {
-                                current_provider: currentLLMProvider,
-                                providers: this.llmAllProviders || {}
-                            },
-                            vision: {
-                                current_provider: currentVisionProvider,
-                                providers: this.visionAllProviders || {}
-                            }
-                        };
-
-                        // 确保每个提供商都有配置
-                        const providerList = ["zhipu", "siliconflow", "302ai", "ollama", "custom"];
-                        providerList.forEach(provider => {
-                        // 确保LLM提供商配置存在
-                        if (!config.llm.providers[provider]) {
-                            const providerConfig = {
-                                model: provider === "zhipu" ? "glm-4-flash-250414" :
-                                    (provider === "siliconflow" ? "Qwen/Qwen2.5-7B-Instruct" : 
-                                    (provider === "ollama" ? "llama3.1" : "")),
-                                base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4" :
-                                    (provider === "siliconflow" ? "https://api.siliconflow.cn/v1" :
-                                    (provider === "ollama" ? "http://localhost:11434/v1" : "")),
-                                api_key: provider === "ollama" ? "ollama" : "",
-                                temperature: 0.7,
-                                max_tokens: 2000,
-                                top_p: 0.9
-                            };
-                            // Ollama添加auto_unload参数
-                            if (provider === "ollama") {
-                                providerConfig.auto_unload = true;
-                            }
-                            config.llm.providers[provider] = providerConfig;
-                        }
-
-                            // 确保视觉模型提供商配置存在
-                            if (!config.vision.providers[provider]) {
-                                const visionProviderConfig = {
-                                    model: provider === "zhipu" ? "glm-4v-flash" :
-                                        (provider === "siliconflow" ? "THUDM/GLM-4.1V-9B-Thinking" :
-                                        (provider === "ollama" ? "llava:latest" : "")),
-                                    base_url: provider === "zhipu" ? "https://open.bigmodel.cn/api/paas/v4/chat/completions" :
-                                        (provider === "siliconflow" ? "https://api.siliconflow.cn/v1/chat/completions" :
-                                        (provider === "ollama" ? "http://localhost:11434/v1" : "")),
-                                    api_key: provider === "ollama" ? "ollama" : "",
-                                    temperature: 0.7,
-                                    max_tokens: 2000,
-                                    top_p: 0.9
-                                };
-                                // Ollama添加auto_unload参数
-                                if (provider === "ollama") {
-                                    visionProviderConfig.auto_unload = true;
-                                }
-                                config.vision.providers[provider] = visionProviderConfig;
-                            }
-                        });
-
-                        console.log("保存配置:", JSON.stringify(config));  // 调试信息
-
-                        // 保存配置
-                        await Promise.all([
-                            fetch('/prompt_assistant/api/config/baidu_translate', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(config.baidu)
-                            }),
-                            fetch('/prompt_assistant/api/config/llm', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(config.llm)
-                            }),
-                            fetch('/prompt_assistant/api/config/vision', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(config.vision)
-                            })
-                        ]).then(responses => {
-                            // 检查所有响应是否成功
-                            const failedResponses = responses.filter(response => !response.ok);
-                            if (failedResponses.length > 0) {
-                                // 至少有一个请求失败
-                                throw new Error(`配置保存失败，服务器返回错误: ${failedResponses[0].status}`);
-                            }
-
-                            // 所有请求成功
-                            app.extensionManager.toast.add({
-                                severity: "success",
-                                summary: "配置已更新",
-                                life: 3000
-                            });
-                        }).catch(error => {
-                            // 显示错误提示
-                            app.extensionManager.toast.add({
-                                severity: "error",
-                                summary: "配置保存失败",
-                                detail: error.message || "保存配置时发生错误",
-                                life: 3000
-                            });
-
-                            // 重新抛出错误，以便外层catch可以处理
-                            throw error;
-                        });
-                    } catch (error) {
-                        // 这里捕获的是其他类型的错误，如代码执行错误
-                        app.extensionManager.toast.add({
-                            severity: "error",
-                            summary: "配置保存失败",
-                            detail: error.message || "保存配置时发生错误",
-                            life: 3000
-                        });
-                        throw error;
-                    }
+                    // 不再需要手动保存，因为已经实时保存了
                 }
             });
         } catch (error) {
@@ -198,7 +65,107 @@ class APIConfigManager {
             app.extensionManager.toast.add({
                 severity: "error",
                 summary: "打开配置失败",
-                detail: error.message || "打开配置弹窗过程中发生错误",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+    /**
+     * 加载所有配置
+     */
+    async _loadAllConfigs() {
+        try {
+            // 加载服务商列表
+            const servicesRes = await fetch(APIService.getApiUrl('/services'));
+            const servicesData = await servicesRes.json();
+
+            if (servicesData.success) {
+                this.services = servicesData.services || [];
+            }
+
+            // 加载百度翻译配置
+            const baiduRes = await fetch(APIService.getApiUrl('/config/baidu_translate'));
+            this.baiduConfig = await baiduRes.json();
+
+            // 加载当前服务配置以获取current_services
+            const llmRes = await fetch(APIService.getApiUrl('/config/llm'));
+            const llmConfig = await llmRes.json();
+            if (llmConfig.provider) {
+                this.currentServices.llm = llmConfig.provider;
+            }
+
+            const vlmRes = await fetch(APIService.getApiUrl('/config/vision'));
+            const vlmConfig = await vlmRes.json();
+            if (vlmConfig.provider) {
+                this.currentServices.vlm = vlmConfig.provider;
+            }
+
+            logger.debug('配置加载完成', {
+                services: this.services.length,
+                currentLLM: this.currentServices.llm,
+                currentVLM: this.currentServices.vlm
+            });
+        } catch (error) {
+            logger.error('加载配置失败', error);
+            throw error;
+        }
+    }
+
+    /**
+     * 保存所有配置
+     */
+    async _saveAllConfigs() {
+        try {
+            // 保存百度翻译配置
+            await fetch(APIService.getApiUrl('/config/baidu_translate'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.baiduConfig)
+            });
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "配置已保存",
+                life: 3000
+            });
+        } catch (error) {
+            logger.error('保存配置失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "保存失败",
+                detail: error.message,
+                life: 3000
+            });
+            throw error;
+        }
+    }
+
+    /**
+     * 保存百度翻译配置
+     */
+    async _saveBaiduConfig() {
+        try {
+            await fetch(APIService.getApiUrl('/config/baidu_translate'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(this.baiduConfig)
+            });
+
+            logger.debug('百度翻译配置已保存');
+
+            // 显示成功提示
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "百度翻译配置已保存",
+                life: 2000
+            });
+        } catch (error) {
+            logger.error('保存百度翻译配置失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "保存失败",
+                detail: error.message,
                 life: 3000
             });
         }
@@ -206,1304 +173,1925 @@ class APIConfigManager {
 
     /**
      * 创建API配置UI
-     * @param {HTMLElement} container 容器元素
      */
     _createAPIConfigUI(container) {
-        // 创建表单
-        const form = document.createElement('form');
-        form.onsubmit = (e) => e.preventDefault();
-        form.className = 'api-config-form';
+        // 创建标签页容器
+        const tabContainer = document.createElement('div');
+        tabContainer.className = 'api-config-tabs';
 
-        // 1. 百度翻译 API 配置
-        const baiduSection = this._createBaiduSection();
+        // 创建标签页头部（动态生成所有服务商标签）
+        const tabHeader = this._createTabHeader();
+        tabContainer.appendChild(tabHeader);
 
-        // 2. LLM 配置
-        const llmSection = this._createLLMSection();
+        // 创建标签页内容容器
+        const tabContent = document.createElement('div');
+        tabContent.className = 'tab-content';
 
-        // 3. 视觉模型配置
-        const visionSection = this._createVisionSection();
+        // 创建百度翻译标签页
+        const baiduContent = this._createBaiduTab();
+        tabContent.appendChild(baiduContent);
 
-        // 添加所有部分到表单
-        form.appendChild(baiduSection);
-        form.appendChild(llmSection);
-        form.appendChild(visionSection);
-        container.appendChild(form);
-
-        // 加载已有配置
-        this._loadAPIConfig(container);
-    }
-
-    /**
-     * 创建百度翻译API配置部分
-     * @returns {HTMLElement} 百度翻译API配置部分的DOM元素
-     */
-    _createBaiduSection() {
-        // 百度翻译 API 配置
-        const baiduSection = createFormGroup('百度翻译配置', [
-            { text: '百度翻译API申请', url: 'https://fanyi-api.baidu.com/' }
-        ]);
-
-        // 创建输入框
-        const baiduAppId = createInputGroup('', '请输入百度翻译 AppID');
-        const baiduSecret = createInputGroup('', '请输入百度翻译密钥');
-
-        // 创建水平布局组
-        const baiduGroup = createHorizontalFormGroup([
-            { label: 'AppID', element: baiduAppId.input },
-            { label: 'Secret Key', element: baiduSecret.input }
-        ]);
-
-        baiduSection.appendChild(baiduGroup);
-
-        // 保存输入框引用，便于后续获取值
-        this.baiduAppId = baiduAppId.input;
-        this.baiduSecret = baiduSecret.input;
-
-        return baiduSection;
-    }
-
-    /**
-     * 创建LLM配置部分
-     * @returns {HTMLElement} LLM配置部分的DOM元素
-     */
-    _createLLMSection() {
-        // LLM 配置
-        const llmSection = createFormGroup('大语言模型配置', [
-            { text: '智谱', url: 'https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D' },
-            { text: '硅基流动', url: 'https://cloud.siliconflow.cn/i/FCDL2zBQ' },
-            { text: '302.AI', url: 'https://share.302.ai/JrO51c' }
-        ], { prefixText: 'API key申请：' });
-
-        // 创建选择器和输入框
-        const llmProvider = createSelectGroup('', [
-            { value: 'zhipu', text: '智谱' },
-            { value: 'siliconflow', text: '硅基流动' },
-            { value: '302ai', text: '302.AI' },
-            { value: 'ollama', text: 'Ollama' },
-            { value: 'custom', text: '自定义' }
-        ]);
-        const llmModelInput = createInputGroup('', '请输入模型名称');
-        this.llmModel = llmModelInput.input; // 保存引用以供外部函数使用
-        
-        // 为模型输入框添加自动完成功能
-        this._attachAutocomplete(this.llmModel, 'llm', () => this.llmProvider.value);
-
-        // 创建base_url输入框（初始隐藏）
-        const llmBaseUrlInput = createInputGroup('Base URL', '请输入API基础URL，例如: https://api.example.com/v1');
-        this.llmBaseUrl = llmBaseUrlInput.input; // 保存引用以供外部函数使用
-        llmBaseUrlInput.group.style.display = 'none'; // 初始隐藏
-
-        // 在base_url输入框下添加提示信息
-        const llmBaseUrlHint = document.createElement('div');
-        llmBaseUrlHint.className = 'base-url-hint';
-        llmBaseUrlHint.style.fontSize = '12px';
-        llmBaseUrlHint.style.color = '#666';
-        llmBaseUrlHint.style.marginTop = '4px';
-        llmBaseUrlHint.style.marginBottom = '8px';
-        llmBaseUrlHint.textContent = '注意: 请输入基础URL，不要包含/chat/completions路径';
-        llmBaseUrlInput.group.appendChild(llmBaseUrlHint);
-
-        // 创建水平布局组
-        const llmProviderGroup = createHorizontalFormGroup([
-            { label: '模型提供商', element: llmProvider.group },
-            { label: '模型名称', element: this.llmModel }
-        ]);
-
-        // API Key 保持单独一行
-        const llmApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
-        this.llmApiKey = llmApiKeyInput.input; // 保存引用以供外部函数使用
-
-        // ---模型参数配置（可折叠）---
-        // 创建高级设置折叠容器
-        const llmAdvancedContainer = document.createElement('div');
-        llmAdvancedContainer.className = 'advanced-settings-container';
-        llmAdvancedContainer.style.cssText = `
-            margin-top: 12px;
-        `;
-        
-        // 创建高级设置标题（可点击折叠/展开）
-        const llmAdvancedHeader = document.createElement('div');
-        llmAdvancedHeader.className = 'advanced-settings-header';
-        llmAdvancedHeader.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            padding: 2px 0;
-            user-select: none;
-        `;
-        
-        const llmAdvancedIcon = document.createElement('span');
-        llmAdvancedIcon.className = 'pi pi-angle-right';
-        llmAdvancedIcon.style.cssText = `
-            font-size: 12px;
-            color: var(--p-text-muted-color);
-            transition: transform 0.2s;
-        `;
-        
-        const llmAdvancedTitle = document.createElement('span');
-        llmAdvancedTitle.textContent = '高级设置';
-        llmAdvancedTitle.style.cssText = `
-            font-size: 13px;
-            color: var(--p-text-color);
-            font-weight: 500;
-        `;
-        
-        llmAdvancedHeader.appendChild(llmAdvancedIcon);
-        llmAdvancedHeader.appendChild(llmAdvancedTitle);
-        
-        // 创建参数内容区域（默认隐藏）
-        const llmAdvancedContent = document.createElement('div');
-        llmAdvancedContent.className = 'advanced-settings-content';
-        llmAdvancedContent.style.cssText = `
-            display: none;
-            overflow: hidden;
-            transition: all 0.3s ease;
-        `;
-        
-        // 创建温度和最大token输入框
-        const llmTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
-        llmTemperatureInput.input.type = 'number';
-        llmTemperatureInput.input.min = '0.1';
-        llmTemperatureInput.input.max = '2.0';
-        llmTemperatureInput.input.step = '0.1';
-        llmTemperatureInput.input.value = '0.7'; // 默认值
-        this.llmTemperature = llmTemperatureInput.input;
-
-        const llmMaxTokensInput = createInputGroup('', '1-32000，控制最大输出长度');
-        llmMaxTokensInput.input.type = 'number';
-        llmMaxTokensInput.input.min = '1';
-        llmMaxTokensInput.input.max = '32000';
-        llmMaxTokensInput.input.step = '1';
-        llmMaxTokensInput.input.value = '2000'; // 默认值
-        this.llmMaxTokens = llmMaxTokensInput.input;
-
-        const llmTopPInput = createInputGroup('', '0.1-1.0，控制核采样范围');
-        llmTopPInput.input.type = 'number';
-        llmTopPInput.input.min = '0.1';
-        llmTopPInput.input.max = '1.0';
-        llmTopPInput.input.step = '0.1';
-        llmTopPInput.input.value = '0.9'; // 默认值
-        this.llmTopP = llmTopPInput.input;
-
-        // 创建模型参数水平布局组（三个参数在同一行）
-        const llmParamsGroup = createHorizontalFormGroup([
-            { label: '温度 (Temperature)', element: this.llmTemperature },
-            { label: '核采样 (Top-P)', element: this.llmTopP },
-            { label: '最大Token数', element: this.llmMaxTokens }
-        ]);
-        
-        llmAdvancedContent.appendChild(llmParamsGroup);
-        
-        // 创建Ollama专属选项（初始隐藏）
-        const llmOllamaOptionsGroup = document.createElement('div');
-        llmOllamaOptionsGroup.className = 'ollama-options-group';
-        llmOllamaOptionsGroup.style.cssText = `
-            display: none;
-            margin-top: 12px;
-            padding: 12px;
-            background: var(--p-content-background);
-            border: 1px solid var(--p-divider-color);
-            border-radius: 4px;
-        `;
-        
-        const llmOllamaAutoUnload = document.createElement('div');
-        llmOllamaAutoUnload.className = 'p-field-checkbox';
-        llmOllamaAutoUnload.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        `;
-        
-        const llmOllamaAutoUnloadCheckbox = document.createElement('input');
-        llmOllamaAutoUnloadCheckbox.type = 'checkbox';
-        llmOllamaAutoUnloadCheckbox.id = 'llm-ollama-auto-unload';
-        llmOllamaAutoUnloadCheckbox.className = 'p-checkbox';
-        llmOllamaAutoUnloadCheckbox.checked = true; // 默认勾选
-        this.llmOllamaAutoUnload = llmOllamaAutoUnloadCheckbox;
-        
-        const llmOllamaAutoUnloadLabel = document.createElement('label');
-        llmOllamaAutoUnloadLabel.htmlFor = 'llm-ollama-auto-unload';
-        llmOllamaAutoUnloadLabel.textContent = '自动释放显存';
-        llmOllamaAutoUnloadLabel.style.cssText = `
-            font-size: 13px;
-            color: var(--p-text-color);
-            cursor: pointer;
-            user-select: none;
-        `;
-        
-        const llmOllamaAutoUnloadHint = document.createElement('div');
-        llmOllamaAutoUnloadHint.style.cssText = `
-            font-size: 12px;
-            color: var(--p-text-muted-color);
-            margin-top: 4px;
-            margin-left: 24px;
-        `;
-        llmOllamaAutoUnloadHint.textContent = '启用后，模型在生成响应后会立即卸载，释放显存和内存（推荐）';
-        
-        llmOllamaAutoUnload.appendChild(llmOllamaAutoUnloadCheckbox);
-        llmOllamaAutoUnload.appendChild(llmOllamaAutoUnloadLabel);
-        llmOllamaOptionsGroup.appendChild(llmOllamaAutoUnload);
-        llmOllamaOptionsGroup.appendChild(llmOllamaAutoUnloadHint);
-        
-        llmAdvancedContent.appendChild(llmOllamaOptionsGroup);
-        
-        // 折叠/展开切换
-        let llmIsExpanded = false;
-        llmAdvancedHeader.addEventListener('click', () => {
-            llmIsExpanded = !llmIsExpanded;
-            if (llmIsExpanded) {
-                llmAdvancedContent.style.display = 'block';
-                llmAdvancedIcon.style.transform = 'rotate(90deg)';
-            } else {
-                llmAdvancedContent.style.display = 'none';
-                llmAdvancedIcon.style.transform = 'rotate(0deg)';
-            }
-        });
-        
-        llmAdvancedContainer.appendChild(llmAdvancedHeader);
-        llmAdvancedContainer.appendChild(llmAdvancedContent);
-
-        llmSection.appendChild(llmProviderGroup);
-        llmSection.appendChild(llmBaseUrlInput.group); // 添加base_url输入框
-        llmSection.appendChild(llmApiKeyInput.group);
-        llmSection.appendChild(llmAdvancedContainer); // 添加高级设置折叠容器
-
-        // 监听LLM提供商选择变化
-        llmProvider.select.addEventListener('change', () => {
-            const oldProvider = llmProvider.select.dataset.previousValue;
-            const provider = llmProvider.select.value;
-
-            // 如果存在旧提供商，保存其配置
-            if (oldProvider) {
-                this._saveLLMProviderConfig(oldProvider);
-            }
-
-            // 根据提供商类型显示/隐藏 base_url 与 API Key 以及 Ollama 选项
-            if (provider === 'custom') {
-                llmBaseUrlInput.group.style.display = 'block';
-                llmApiKeyInput.group.style.display = 'block';
-                llmOllamaOptionsGroup.style.display = 'none';
-            } else if (provider === '302ai') {
-                llmBaseUrlInput.group.style.display = 'none';
-                llmApiKeyInput.group.style.display = 'block';
-                llmOllamaOptionsGroup.style.display = 'none';
-            } else if (provider === 'ollama') {
-                llmBaseUrlInput.group.style.display = 'none';
-                llmApiKeyInput.group.style.display = 'none';
-                llmOllamaOptionsGroup.style.display = 'block';
-            } else {
-                llmBaseUrlInput.group.style.display = 'none';
-                llmApiKeyInput.group.style.display = 'block';
-                llmOllamaOptionsGroup.style.display = 'none';
-            }
-
-            // 加载选定提供商的配置
-            if (this.llmAllProviders && this.llmAllProviders[provider]) {
-                const providerConfig = this.llmAllProviders[provider];
-                this.llmModel.value = providerConfig.model || '';
-
-                // 设置API密钥（使用掩码）
-                if (providerConfig.api_key || providerConfig.has_key) {
-                    this._setMaskedValue(this.llmApiKey, providerConfig.api_key || "dummy-key");
-                } else {
-                    this.llmApiKey.value = '';
-                    this.llmApiKey.dataset.hasKey = 'false';
-                }
-
-                // 加载模型参数
-                this.llmTemperature.value = providerConfig.temperature || '0.7';
-                this.llmMaxTokens.value = providerConfig.max_tokens || '2000';
-                this.llmTopP.value = providerConfig.top_p || '0.9';
-
-                if (provider === 'custom') {
-                    this.llmBaseUrl.value = providerConfig.base_url || '';
-                } else if (provider === '302ai') {
-                    // 302.AI 为内置 base_url，不需要填写
-                    this.llmBaseUrl.value = '';
-                } else if (provider === 'ollama') {
-                    // Ollama base_url 与 api_key 内置
-                    this.llmBaseUrl.value = '';
-                    this._setMaskedValue(this.llmApiKey, 'ollama');
-                    // 加载 Ollama 自动释放显存选项
-                    this.llmOllamaAutoUnload.checked = providerConfig.auto_unload !== false; // 默认为 true
-                }
-            } else {
-                // 设置默认模型名称
-                if (provider === 'zhipu') {
-                    this.llmModel.value = 'glm-4-flash-250414';
-                } else if (provider === 'siliconflow') {
-                    this.llmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
-                } else if (provider === '302ai') {
-                    this.llmModel.value = 'Qwen/Qwen2.5-7B-Instruct';
-                } else if (provider === 'ollama') {
-                    this.llmModel.value = 'llama3.1';
-                    // Ollama 默认启用自动释放显存
-                    this.llmOllamaAutoUnload.checked = true;
-                } else {
-                    this.llmModel.value = '';
-                }
-                // 清空API Key和base_url
-                this.llmApiKey.value = '';
-                this.llmApiKey.dataset.hasKey = 'false';
-                // 设置默认模型参数
-                this.llmTemperature.value = '0.7';
-                this.llmMaxTokens.value = '2000';
-                this.llmTopP.value = '0.9';
-                if (provider === 'custom') {
-                    this.llmBaseUrl.value = '';
-                }
-            }
-
-            // 记录当前选择的提供商
-            llmProvider.select.dataset.previousValue = provider;
+        // 动态创建每个服务商的标签页内容
+        this.services.forEach(service => {
+            const serviceContent = this._createServiceContentTab(service);
+            tabContent.appendChild(serviceContent);
         });
 
-        // 保存选择器引用，便于后续获取值
-        this.llmProvider = llmProvider.select;
+        tabContainer.appendChild(tabContent);
+        container.appendChild(tabContainer);
 
-        return llmSection;
+        // 默认显示第一个标签页
+        this._switchTab('baidu', tabHeader, tabContent);
     }
 
     /**
-     * 创建视觉模型配置部分
-     * @returns {HTMLElement} 视觉模型配置部分的DOM元素
+     * 创建标签页头部（包含所有服务商）
      */
-    _createVisionSection() {
-        // 视觉模型配置
-        const visionSection = createFormGroup('视觉模型配置', []);
+    _createTabHeader() {
+        const header = document.createElement('div');
+        header.className = 'tab-header';
 
-        // 创建选择器和输入框
-        const visionProvider = createSelectGroup('', [
-            { value: 'zhipu', text: '智谱' },
-            { value: 'siliconflow', text: '硅基流动' },
-            { value: '302ai', text: '302.AI' },
-            { value: 'ollama', text: 'Ollama' },
-            { value: 'custom', text: '自定义' }
-        ]);
-        const visionModelInput = createInputGroup('', '请输入模型名称');
-        this.visionModel = visionModelInput.input; // 保存引用以供外部函数使用
-        
-        // 为模型输入框添加自动完成功能
-        this._attachAutocomplete(this.visionModel, 'vision', () => this.visionProvider.value);
+        // 百度翻译标签
+        const baiduTab = this._createTabButton('baidu', '百度翻译', '机器翻译');
+        header.appendChild(baiduTab);
 
-        // 创建base_url输入框（初始隐藏）
-        const visionBaseUrlInput = createInputGroup('Base URL', '请输入API基础URL，例如: https://api.example.com/v1');
-        this.visionBaseUrl = visionBaseUrlInput.input; // 保存引用以供外部函数使用
-        visionBaseUrlInput.group.style.display = 'none'; // 初始隐藏
-
-        // 在base_url输入框下添加提示信息
-        const visionBaseUrlHint = document.createElement('div');
-        visionBaseUrlHint.className = 'base-url-hint';
-        visionBaseUrlHint.style.fontSize = '12px';
-        visionBaseUrlHint.style.color = '#666';
-        visionBaseUrlHint.style.marginTop = '4px';
-        visionBaseUrlHint.style.marginBottom = '8px';
-        visionBaseUrlHint.textContent = '注意: 请输入基础URL，不要包含/chat/completions路径';
-        visionBaseUrlInput.group.appendChild(visionBaseUrlHint);
-
-        // 创建水平布局组
-        const visionProviderGroup = createHorizontalFormGroup([
-            { label: '模型提供商', element: visionProvider.group },
-            { label: '模型名称', element: this.visionModel }
-        ]);
-
-        // API Key 保持单独一行
-        const visionApiKeyInput = createInputGroup('API Key', '请输入模型 API Key');
-        this.visionApiKey = visionApiKeyInput.input; // 保存引用以供外部函数使用
-
-        // ---视觉模型参数配置（可折叠）---
-        // 创建高级设置折叠容器
-        const visionAdvancedContainer = document.createElement('div');
-        visionAdvancedContainer.className = 'advanced-settings-container';
-        visionAdvancedContainer.style.cssText = `
-            margin-top: 12px;
-        `;
-        
-        // 创建高级设置标题（可点击折叠/展开）
-        const visionAdvancedHeader = document.createElement('div');
-        visionAdvancedHeader.className = 'advanced-settings-header';
-        visionAdvancedHeader.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            cursor: pointer;
-            padding: 8px 0;
-            user-select: none;
-        `;
-        
-        const visionAdvancedIcon = document.createElement('span');
-        visionAdvancedIcon.className = 'pi pi-angle-right';
-        visionAdvancedIcon.style.cssText = `
-            font-size: 12px;
-            color: var(--p-text-muted-color);
-            transition: transform 0.2s;
-        `;
-        
-        const visionAdvancedTitle = document.createElement('span');
-        visionAdvancedTitle.textContent = '高级设置';
-        visionAdvancedTitle.style.cssText = `
-            font-size: 13px;
-            color: var(--p-text-color);
-            font-weight: 500;
-        `;
-        
-        visionAdvancedHeader.appendChild(visionAdvancedIcon);
-        visionAdvancedHeader.appendChild(visionAdvancedTitle);
-        
-        // 创建参数内容区域（默认隐藏）
-        const visionAdvancedContent = document.createElement('div');
-        visionAdvancedContent.className = 'advanced-settings-content';
-        visionAdvancedContent.style.cssText = `
-            display: none;
-            overflow: hidden;
-            transition: all 0.3s ease;
-        `;
-        
-        // 创建温度和最大token输入框
-        const visionTemperatureInput = createInputGroup('', '0.1-2.0，控制输出随机性');
-        visionTemperatureInput.input.type = 'number';
-        visionTemperatureInput.input.min = '0.1';
-        visionTemperatureInput.input.max = '2.0';
-        visionTemperatureInput.input.step = '0.1';
-        visionTemperatureInput.input.value = '0.7'; // 默认值
-        this.visionTemperature = visionTemperatureInput.input;
-
-        const visionMaxTokensInput = createInputGroup('', '1-32000，控制最大输出长度');
-        visionMaxTokensInput.input.type = 'number';
-        visionMaxTokensInput.input.min = '1';
-        visionMaxTokensInput.input.max = '32000';
-        visionMaxTokensInput.input.step = '1';
-        visionMaxTokensInput.input.value = '2000'; // 默认值
-        this.visionMaxTokens = visionMaxTokensInput.input;
-
-        const visionTopPInput = createInputGroup('', '0.1-1.0，控制核采样范围');
-        visionTopPInput.input.type = 'number';
-        visionTopPInput.input.min = '0.1';
-        visionTopPInput.input.max = '1.0';
-        visionTopPInput.input.step = '0.1';
-        visionTopPInput.input.value = '0.9'; // 默认值
-        this.visionTopP = visionTopPInput.input;
-
-        // 创建视觉模型参数水平布局组（三个参数在同一行）
-        const visionParamsGroup = createHorizontalFormGroup([
-            { label: '温度 (Temperature)', element: this.visionTemperature },
-            { label: '核采样 (Top-P)', element: this.visionTopP },
-            { label: '最大Token数', element: this.visionMaxTokens }
-        ]);
-        
-        visionAdvancedContent.appendChild(visionParamsGroup);
-        
-        // 创建Ollama专属选项（初始隐藏）
-        const visionOllamaOptionsGroup = document.createElement('div');
-        visionOllamaOptionsGroup.className = 'ollama-options-group';
-        visionOllamaOptionsGroup.style.cssText = `
-            display: none;
-            margin-top: 12px;
-            padding: 12px;
-            background: var(--p-content-background);
-            border: 1px solid var(--p-divider-color);
-            border-radius: 4px;
-        `;
-        
-        const visionOllamaAutoUnload = document.createElement('div');
-        visionOllamaAutoUnload.className = 'p-field-checkbox';
-        visionOllamaAutoUnload.style.cssText = `
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        `;
-        
-        const visionOllamaAutoUnloadCheckbox = document.createElement('input');
-        visionOllamaAutoUnloadCheckbox.type = 'checkbox';
-        visionOllamaAutoUnloadCheckbox.id = 'vision-ollama-auto-unload';
-        visionOllamaAutoUnloadCheckbox.className = 'p-checkbox';
-        visionOllamaAutoUnloadCheckbox.checked = true; // 默认勾选
-        this.visionOllamaAutoUnload = visionOllamaAutoUnloadCheckbox;
-        
-        const visionOllamaAutoUnloadLabel = document.createElement('label');
-        visionOllamaAutoUnloadLabel.htmlFor = 'vision-ollama-auto-unload';
-        visionOllamaAutoUnloadLabel.textContent = '自动释放显存';
-        visionOllamaAutoUnloadLabel.style.cssText = `
-            font-size: 13px;
-            color: var(--p-text-color);
-            cursor: pointer;
-            user-select: none;
-        `;
-        
-        const visionOllamaAutoUnloadHint = document.createElement('div');
-        visionOllamaAutoUnloadHint.style.cssText = `
-            font-size: 12px;
-            color: var(--p-text-muted-color);
-            margin-top: 4px;
-            margin-left: 24px;
-        `;
-        visionOllamaAutoUnloadHint.textContent = '启用后，模型在生成响应后会立即卸载，释放显存和内存（推荐）';
-        
-        visionOllamaAutoUnload.appendChild(visionOllamaAutoUnloadCheckbox);
-        visionOllamaAutoUnload.appendChild(visionOllamaAutoUnloadLabel);
-        visionOllamaOptionsGroup.appendChild(visionOllamaAutoUnload);
-        visionOllamaOptionsGroup.appendChild(visionOllamaAutoUnloadHint);
-        
-        visionAdvancedContent.appendChild(visionOllamaOptionsGroup);
-        
-        // 折叠/展开切换
-        let visionIsExpanded = false;
-        visionAdvancedHeader.addEventListener('click', () => {
-            visionIsExpanded = !visionIsExpanded;
-            if (visionIsExpanded) {
-                visionAdvancedContent.style.display = 'block';
-                visionAdvancedIcon.style.transform = 'rotate(90deg)';
-            } else {
-                visionAdvancedContent.style.display = 'none';
-                visionAdvancedIcon.style.transform = 'rotate(0deg)';
-            }
-        });
-        
-        visionAdvancedContainer.appendChild(visionAdvancedHeader);
-        visionAdvancedContainer.appendChild(visionAdvancedContent);
-
-        visionSection.appendChild(visionProviderGroup);
-        visionSection.appendChild(visionBaseUrlInput.group); // 添加base_url输入框
-        visionSection.appendChild(visionApiKeyInput.group);
-        visionSection.appendChild(visionAdvancedContainer); // 添加高级设置折叠容器
-
-        // 监听视觉模型提供商选择变化
-        visionProvider.select.addEventListener('change', () => {
-            const oldProvider = visionProvider.select.dataset.previousValue;
-            const provider = visionProvider.select.value;
-
-            // 如果存在旧提供商，保存其配置
-            if (oldProvider) {
-                this._saveVisionProviderConfig(oldProvider);
-            }
-
-            // 根据提供商类型显示/隐藏 base_url 与 API Key 以及 Ollama 选项
-            if (provider === 'custom') {
-                visionBaseUrlInput.group.style.display = 'block';
-                visionApiKeyInput.group.style.display = 'block';
-                visionOllamaOptionsGroup.style.display = 'none';
-            } else if (provider === '302ai') {
-                visionBaseUrlInput.group.style.display = 'none';
-                visionApiKeyInput.group.style.display = 'block';
-                visionOllamaOptionsGroup.style.display = 'none';
-            } else if (provider === 'ollama') {
-                visionBaseUrlInput.group.style.display = 'none';
-                visionApiKeyInput.group.style.display = 'none';
-                visionOllamaOptionsGroup.style.display = 'block';
-            } else {
-                visionBaseUrlInput.group.style.display = 'none';
-                visionApiKeyInput.group.style.display = 'block';
-                visionOllamaOptionsGroup.style.display = 'none';
-            }
-
-            // 加载选定提供商的配置
-            if (this.visionAllProviders && this.visionAllProviders[provider]) {
-                const providerConfig = this.visionAllProviders[provider];
-                this.visionModel.value = providerConfig.model || '';
-
-                // 设置API密钥（使用掩码）
-                if (providerConfig.api_key || providerConfig.has_key) {
-                    this._setMaskedValue(this.visionApiKey, providerConfig.api_key || "dummy-key");
-                } else {
-                    this.visionApiKey.value = '';
-                    this.visionApiKey.dataset.hasKey = 'false';
-                }
-
-                // 加载模型参数
-                this.visionTemperature.value = providerConfig.temperature || '0.7';
-                this.visionMaxTokens.value = providerConfig.max_tokens || '2000';
-                this.visionTopP.value = providerConfig.top_p || '0.9';
-
-                if (provider === 'custom') {
-                    this.visionBaseUrl.value = providerConfig.base_url || '';
-                } else if (provider === '302ai') {
-                    this.visionBaseUrl.value = '';
-                } else if (provider === 'ollama') {
-                    this.visionBaseUrl.value = '';
-                    this._setMaskedValue(this.visionApiKey, 'ollama');
-                    // 加载 Ollama 自动释放显存选项
-                    this.visionOllamaAutoUnload.checked = providerConfig.auto_unload !== false; // 默认为 true
-                }
-            } else {
-                // 设置默认模型名称
-                if (provider === 'zhipu') {
-                    this.visionModel.value = 'glm-4v-flash';
-                } else if (provider === 'siliconflow') {
-                    this.visionModel.value = 'THUDM/GLM-4.1V-9B-Thinking';
-                } else if (provider === '302ai') {
-                    this.visionModel.value = 'THUDM/GLM-4.1V-9B-Thinking';
-                } else if (provider === 'ollama') {
-                    this.visionModel.value = 'llava:latest';
-                    // Ollama 默认启用自动释放显存
-                    this.visionOllamaAutoUnload.checked = true;
-                } else {
-                    this.visionModel.value = '';
-                }
-                // 清空API Key和base_url
-                this.visionApiKey.value = '';
-                this.visionApiKey.dataset.hasKey = 'false';
-                // 设置默认模型参数
-                this.visionTemperature.value = '0.7';
-                this.visionMaxTokens.value = '2000';
-                this.visionTopP.value = '0.9';
-                if (provider === 'custom') {
-                    this.visionBaseUrl.value = '';
-                }
-            }
-
-            // 记录当前选择的提供商
-            visionProvider.select.dataset.previousValue = provider;
+        // 动态创建服务商标签
+        this.services.forEach(service => {
+            const tabButton = this._createTabButton(
+                service.id,
+                service.name || '未命名服务',
+                service.description || ''
+            );
+            header.appendChild(tabButton);
         });
 
-        // 保存选择器引用，便于后续获取值
-        this.visionProvider = visionProvider.select;
+        // 创建"+"新增标签按钮
+        const addButton = document.createElement('button');
+        addButton.className = 'service-tab-add';
+        addButton.innerHTML = '<i class="pi pi-plus"></i>';
+        addButton.addEventListener('click', () => this._addNewService(header, header.nextElementSibling));
+        header.appendChild(addButton);
 
-        return visionSection;
+        // 初始化拖拽排序
+        new Sortable(header, {
+            handle: '.tab-button',
+            draggable: '.tab-button',
+            filter: '.service-tab-add',  // 排除"+"按钮
+            animation: 150,
+            onEnd: async (evt) => {
+                await this._updateServicesOrder();
+            }
+        });
+
+        return header;
     }
 
     /**
-     * 设置掩码值，同时保存原始状态
-     * @param {HTMLInputElement} input 输入元素
-     * @param {string} value 原始值
+     * 更新服务商顺序
      */
-    _setMaskedValue(input, value) {
-        const hasValue = value && value.trim() !== '';
-
-        if (hasValue) {
-            // 显示掩码
-            input.value = '••••••••••••••••••••••••••••••••••••••••••••••••';
-            // 标记为已设置
-            input.dataset.hasKey = 'true';
-        } else {
-            input.value = '';
-            input.dataset.hasKey = 'false';
-        }
-
-        // 添加焦点事件处理
-        if (!input._maskedHandlersAdded) {
-            input.addEventListener('focus', function () {
-                if (this.dataset.hasKey === 'true' && this.value === '••••••••••••••••••••••••••••••••••••••••••••••••') {
-                    this.value = '';
-                }
-            });
-
-            input.addEventListener('blur', function () {
-                if (this.dataset.hasKey === 'true' && this.value === '') {
-                    this.value = '••••••••••••••••••••••••••••••••••••••••••••••••';
-                }
-            });
-
-            input._maskedHandlersAdded = true;
-        }
-    }
-
-    /**
-     * 加载API配置
-     * @param {HTMLElement} container 容器元素
-     */
-    async _loadAPIConfig(container) {
+    async _updateServicesOrder() {
         try {
-            const [baiduConfig, llmConfig, visionConfig] = await Promise.all([
-                fetch('/prompt_assistant/api/config/baidu_translate').then(r => r.json()),
-                fetch('/prompt_assistant/api/config/llm').then(r => r.json()),
-                fetch('/prompt_assistant/api/config/vision').then(r => r.json())
-            ]);
+            // 从DOM读取当前标签顺序
+            const header = document.querySelector('.tab-header');
+            const buttons = header.querySelectorAll('.tab-button');
+            const serviceIds = [];
 
-            // 设置百度翻译配置
-            if (baiduConfig.app_id) {
-                this.baiduAppId.value = baiduConfig.app_id;
-            }
-            if (baiduConfig.secret_key) {
-                // 使用掩码显示密钥
-                this._setMaskedValue(this.baiduSecret, baiduConfig.secret_key);
-            }
+            buttons.forEach(btn => {
+                const tabId = btn.dataset.tab;
+                // 排除特殊标签(如百度翻译)
+                if (tabId && tabId !== 'baidu') {
+                    serviceIds.push(tabId);
+                }
+            });
 
-            // 存储所有提供商的配置
-            this.llmAllProviders = llmConfig.providers || {};
-            this.visionAllProviders = visionConfig.providers || {};
+            // 调用后端API保存顺序
+            const res = await fetch(APIService.getApiUrl('/services/order'), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ service_ids: serviceIds })
+            });
 
-            // 为所有提供商预处理API密钥状态
-            const providerList = ["zhipu", "siliconflow", "302ai", "ollama", "custom"];
+            const result = await res.json();
 
-            // 处理LLM提供商的API密钥
-            providerList.forEach(provider => {
-                if (this.llmAllProviders[provider]) {
-                    if (provider === 'ollama') {
-                        // 内置API Key，不需要展示输入
-                        this.llmAllProviders[provider].api_key = 'ollama';
-                        this.llmAllProviders[provider].has_key = true;
-                    } else if (this.llmAllProviders[provider].api_key) {
-                        // 保留API密钥值，但不在此处设置掩码（在切换提供商时会设置）
-                        this.llmAllProviders[provider].has_key = true;
+            if (result.success) {
+                // 更新本地服务列表顺序
+                const orderedServices = [];
+                serviceIds.forEach(id => {
+                    const service = this.services.find(s => s.id === id);
+                    if (service) {
+                        orderedServices.push(service);
                     }
-                }
-            });
+                });
 
-            // 处理视觉模型提供商的API密钥
-            providerList.forEach(provider => {
-                if (this.visionAllProviders[provider] && this.visionAllProviders[provider].api_key) {
-                    // 保留API密钥值，但不在此处设置掩码（在切换提供商时会设置）
-                    this.visionAllProviders[provider].has_key = true;
-                }
-            });
+                // 添加未在orderedServices中的服务
+                this.services.forEach(s => {
+                    if (!orderedServices.find(os => os.id === s.id)) {
+                        orderedServices.push(s);
+                    }
+                });
 
-            // 设置 LLM 配置
-            if (llmConfig.provider) {
-                this.llmProvider.value = llmConfig.provider;
-                this.llmProvider.dispatchEvent(new Event('change'));
-            }
-            if (llmConfig.model) {
-                this.llmModel.value = llmConfig.model;
-            }
-            if (llmConfig.api_key) {
-                // 使用掩码显示密钥
-                this._setMaskedValue(this.llmApiKey, llmConfig.api_key);
-            }
-            // 加载模型参数
-            if (llmConfig.temperature !== undefined) {
-                this.llmTemperature.value = llmConfig.temperature;
-            }
-            if (llmConfig.max_tokens !== undefined) {
-                this.llmMaxTokens.value = llmConfig.max_tokens;
-            }
-            if (llmConfig.top_p !== undefined) {
-                this.llmTopP.value = llmConfig.top_p;
-            }
-            if (llmConfig.base_url && llmConfig.provider === 'custom') {
-                this.llmBaseUrl.value = llmConfig.base_url;
-            }
+                this.services = orderedServices;
 
-            // 设置视觉模型配置
-            if (visionConfig.provider) {
-                this.visionProvider.value = visionConfig.provider;
-                this.visionProvider.dispatchEvent(new Event('change'));
+                logger.debug('服务商顺序已更新', { order: serviceIds });
+            } else {
+                throw new Error(result.error || '更新顺序失败');
             }
-            if (visionConfig.model) {
-                this.visionModel.value = visionConfig.model;
-            }
-            if (visionConfig.api_key) {
-                // 使用掩码显示密钥
-                this._setMaskedValue(this.visionApiKey, visionConfig.api_key);
-            }
-            // 加载视觉模型参数
-            if (visionConfig.temperature !== undefined) {
-                this.visionTemperature.value = visionConfig.temperature;
-            }
-            if (visionConfig.max_tokens !== undefined) {
-                this.visionMaxTokens.value = visionConfig.max_tokens;
-            }
-            if (visionConfig.top_p !== undefined) {
-                this.visionTopP.value = visionConfig.top_p;
-            }
-            if (visionConfig.base_url && visionConfig.provider === 'custom') {
-                this.visionBaseUrl.value = visionConfig.base_url;
-            }
-
-            // 将表单控件暴露给保存回调
-            container.formControls = {
-                baidu: { appId: this.baiduAppId, secret: this.baiduSecret },
-                llm: {
-                    provider: this.llmProvider,
-                    temperature: this.llmTemperature,
-                    top_p: this.llmTopP,
-                    max_tokens: this.llmMaxTokens
-                },
-                vision: {
-                    provider: this.visionProvider,
-                    temperature: this.visionTemperature,
-                    top_p: this.visionTopP,
-                    max_tokens: this.visionMaxTokens
-                }
-            };
         } catch (error) {
-            logger.error("加载API配置失败:", error);
+            logger.error('更新服务商顺序失败', error);
             app.extensionManager.toast.add({
                 severity: "error",
-                summary: "加载失败",
-                detail: error.message || "加载API配置过程中发生错误",
+                summary: "更新顺序失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+
+    /**
+     * 创建单个标签按钮
+     */
+    _createTabButton(tabId, title, subtitle) {
+        const button = document.createElement('button');
+        button.className = 'tab-button';
+        button.dataset.tab = tabId;
+
+        // 标签标题
+        const titleEl = document.createElement('div');
+        titleEl.className = 'tab-title';
+        titleEl.textContent = title;
+        button.appendChild(titleEl);
+
+        // 标签小字（介绍）
+        if (subtitle) {
+            const subtitleEl = document.createElement('div');
+            subtitleEl.className = 'tab-subtitle';
+            subtitleEl.textContent = subtitle;
+            button.appendChild(subtitleEl);
+        }
+
+        // 点击切换标签
+        button.addEventListener('click', () => {
+            this._switchTab(tabId, button.parentElement, button.parentElement.nextElementSibling);
+        });
+
+        // 为服务商标签添加右键菜单（百度翻译和预置服务商除外）
+        // 预置服务商不可编辑/删除，只有用户自定义的服务商才能使用右键菜单
+        const isPresetService = APIConfigManager.PRESET_SERVICE_IDS.includes(tabId);
+        if (tabId !== 'baidu' && !isPresetService) {
+            this._attachServiceContextMenu(button, tabId, title);
+        }
+
+        return button;
+    }
+
+    /**
+     * 切换标签页
+     */
+    _switchTab(tabId, header, contentContainer) {
+        // 更新标签按钮状态
+        header.querySelectorAll('.tab-button').forEach(btn => {
+            if (btn.dataset.tab === tabId) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+
+        // 显示对应内容
+        contentContainer.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.style.display = pane.dataset.tab === tabId ? 'block' : 'none';
+        });
+    }
+
+    /**
+     * 为服务标签附加右键菜单
+     */
+    _attachServiceContextMenu(button, serviceId, serviceName) {
+        createContextMenu({
+            target: button,
+            items: [
+                {
+                    label: '修改服务商名称',
+                    icon: 'pi-pencil',
+                    onClick: () => {
+                        this._editServiceName(button, serviceId, serviceName);
+                    }
+                },
+                {
+                    separator: true
+                },
+                {
+                    label: '删除服务',
+                    icon: 'pi-trash',
+                    danger: true,  // 标记为危险操作，图标显示红色
+                    onClick: () => {
+                        this._deleteService(serviceId, serviceName);
+                    }
+                }
+            ]
+        });
+    }
+
+    /**
+     * 修改服务商名称
+     */
+    _editServiceName(triggerButton, serviceId, currentName) {
+        const service = this.services.find(s => s.id === serviceId);
+        if (!service) return;
+
+        createConfirmPopup({
+            target: triggerButton,
+            message: '修改服务商信息',
+            icon: 'pi-pencil',
+            position: 'bottom',
+            confirmLabel: '保存',
+            cancelLabel: '取消',
+            renderFormContent: (formContainer) => {
+                // 服务商名称输入框
+                const nameInput = createInputGroup('服务商名称', '请输入服务商名称');
+                nameInput.input.value = service.name || currentName;
+                nameInput.input.dataset.fieldName = 'serviceName';
+                formContainer.appendChild(nameInput.group);
+
+                // 服务商介绍输入框
+                const descInput = createInputGroup('服务商介绍', '请输入服务商介绍（可选）');
+                descInput.input.value = service.description || '';
+                descInput.input.dataset.fieldName = 'serviceDescription';
+                formContainer.appendChild(descInput.group);
+            },
+            onConfirm: async (formContainer) => {
+                try {
+                    const nameInput = formContainer.querySelector('[data-field-name="serviceName"]');
+                    const descInput = formContainer.querySelector('[data-field-name="serviceDescription"]');
+
+                    const newName = nameInput.value.trim();
+                    const newDescription = descInput.value.trim();
+
+                    if (!newName) {
+                        app.extensionManager.toast.add({
+                            severity: "warn",
+                            summary: "请输入服务商名称",
+                            life: 2000
+                        });
+                        throw new Error('服务商名称不能为空');
+                    }
+
+                    // 更新服务商信息
+                    await this._updateService(serviceId, {
+                        name: newName,
+                        description: newDescription
+                    });
+
+                    // 更新按钮显示
+                    const titleEl = triggerButton.querySelector('.tab-title');
+                    const subtitleEl = triggerButton.querySelector('.tab-subtitle');
+
+                    if (titleEl) {
+                        titleEl.textContent = newName;
+                    }
+
+                    if (subtitleEl) {
+                        subtitleEl.textContent = newDescription;
+                    } else if (newDescription) {
+                        // 如果之前没有副标题，现在添加一个
+                        const newSubtitleEl = document.createElement('div');
+                        newSubtitleEl.className = 'tab-subtitle';
+                        newSubtitleEl.textContent = newDescription;
+                        triggerButton.appendChild(newSubtitleEl);
+                    }
+
+                    app.extensionManager.toast.add({
+                        severity: "success",
+                        summary: "服务商信息已更新",
+                        detail: `${newName} 更新成功`,
+                        life: 2000
+                    });
+                } catch (error) {
+                    logger.error('更新服务商信息失败', error);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "更新失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                    throw error;
+                }
+            }
+        });
+    }
+
+
+    /**
+     * 创建服务商内容标签页
+     */
+    _createServiceContentTab(service) {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = service.id;
+        pane.style.display = 'none';
+        pane.style.padding = '16px';
+
+        // 服务商配置卡片（复用现有的卡片创建逻辑）
+        const card = this._createServiceCard(service);
+        pane.appendChild(card);
+
+        return pane;
+    }
+
+    /**
+     * 新增服务商
+     */
+    async _addNewService(headerElement, contentElement) {
+        // 获取触发按钮作为定位参考
+        const triggerButton = headerElement.querySelector('.service-tab-add');
+
+        // 显示确认气泡框
+        createConfirmPopup({
+            target: triggerButton,
+            message: '创建新的服务商',
+            icon: 'pi-plus-circle',
+            position: 'left',
+            confirmLabel: '创建',
+            cancelLabel: '取消',
+            renderFormContent: (formContainer) => {
+                // 服务商名称输入框
+                const nameInput = createInputGroup('服务商名称', '请输入服务商名称');
+                nameInput.input.value = '新服务商';
+                nameInput.input.dataset.fieldName = 'serviceName';
+                formContainer.appendChild(nameInput.group);
+
+                // 服务商介绍输入框
+                const descInput = createInputGroup('服务商介绍', '请输入服务商介绍（可选）');
+                descInput.input.dataset.fieldName = 'serviceDescription';
+                formContainer.appendChild(descInput.group);
+            },
+            onConfirm: async (formContainer) => {
+                try {
+                    // 获取表单数据
+                    const nameInput = formContainer.querySelector('[data-field-name="serviceName"]');
+                    const descInput = formContainer.querySelector('[data-field-name="serviceDescription"]');
+
+                    const serviceName = nameInput.value.trim();
+                    const serviceDescription = descInput.value.trim();
+
+                    if (!serviceName) {
+                        app.extensionManager.toast.add({
+                            severity: "warn",
+                            summary: "请输入服务商名称",
+                            life: 2000
+                        });
+                        throw new Error('服务商名称不能为空');
+                    }
+
+                    // 创建服务商
+                    const res = await fetch(APIService.getApiUrl('/services'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            type: 'openai_compatible',
+                            name: serviceName,
+                            description: serviceDescription,
+                            base_url: 'https://api.example.com/v1',
+                            api_key: ''
+                        })
+                    });
+
+                    const result = await res.json();
+
+                    if (result.success) {
+                        app.extensionManager.toast.add({
+                            severity: "success",
+                            summary: "新服务商已创建",
+                            detail: `${serviceName} 创建成功`,
+                            life: 3000
+                        });
+
+                        // 重新加载配置
+                        await this._loadAllConfigs();
+
+                        // 获取新创建的服务
+                        const newService = this.services.find(s => s.id === result.service_id);
+                        if (newService) {
+                            // 创建新标签按钮（插入到"+"按钮前）
+                            const addButton = headerElement.querySelector('.service-tab-add');
+                            const newTabButton = this._createTabButton(
+                                newService.id,
+                                newService.name || '未命名服务',
+                                newService.description || ''
+                            );
+                            headerElement.insertBefore(newTabButton, addButton);
+
+                            // 创建新内容标签页
+                            const newContentPane = this._createServiceContentTab(newService);
+                            contentElement.appendChild(newContentPane);
+
+                            // 切换到新标签
+                            this._switchTab(newService.id, headerElement, contentElement);
+                        }
+                    } else {
+                        throw new Error(result.error || '创建失败');
+                    }
+                } catch (error) {
+                    logger.error('创建服务商失败', error);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "创建失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                    throw error;
+                }
+            }
+        });
+    }
+
+    /**
+     * 创建百度翻译标签页
+     */
+    _createBaiduTab() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = 'baidu';
+
+        const section = createFormGroup('百度翻译配置', [
+            { text: '开通百度翻译服务', url: 'https://fanyi-api.baidu.com/' }
+        ]);
+        section.classList.add('baidu-translate-section');
+
+        // 为链接添加图标,与其他服务保持统一
+        const linkElement = section.querySelector('.settings-service-link');
+        if (linkElement) {
+            const icon = document.createElement('i');
+            icon.className = 'pi pi-star';
+            icon.style.marginRight = '4px';
+            linkElement.insertBefore(icon, linkElement.firstChild);
+        }
+
+        const appIdInput = createInputGroup('AppID', '请输入百度翻译 AppID');
+        appIdInput.input.value = this.baiduConfig.app_id || '';
+        appIdInput.input.addEventListener('input', (e) => {
+            this.baiduConfig.app_id = e.target.value;
+        });
+        // 添加失焦保存
+        appIdInput.input.addEventListener('blur', async () => {
+            await this._saveBaiduConfig();
+        });
+
+        const secretInput = createInputGroup('Secret Key', '请输入百度翻译密钥');
+        secretInput.input.type = 'password';
+        secretInput.input.value = this.baiduConfig.secret_key || '';
+        secretInput.input.addEventListener('input', (e) => {
+            this.baiduConfig.secret_key = e.target.value;
+        });
+        // 添加失焦保存
+        secretInput.input.addEventListener('blur', async () => {
+            await this._saveBaiduConfig();
+        });
+
+        section.appendChild(appIdInput.group);
+        section.appendChild(secretInput.group);
+        pane.appendChild(section);
+
+        return pane;
+    }
+
+    /**
+     * 创建通用服务商标签页（二级标签页结构）
+     */
+    _createServicesTab() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane services-tab-pane';
+        pane.dataset.tab = 'services';
+        // 样式已移至CSS
+
+        // 二级标签页导航
+        const subTabNav = document.createElement('div');
+        subTabNav.className = 'service-sub-tabs';
+        // 样式已移至CSS
+
+        // 二级标签页内容容器
+        const subTabContent = document.createElement('div');
+        subTabContent.className = 'service-sub-content';
+
+        // 获取通用服务商
+        const genericServices = this.services.filter(s => s.type === 'openai_compatible');
+
+        // 创建服务商标签
+        genericServices.forEach((service, index) => {
+            // 创建标签按钮
+            const tabButton = this._createServiceTabButton(service);
+            subTabNav.appendChild(tabButton);
+
+            // 创建标签内容
+            const tabContentPane = this._createServiceTabContent(service);
+            subTabContent.appendChild(tabContentPane);
+
+            // 默认选中第一个
+            if (index === 0) {
+                tabButton.classList.add('active');
+                tabContentPane.style.display = 'block';
+            }
+        });
+
+        // 创建"+"新增标签按钮
+        const addTabButton = document.createElement('button');
+        addTabButton.className = 'service-tab-add';
+        addTabButton.textContent = '+';
+        addTabButton.addEventListener('click', () => this._addNewServiceTab(subTabNav, subTabContent));
+        subTabNav.appendChild(addTabButton);
+
+        // 如果没有任何服务商，显示空状态
+        if (genericServices.length === 0) {
+            const emptyHint = document.createElement('div');
+            emptyHint.className = 'empty-state-hint';
+            emptyHint.innerHTML = `
+                <div style="font-size: 48px; margin-bottom: 16px;">📦</div>
+                <div style="font-size: 16px; margin-bottom: 8px;">暂无服务商</div>
+                <div style="font-size: 14px;">点击右上角"+"按钮新增第一个服务商</div>
+            `;
+            subTabContent.appendChild(emptyHint);
+        }
+
+        pane.appendChild(subTabNav);
+        pane.appendChild(subTabContent);
+        return pane;
+    }
+
+    /**
+     * 创建服务商标签按钮
+     */
+    _createServiceTabButton(service) {
+        const button = document.createElement('button');
+        button.className = 'service-tab-button';
+        button.dataset.serviceId = service.id;
+
+        // 标签标题
+        const title = document.createElement('div');
+        title.className = 'service-tab-title';
+        title.textContent = service.name || '未命名服务';
+
+        // 标签小字（介绍）
+        const subtitle = document.createElement('div');
+        subtitle.className = 'service-tab-subtitle';
+        subtitle.textContent = service.description || '';
+
+        button.appendChild(title);
+        if (service.description) {
+            button.appendChild(subtitle);
+        }
+
+        // 点击切换
+        button.addEventListener('click', () => {
+            this._switchServiceTab(service.id);
+        });
+
+        return button;
+    }
+
+    /**
+     * 切换服务商标签
+     */
+    _switchServiceTab(serviceId) {
+        const container = document.querySelector('.services-tab-pane');
+        if (!container) return;
+
+        // 更新标签按钮状态
+        const buttons = container.querySelectorAll('.service-tab-button');
+        buttons.forEach(btn => {
+            if (btn.dataset.serviceId === serviceId) {
+                btn.classList.add('active');
+                btn.style.background = 'var(--p-primary-500)';
+                btn.style.color = 'white';
+                btn.querySelector('.service-tab-title').style.color = 'white';
+                const subtitle = btn.querySelector('.service-tab-subtitle');
+                if (subtitle) {
+                    subtitle.style.color = 'rgba(255, 255, 255, 0.8)';
+                }
+            } else {
+                btn.classList.remove('active');
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--p-text-color)';
+                btn.querySelector('.service-tab-title').style.color = 'var(--p-text-color)';
+                const subtitle = btn.querySelector('.service-tab-subtitle');
+                if (subtitle) {
+                    subtitle.style.color = 'var(--p-text-muted-color)';
+                }
+            }
+        });
+
+        // 更新内容显示
+        const panes = container.querySelectorAll('.service-content-pane');
+        panes.forEach(pane => {
+            pane.style.display = pane.dataset.serviceId === serviceId ? 'block' : 'none';
+        });
+    }
+
+    /**
+     * 创建服务商标签内容
+     */
+    _createServiceTabContent(service) {
+        const contentPane = document.createElement('div');
+        contentPane.className = 'service-content-pane';
+        contentPane.dataset.serviceId = service.id;
+        contentPane.style.cssText = `
+            display: none;
+        `;
+
+        // 这里先创建一个简单的占位内容，后续会完善
+        const card = this._createServiceCard(service);
+        contentPane.appendChild(card);
+
+        return contentPane;
+    }
+
+    /**
+     * 添加新服务商标签
+     */
+    async _addNewServiceTab(navContainer, contentContainer) {
+        // 调用后端API创建新服务商
+        try {
+            const res = await fetch(APIService.getApiUrl('/services'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type: 'openai_compatible',
+                    name: '新服务商',
+                    description: '',
+                    base_url: 'https://api.example.com/v1',
+                    api_key: ''
+                })
+            });
+
+            const result = await res.json();
+
+            if (result.success) {
+                app.extensionManager.toast.add({
+                    severity: "success",
+                    summary: "新服务商已创建",
+                    detail: "请填写配置信息",
+                    life: 3000
+                });
+
+                // 重新加载配置
+                await this._loadAllConfigs();
+
+                // 获取新创建的服务
+                const newService = this.services.find(s => s.id === result.service_id);
+                if (newService) {
+                    // 创建新标签按钮（插入到"+"按钮前）
+                    const newTabButton = this._createServiceTabButton(newService);
+                    const addButton = navContainer.querySelector('.service-tab-add');
+                    navContainer.insertBefore(newTabButton, addButton);
+
+                    // 创建新内容
+                    const newContentPane = this._createServiceTabContent(newService);
+                    contentContainer.appendChild(newContentPane);
+
+                    // 移除空状态提示（如果有）
+                    const emptyHint = contentContainer.querySelector('div[style*="暂无服务商"]');
+                    if (emptyHint) {
+                        emptyHint.remove();
+                    }
+
+                    // 切换到新标签
+                    this._switchServiceTab(newService.id);
+                }
+            } else {
+                throw new Error(result.error || '创建失败');
+            }
+        } catch (error) {
+            logger.error('创建服务商失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "创建失败",
+                detail: error.message,
                 life: 3000
             });
         }
     }
 
     /**
-     * 保存LLM提供商配置
-     * @param {string} provider 提供商名称
+     * 创建Ollama标签页
      */
-    _saveLLMProviderConfig(provider) {
-        if (!this.llmAllProviders) this.llmAllProviders = {};
+    _createOllamaTab() {
+        const pane = document.createElement('div');
+        pane.className = 'tab-pane';
+        pane.dataset.tab = 'ollama';
+        // 样式已移至CSS
 
-        // 获取当前配置
-        let baseUrl = '';
-        if (provider === 'custom') {
-            baseUrl = this.llmBaseUrl ? this.llmBaseUrl.value.trim() : '';
-            // 确保base_url不以/结尾
-            if (baseUrl && baseUrl.endsWith('/')) {
-                baseUrl = baseUrl.slice(0, -1);
-            }
-            // 确保base_url不以/chat/completions结尾
-            if (baseUrl && baseUrl.endsWith('/chat/completions')) {
-                baseUrl = baseUrl.slice(0, -16); // 移除'/chat/completions'
-            }
+        const ollamaService = this.services.find(s => s.type === 'ollama');
+
+        if (ollamaService) {
+            const card = this._createServiceCard(ollamaService);
+            pane.appendChild(card);
         } else {
-            baseUrl = provider === 'zhipu' ? 'https://open.bigmodel.cn/api/paas/v4' :
-                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' :
-                (provider === '302ai' ? 'https://api.302.ai/v1' :
-                (provider === 'ollama' ? 'http://localhost:11434/v1' : '')));
+            const hint = document.createElement('div');
+            hint.className = 'empty-state-hint-small';
+            hint.textContent = 'Ollama服务未配置';
+            pane.appendChild(hint);
         }
 
-        // 检查API密钥是否为掩码
-        let apiKey = this.llmApiKey.value.trim();
-        const isMasked = apiKey === '••••••••••••••••••••••••••••••••••••••••••••••••';
-
-        // 创建提供商配置对象
-        const providerConfig = {
-            model: this.llmModel.value.trim(),
-            base_url: baseUrl,
-            temperature: parseFloat(this.llmTemperature.value) || 0.7,
-            max_tokens: parseInt(this.llmMaxTokens.value) || 2000,
-            top_p: parseFloat(this.llmTopP.value) || 0.9
-        };
-        
-        // 如果是 Ollama，保存自动释放显存选项
-        if (provider === 'ollama') {
-            providerConfig.auto_unload = this.llmOllamaAutoUnload ? this.llmOllamaAutoUnload.checked : true;
-        }
-
-        // 保留现有配置中的has_key标记
-        if (this.llmAllProviders[provider] && this.llmAllProviders[provider].has_key) {
-            providerConfig.has_key = true;
-        }
-
-        // 只有当API密钥不是掩码时才更新
-        if (!isMasked || this.llmApiKey.dataset.hasKey !== 'true') {
-            providerConfig.api_key = apiKey;
-            // 如果输入了新的API密钥，设置has_key标记
-            if (apiKey) {
-                providerConfig.has_key = true;
-            } else {
-                // 如果清空了API密钥，移除has_key标记
-                providerConfig.has_key = false;
-            }
-        }
-
-        // 更新配置
-        this.llmAllProviders[provider] = providerConfig;
-
-        logger.debug(`已保存 ${provider} 提供商的LLM配置`);
+        return pane;
     }
 
     /**
-     * 保存视觉模型提供商配置
-     * @param {string} provider 提供商名称
+     * 创建服务商卡片
      */
-    _saveVisionProviderConfig(provider) {
-        if (!this.visionAllProviders) this.visionAllProviders = {};
+    _createServiceCard(service) {
+        const card = document.createElement('div');
+        card.className = 'service-card';
+        card.dataset.serviceId = service.id;  // 添加serviceId到dataset
 
-        // 获取当前配置
-        let baseUrl = '';
-        if (provider === 'custom') {
-            baseUrl = this.visionBaseUrl ? this.visionBaseUrl.value.trim() : '';
-            // 确保base_url不以/结尾
-            if (baseUrl && baseUrl.endsWith('/')) {
-                baseUrl = baseUrl.slice(0, -1);
-            }
-            // 确保base_url不以/chat/completions结尾
-            if (baseUrl && baseUrl.endsWith('/chat/completions')) {
-                baseUrl = baseUrl.slice(0, -16); // 移除'/chat/completions'
-            }
+        // 服务商标题 - 根据服务名称检测是否需要添加外部链接
+        const titleText = service.name || service.id;
+        const descText = service.description ? ` 信息配置` : '';
+        const fullTitle = `1️⃣ ${titleText}${descText}`;
+
+        // 检测服务名称,添加对应的申请链接
+        const links = [];
+        const serviceName = (service.name || '').toLowerCase();
+        const serviceId = (service.id || '').toLowerCase();
+        const searchText = `${serviceName} ${serviceId}`.toLowerCase();
+
+        // 智谱服务检测
+        if (searchText.includes('智谱') || searchText.includes('zhipu')) {
+            links.push({
+                text: '开通智谱API服务',
+                url: 'https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D',
+                icon: 'pi-star'
+            });
+        }
+
+        // 硅基流动服务检测
+        if (searchText.includes('硅基') || searchText.includes('siliconflow') || searchText.includes('silicon')) {
+            links.push({
+                text: '开通硅基流动API服务',
+                url: 'https://cloud.siliconflow.cn/i/FCDL2zBQ',
+                icon: 'pi-star'
+            });
+        }
+
+        // xflow服务检测
+        if (searchText.includes('xflow')) {
+            links.push({
+                text: '开通xflow API服务',
+                url: 'https://api.xflow.cc/register?aff=Z063',
+                icon: 'pi-star'
+            });
+        }
+
+        // 使用createFormGroup创建带链接的标题,或者普通标题
+        let titleSection;
+        if (links.length > 0) {
+            titleSection = createFormGroup(fullTitle, links.map(link => ({
+                text: link.text,
+                url: link.url
+            })));
+            // 为链接添加图标
+            const linkElements = titleSection.querySelectorAll('.settings-service-link');
+            linkElements.forEach((linkElem, index) => {
+                if (links[index] && links[index].icon) {
+                    const icon = document.createElement('i');
+                    icon.className = `pi ${links[index].icon}`;
+                    icon.style.marginRight = '4px';
+                    linkElem.insertBefore(icon, linkElem.firstChild);
+                }
+            });
         } else {
-            baseUrl = provider === 'zhipu' ? 'https://open.bigmodel.cn/api/paas/v4' :
-                (provider === 'siliconflow' ? 'https://api.siliconflow.cn/v1' :
-                (provider === '302ai' ? 'https://api.302.ai/v1' :
-                (provider === 'ollama' ? 'http://localhost:11434/v1' : '')));
+            // 没有链接时,创建普通标题
+            titleSection = document.createElement('div');
+            titleSection.className = 'settings-form-section';
+            const titleElement = document.createElement('h3');
+            titleElement.className = 'settings-form-section-title';
+            titleElement.textContent = fullTitle;
+            titleSection.appendChild(titleElement);
         }
 
-        // 检查API密钥是否为掩码
-        let apiKey = this.visionApiKey.value.trim();
-        const isMasked = apiKey === '••••••••••••••••••••••••••••••••••••••••••••••••';
+        card.appendChild(titleSection);
 
-        // 创建提供商配置对象
-        const providerConfig = {
-            model: this.visionModel.value.trim(),
-            base_url: baseUrl,
-            temperature: parseFloat(this.visionTemperature.value) || 0.7,
-            max_tokens: parseInt(this.visionMaxTokens.value) || 2000,
-            top_p: parseFloat(this.visionTopP.value) || 0.9
-        };
-        
-        // 如果是 Ollama，保存自动释放显存选项
-        if (provider === 'ollama') {
-            providerConfig.auto_unload = this.visionOllamaAutoUnload ? this.visionOllamaAutoUnload.checked : true;
-        }
+        // 基本信息
+        const baseUrlInput = createInputGroup('Base URL', 'https://api.example.com/v1');
+        baseUrlInput.input.value = service.base_url || '';
+        baseUrlInput.input.addEventListener('change', async (e) => {
+            await this._updateService(service.id, { base_url: e.target.value });
+        });
 
-        // 保留现有配置中的has_key标记
-        if (this.visionAllProviders[provider] && this.visionAllProviders[provider].has_key) {
-            providerConfig.has_key = true;
-        }
+        // API Key输入框（简化版，直接使用明文）
+        const apiKeyInput = createInputGroup('API Key', '请输入API Key');
+        apiKeyInput.input.type = 'password';
+        apiKeyInput.input.value = service.api_key || '';
 
-        // 只有当API密钥不是掩码时才更新
-        if (!isMasked || this.visionApiKey.dataset.hasKey !== 'true') {
-            providerConfig.api_key = apiKey;
-            // 如果输入了新的API密钥，设置has_key标记
-            if (apiKey) {
-                providerConfig.has_key = true;
-            } else {
-                // 如果清空了API密钥，移除has_key标记
-                providerConfig.has_key = false;
+        // 失焦时保存
+        apiKeyInput.input.addEventListener('blur', async (e) => {
+            const newApiKey = e.target.value.trim();
+            if (newApiKey !== service.api_key) {
+                await this._updateService(service.id, { api_key: newApiKey });
+                service.api_key = newApiKey;
             }
-        }
+        });
 
-        // 更新配置
-        this.visionAllProviders[provider] = providerConfig;
+        card.appendChild(baseUrlInput.group);
+        card.appendChild(apiKeyInput.group);
 
-        logger.debug(`已保存 ${provider} 提供商的视觉模型配置`);
-    }
+        // === 服务配置区域（简化版） ===
+        // 创建配置项容器
+        const settingsInlineContainer = document.createElement('div');
+        settingsInlineContainer.className = 'service-settings-inline';
 
-    /**
-     * 为输入框附加自动完成功能
-     * @param {HTMLInputElement} input 输入框元素
-     * @param {string} modelType 模型类型 ('llm' 或 'vision')
-     * @param {Function} getProvider 获取当前提供商的函数
-     */
-    _attachAutocomplete(input, modelType, getProvider) {
-        let autocompletePanel = null;
-        let modelsList = [];
-        let isOpen = false;
-        let selectedIndex = -1;
-        let showRecommended = false; // 当前显示模式：false=所有模型，true=推荐模型
-        
-        // 创建自动完成下拉面板
-        const createAutocompletePanel = () => {
-            const panel = document.createElement('div');
-            panel.className = 'pa-dropdown-panel p-dropdown-panel p-component settings-modal-dropdown-panel p-hidden';
-            panel.style.position = 'fixed';
-            panel.style.zIndex = '10001';
-            
-            const itemsWrapper = document.createElement('div');
-            itemsWrapper.className = 'p-dropdown-items-wrapper';
-            
-            const itemsList = document.createElement('ul');
-            itemsList.className = 'p-dropdown-items';
-            itemsList.setAttribute('role', 'listbox');
-            
-            itemsWrapper.appendChild(itemsList);
-            panel.appendChild(itemsWrapper);
-            
-            return panel;
-        };
-        
-        // 创建切换按钮（用于智谱、硅基流动、302）
-        const createToggleButton = () => {
-            const toggleWrapper = document.createElement('div');
-            toggleWrapper.className = 'model-list-toggle-wrapper';
-            toggleWrapper.style.cssText = `
-                padding: 8px 12px;
-                border-bottom: 1px solid var(--p-divider-color);
-                background: var(--p-panel-header-background);
-                display: flex;
-                align-items: center;
-                gap: 8px;
-            `;
-            
-            const label = document.createElement('span');
-            label.textContent = '筛选：';
-            label.style.cssText = `
-                font-size: 12px;
-                color: var(--p-text-color);
-            `;
-            
-            // 创建按钮容器
-            const buttonsContainer = document.createElement('div');
-            buttonsContainer.style.cssText = `
-                display: flex;
-                gap: 4px;
-            `;
-            
-            // 创建"所有模型"按钮
-            const allModelsButton = document.createElement('button');
-            allModelsButton.className = 'p-button p-button-sm p-button-text';
-            allModelsButton.textContent = '所有模型';
-            allModelsButton.style.cssText = `
-                padding: 4px 8px;
-                font-size: 12px;
-                height: auto;
-                min-width: auto;
-                color: var(--p-primary-color);
-            `;
-            
-            // 创建"推荐模型"按钮
-            const recommendedButton = document.createElement('button');
-            recommendedButton.className = 'p-button p-button-sm p-button-text';
-            recommendedButton.textContent = '推荐模型';
-            recommendedButton.style.cssText = `
-                padding: 4px 8px;
-                font-size: 12px;
-                height: auto;
-                min-width: auto;
-                color: var(--p-text-muted-color);
-            `;
-            
-            // 更新按钮状态
-            const updateButtonStates = () => {
-                if (showRecommended) {
-                    // 推荐模型激活
-                    allModelsButton.style.color = 'var(--p-text-muted-color)';
-                    recommendedButton.style.color = 'var(--p-primary-color)';
+        // 思维链控制开关
+        const thinkingContainer = document.createElement('div');
+        thinkingContainer.className = 'service-setting-item';
+
+        const thinkingLabel = document.createElement('span');
+        thinkingLabel.className = 'service-setting-label';
+        thinkingLabel.textContent = '关闭思维链';
+
+        const thinkingIcon = document.createElement('i');
+        thinkingIcon.className = 'pi pi-info-circle service-setting-info-icon';
+
+        // 添加 tooltip
+        createTooltip({
+            target: thinkingIcon,
+            content: '针对部分支持关闭思维链的模型进行关闭。⚠️：并不是所有模型都支持，关闭思维链的模型会在日志中的模型信息后面多出一个“✏️”符号。',
+            position: 'top'
+        });
+
+        const thinkingLabelWrapper = document.createElement('div');
+        thinkingLabelWrapper.className = 'service-setting-label-wrapper';
+        thinkingLabelWrapper.appendChild(thinkingLabel);
+        thinkingLabelWrapper.appendChild(thinkingIcon);
+
+        // 创建开关
+        const thinkingSwitchWrapper = document.createElement('label');
+        thinkingSwitchWrapper.className = 'switch-wrapper';
+
+        const thinkingInput = document.createElement('input');
+        thinkingInput.type = 'checkbox';
+        thinkingInput.checked = service.disable_thinking ?? true;
+
+        const thinkingSlider = document.createElement('span');
+        thinkingSlider.className = `switch-slider${thinkingInput.checked ? ' checked' : ''}`;
+
+        const thinkingButton = document.createElement('span');
+        thinkingButton.className = `switch-button${thinkingInput.checked ? ' checked' : ''}`;
+        thinkingSlider.appendChild(thinkingButton);
+
+        thinkingInput.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                thinkingSlider.classList.add('checked');
+                thinkingButton.classList.add('checked');
+            } else {
+                thinkingSlider.classList.remove('checked');
+                thinkingButton.classList.remove('checked');
+            }
+            await this._updateService(service.id, { disable_thinking: isChecked });
+            service.disable_thinking = isChecked;
+        });
+
+        thinkingSwitchWrapper.appendChild(thinkingInput);
+        thinkingSwitchWrapper.appendChild(thinkingSlider);
+
+        thinkingContainer.appendChild(thinkingLabelWrapper);
+        thinkingContainer.appendChild(thinkingSwitchWrapper);
+        settingsInlineContainer.appendChild(thinkingContainer);
+
+        // ---启用高级参数开关---
+        const advancedParamsContainer = document.createElement('div');
+        advancedParamsContainer.className = 'service-setting-item';
+
+        const advancedParamsLabel = document.createElement('span');
+        advancedParamsLabel.className = 'service-setting-label';
+        advancedParamsLabel.textContent = '启用高级参数';
+
+        const advancedParamsIcon = document.createElement('i');
+        advancedParamsIcon.className = 'pi pi-info-circle service-setting-info-icon';
+
+        // 添加 tooltip
+        createTooltip({
+            target: advancedParamsIcon,
+            content: '启用后将发送 temperature、top_p、max_tokens 参数以精细控制模型行为,限制最大tonken数来提升速度。如果关闭则可以提升兼容性。',
+            position: 'top'
+        });
+
+        const advancedParamsLabelWrapper = document.createElement('div');
+        advancedParamsLabelWrapper.className = 'service-setting-label-wrapper';
+        advancedParamsLabelWrapper.appendChild(advancedParamsLabel);
+        advancedParamsLabelWrapper.appendChild(advancedParamsIcon);
+
+        // 创建开关
+        const advancedParamsSwitchWrapper = document.createElement('label');
+        advancedParamsSwitchWrapper.className = 'switch-wrapper';
+
+        const advancedParamsInput = document.createElement('input');
+        advancedParamsInput.type = 'checkbox';
+        advancedParamsInput.checked = service.enable_advanced_params ?? false;
+
+        const advancedParamsSlider = document.createElement('span');
+        advancedParamsSlider.className = `switch-slider${advancedParamsInput.checked ? ' checked' : ''}`;
+
+        const advancedParamsButton = document.createElement('span');
+        advancedParamsButton.className = `switch-button${advancedParamsInput.checked ? ' checked' : ''}`;
+        advancedParamsSlider.appendChild(advancedParamsButton);
+
+        advancedParamsInput.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                advancedParamsSlider.classList.add('checked');
+                advancedParamsButton.classList.add('checked');
+            } else {
+                advancedParamsSlider.classList.remove('checked');
+                advancedParamsButton.classList.remove('checked');
+            }
+            await this._updateService(service.id, { enable_advanced_params: isChecked });
+            service.enable_advanced_params = isChecked;
+        });
+
+        advancedParamsSwitchWrapper.appendChild(advancedParamsInput);
+        advancedParamsSwitchWrapper.appendChild(advancedParamsSlider);
+
+        advancedParamsContainer.appendChild(advancedParamsLabelWrapper);
+        advancedParamsContainer.appendChild(advancedParamsSwitchWrapper);
+        settingsInlineContainer.appendChild(advancedParamsContainer);
+
+        // ---过滤思维链输出开关---
+        const filterThinkingContainer = document.createElement('div');
+        filterThinkingContainer.className = 'service-setting-item';
+
+        const filterThinkingLabel = document.createElement('span');
+        filterThinkingLabel.className = 'service-setting-label';
+        filterThinkingLabel.textContent = '过滤思维链输出';
+
+        const filterThinkingIcon = document.createElement('i');
+        filterThinkingIcon.className = 'pi pi-info-circle service-setting-info-icon';
+
+        // 添加 tooltip
+        createTooltip({
+            target: filterThinkingIcon,
+            content: '针对无法关闭思维链模型，移除思考过程内容。默认开启。',
+            position: 'top'
+        });
+
+        const filterThinkingLabelWrapper = document.createElement('div');
+        filterThinkingLabelWrapper.className = 'service-setting-label-wrapper';
+        filterThinkingLabelWrapper.appendChild(filterThinkingLabel);
+        filterThinkingLabelWrapper.appendChild(filterThinkingIcon);
+
+        // 创建开关
+        const filterThinkingSwitchWrapper = document.createElement('label');
+        filterThinkingSwitchWrapper.className = 'switch-wrapper';
+
+        const filterThinkingInput = document.createElement('input');
+        filterThinkingInput.type = 'checkbox';
+        filterThinkingInput.checked = service.filter_thinking_output ?? true;
+
+        const filterThinkingSlider = document.createElement('span');
+        filterThinkingSlider.className = `switch-slider${filterThinkingInput.checked ? ' checked' : ''}`;
+
+        const filterThinkingButton = document.createElement('span');
+        filterThinkingButton.className = `switch-button${filterThinkingInput.checked ? ' checked' : ''}`;
+        filterThinkingSlider.appendChild(filterThinkingButton);
+
+        filterThinkingInput.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                filterThinkingSlider.classList.add('checked');
+                filterThinkingButton.classList.add('checked');
+            } else {
+                filterThinkingSlider.classList.remove('checked');
+                filterThinkingButton.classList.remove('checked');
+            }
+            await this._updateService(service.id, { filter_thinking_output: isChecked });
+            service.filter_thinking_output = isChecked;
+        });
+
+        filterThinkingSwitchWrapper.appendChild(filterThinkingInput);
+        filterThinkingSwitchWrapper.appendChild(filterThinkingSlider);
+
+        filterThinkingContainer.appendChild(filterThinkingLabelWrapper);
+        filterThinkingContainer.appendChild(filterThinkingSwitchWrapper);
+        settingsInlineContainer.appendChild(filterThinkingContainer);
+
+        // Ollama专属:自动释放模型开关(仅前端UI)
+        if (service.type === 'ollama') {
+            const autoUnloadContainer = document.createElement('div');
+            autoUnloadContainer.className = 'service-setting-item';
+
+            const autoUnloadLabel = document.createElement('span');
+            autoUnloadLabel.className = 'service-setting-label';
+            autoUnloadLabel.textContent = '自动释放模型';
+
+            const autoUnloadIcon = document.createElement('i');
+            autoUnloadIcon.className = 'pi pi-info-circle service-setting-info-icon';
+
+            // 添加 tooltip
+            createTooltip({
+                target: autoUnloadIcon,
+                content: '请求完成后自动卸载模型以释放显存。⚠️该选项对针对前端小助手生效，节点有独立的选项。',
+                position: 'top'
+            });
+
+            const autoUnloadLabelWrapper = document.createElement('div');
+            autoUnloadLabelWrapper.className = 'service-setting-label-wrapper';
+            autoUnloadLabelWrapper.appendChild(autoUnloadLabel);
+            autoUnloadLabelWrapper.appendChild(autoUnloadIcon);
+
+            // 创建开关
+            const autoUnloadSwitchWrapper = document.createElement('label');
+            autoUnloadSwitchWrapper.className = 'switch-wrapper';
+
+            const autoUnloadInput = document.createElement('input');
+            autoUnloadInput.type = 'checkbox';
+            autoUnloadInput.checked = service.auto_unload !== false;
+
+            const autoUnloadSlider = document.createElement('span');
+            autoUnloadSlider.className = `switch-slider${autoUnloadInput.checked ? ' checked' : ''}`;
+
+            const autoUnloadButton = document.createElement('span');
+            autoUnloadButton.className = `switch-button${autoUnloadInput.checked ? ' checked' : ''}`;
+            autoUnloadSlider.appendChild(autoUnloadButton);
+
+            autoUnloadInput.addEventListener('change', async (e) => {
+                const isChecked = e.target.checked;
+                if (isChecked) {
+                    autoUnloadSlider.classList.add('checked');
+                    autoUnloadButton.classList.add('checked');
                 } else {
-                    // 所有模型激活
-                    allModelsButton.style.color = 'var(--p-primary-color)';
-                    recommendedButton.style.color = 'var(--p-text-muted-color)';
+                    autoUnloadSlider.classList.remove('checked');
+                    autoUnloadButton.classList.remove('checked');
                 }
-            };
-            
-            // "所有模型"按钮点击事件
-            allModelsButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (showRecommended) {
-                    showRecommended = false;
-                    updateButtonStates();
-                    loadModels();
+                await this._updateService(service.id, { auto_unload: isChecked });
+                service.auto_unload = isChecked;
+            });
+
+            autoUnloadSwitchWrapper.appendChild(autoUnloadInput);
+            autoUnloadSwitchWrapper.appendChild(autoUnloadSlider);
+
+            autoUnloadContainer.appendChild(autoUnloadLabelWrapper);
+            autoUnloadContainer.appendChild(autoUnloadSwitchWrapper);
+            settingsInlineContainer.appendChild(autoUnloadContainer);
+        }
+
+        card.appendChild(settingsInlineContainer);
+
+        // LLM模型部分
+        const llmSection = this._createModelSection(service, 'llm');
+        card.appendChild(llmSection);
+
+        // VLM模型部分
+        const vlmSection = this._createModelSection(service, 'vlm');
+        card.appendChild(vlmSection);
+
+        return card;
+    }
+
+
+    /**
+     * 创建模型配置部分
+     */
+    _createModelSection(service, modelType) {
+        const section = document.createElement('div');
+        section.className = 'settings-form-section';
+        section.style.marginTop = '16px';
+
+        // 标题行（包含模型类型和+按钮）
+        const titleRow = document.createElement('div');
+        titleRow.style.cssText = `
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        `;
+
+        const title = document.createElement('h5');
+        title.className = 'settings-form-section-title';
+        title.textContent = modelType === 'llm' ? '2️⃣ 添加翻译、提示词优化的大语言模型 (LLM)' : '3️⃣ 添加图像、视频反推的视觉模型 (VLM)';
+        title.style.margin = '0';
+
+        // 添加模型按钮
+        const addButton = document.createElement('button');
+        addButton.className = 'p-button p-component p-button-sm';
+        addButton.innerHTML = '<span class="p-button-icon-left pi pi-plus"></span><span class="p-button-label">添加模型</span>';
+        addButton.addEventListener('click', () => this._showAddModelDialog(service, modelType, modelsContainer));
+
+        titleRow.appendChild(title);
+        titleRow.appendChild(addButton);
+        section.appendChild(titleRow);
+
+        // 模型标签容器（可拖动排序）
+        const modelsContainer = document.createElement('div');
+        modelsContainer.className = 'models-container';
+        modelsContainer.dataset.serviceId = service.id;
+        modelsContainer.dataset.modelType = modelType;
+
+        const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+
+        if (models && models.length > 0) {
+            models.forEach((model) => {
+                const modelTag = this._createModelTag(model, service, modelType);
+                modelsContainer.appendChild(modelTag);
+            });
+
+            // 初始化Sortable拖动排序并保存实例
+            modelsContainer.sortableInstance = new Sortable(modelsContainer, {
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                handle: '.model-tag',  // 整个标签都可以拖动
+                onEnd: async (evt) => {
+                    // 拖动结束后更新模型顺序
+                    await this._updateModelOrder(service.id, modelType, modelsContainer);
                 }
             });
-            
-            // "推荐模型"按钮点击事件
-            recommendedButton.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (!showRecommended) {
-                    showRecommended = true;
-                    updateButtonStates();
-                    loadModels();
+        } else {
+            const emptyHint = document.createElement('div');
+            emptyHint.className = 'empty-hint';
+            emptyHint.textContent = '暂无配置模型，点击"+ 添加模型"开始配置';
+            emptyHint.style.cssText = `
+                font-size: 12px;
+                color: var(--p-text-muted-color);
+                padding: 8px;
+            `;
+            modelsContainer.appendChild(emptyHint);
+        }
+
+        section.appendChild(modelsContainer);
+
+        // 移除固定的高级设置区域 - 现在点击模型标签时弹出气泡框编辑
+
+        return section;
+    }
+
+    /**
+     * 创建模型标签
+     */
+    _createModelTag(model, service, modelType) {
+        const tag = document.createElement('div');
+        tag.className = `model-tag${model.is_default ? ' default' : ''}`;
+        tag.dataset.modelName = model.name;
+        tag.dataset.selected = 'false';
+
+        // 模型图标
+        const iconSpan = document.createElement('i');
+        iconSpan.className = 'pi pi-sparkles model-tag-icon';
+        tag.appendChild(iconSpan);
+
+        // 模型名称
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'model-tag-name';
+        nameSpan.textContent = model.name;
+        tag.appendChild(nameSpan);
+
+        // 默认标记
+        if (model.is_default) {
+            const defaultBadge = document.createElement('span');
+            defaultBadge.className = 'model-tag-badge';
+            defaultBadge.textContent = '默认';
+            tag.appendChild(defaultBadge);
+        }
+
+        // 删除按钮
+        const deleteBtn = document.createElement('button');
+        deleteBtn.innerHTML = '×';
+        deleteBtn.className = 'model-delete-btn';
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._deleteModel(service, modelType, model.name, tag);
+        });
+        tag.appendChild(deleteBtn);
+
+        // ---点击选中状态---
+        tag.addEventListener('click', (e) => {
+            // 如果点击的是删除按钮,不触发选中
+            if (e.target.closest('.model-delete-btn')) {
+                return;
+            }
+            // 移除同容器内其他标签的选中状态
+            const container = tag.parentElement;
+            if (container) {
+                container.querySelectorAll('.model-tag.selected').forEach(t => {
+                    t.classList.remove('selected');
+                });
+            }
+            // 添加当前标签的选中状态
+            tag.classList.add('selected');
+        });
+
+        // ---右键菜单---
+        // 使用函数形式动态获取菜单项,确保每次显示菜单时都能获取最新的模型状态
+        const getMenuItems = () => {
+            // 从本地数据中获取最新的模型状态
+            const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+            const currentModel = models.find(m => m.name === model.name);
+            const isDefault = currentModel ? currentModel.is_default : false;
+
+            return [
+                {
+                    label: '设为默认模型',
+                    icon: 'pi-star',
+                    disabled: isDefault, // 动态获取当前是否为默认模型
+                    onClick: () => {
+                        this._setDefaultModel(service, modelType, model.name, tag);
+                    }
+                },
+                { separator: true }, // 分隔线
+                {
+                    label: '修改模型参数设置',
+                    icon: 'pi-cog',
+                    onClick: () => {
+                        this._selectModelForEdit(service, modelType, model.name, tag);
+                    }
                 }
-            });
-            
-            buttonsContainer.appendChild(allModelsButton);
-            buttonsContainer.appendChild(recommendedButton);
-            
-            toggleWrapper.appendChild(label);
-            toggleWrapper.appendChild(buttonsContainer);
-            
-            return toggleWrapper;
+            ];
         };
-        
-        // 更新面板位置
-        const updatePanelPosition = () => {
-            if (!isOpen || !autocompletePanel) return;
-            
-            const rect = input.getBoundingClientRect();
-            autocompletePanel.style.top = rect.bottom + 'px';
-            autocompletePanel.style.left = rect.left + 'px';
-            autocompletePanel.style.width = rect.width + 'px';
-        };
-        
-        // 关闭面板
-        const closePanel = () => {
-            if (!isOpen || !autocompletePanel) return;
-            isOpen = false;
-            selectedIndex = -1;
-            
-            autocompletePanel.classList.add('p-hidden');
-            autocompletePanel.classList.remove('p-enter-active');
-            
-            window.removeEventListener('resize', updatePanelPosition);
-            window.removeEventListener('scroll', updatePanelPosition, true);
-            
-            setTimeout(() => {
-                if (autocompletePanel && autocompletePanel.parentNode === document.body) {
-                    document.body.removeChild(autocompletePanel);
+
+        createContextMenu({
+            target: tag,
+            items: getMenuItems
+        });
+
+        return tag;
+    }
+
+    /**
+     * 选中模型进行编辑（弹出气泡框）
+     */
+    _selectModelForEdit(service, modelType, modelName, tagElement) {
+        // 保存this引用
+        const self = this;
+
+        // 获取模型数据
+        const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+        const selectedModel = models.find(m => m.name === modelName);
+
+        if (!selectedModel) return;
+
+        // 弹出气泡框编辑参数
+        createConfirmPopup({
+            target: tagElement,
+            message: `模型参数设置`,
+            icon: 'pi-cog',
+            position: 'top',
+            confirmLabel: '保存',
+            cancelLabel: '取消',
+            renderFormContent: (formContainer) => {
+                // 为表单容器添加横向布局类
+                formContainer.classList.add('model-params-form');
+
+                // 温度 (Temperature)
+                const tempInput = createInputGroup('温度 (Temperature)', '0.0 - 2.0', 'number');
+                tempInput.input.min = '0';
+                tempInput.input.max = '2';
+                tempInput.input.step = '0.1';
+                tempInput.input.value = selectedModel.temperature ?? 0.7;
+                tempInput.input.dataset.fieldName = 'temperature';
+                tempInput.group.style.width = '135px';
+                formContainer.appendChild(tempInput.group);
+
+                // 核采样 (Top-P)
+                const topPInput = createInputGroup('核采样 (Top-P)', '0.0 - 1.0', 'number');
+                topPInput.input.min = '0';
+                topPInput.input.max = '1';
+                topPInput.input.step = '0.1';
+                topPInput.input.value = selectedModel.top_p ?? 0.9;
+                topPInput.input.dataset.fieldName = 'top_p';
+                topPInput.group.style.width = '135px';
+                formContainer.appendChild(topPInput.group);
+
+                // 最大Token数
+                const maxTokensInput = createInputGroup('最大Token数', '1 - 8192', 'number');
+                maxTokensInput.input.min = '1';
+                maxTokensInput.input.max = '8192';
+                maxTokensInput.input.step = '1';
+                maxTokensInput.input.value = selectedModel.max_tokens ?? 512;
+                maxTokensInput.input.dataset.fieldName = 'max_tokens';
+                maxTokensInput.group.style.width = '135px';
+                formContainer.appendChild(maxTokensInput.group);
+            },
+            onConfirm: async (formContainer) => {
+                try {
+                    // 获取表单数据
+                    const temperature = parseFloat(formContainer.querySelector('[data-field-name="temperature"]').value);
+                    const top_p = parseFloat(formContainer.querySelector('[data-field-name="top_p"]').value);
+                    const max_tokens = parseInt(formContainer.querySelector('[data-field-name="max_tokens"]').value);
+
+                    // 验证数据
+                    if (isNaN(temperature) || temperature < 0 || temperature > 2) {
+                        app.extensionManager.toast.add({
+                            severity: "warn",
+                            summary: "温度值无效",
+                            detail: "温度值应在 0 到 2 之间",
+                            life: 2000
+                        });
+                        throw new Error('温度值无效');
+                    }
+
+                    if (isNaN(top_p) || top_p < 0 || top_p > 1) {
+                        app.extensionManager.toast.add({
+                            severity: "warn",
+                            summary: "核采样值无效",
+                            detail: "核采样值应在 0 到 1 之间",
+                            life: 2000
+                        });
+                        throw new Error('核采样值无效');
+                    }
+
+                    if (isNaN(max_tokens) || max_tokens < 1 || max_tokens > 8192) {
+                        app.extensionManager.toast.add({
+                            severity: "warn",
+                            summary: "最大Token数无效",
+                            detail: "最大Token数应在 1 到 8192 之间",
+                            life: 2000
+                        });
+                        throw new Error('最大Token数无效');
+                    }
+
+                    // 使用self代替this来调用方法
+                    await self._updateModelParams(service.id, modelType, modelName, {
+                        temperature,
+                        top_p,
+                        max_tokens
+                    });
+
+                    // 更新本地数据
+                    selectedModel.temperature = temperature;
+                    selectedModel.top_p = top_p;
+                    selectedModel.max_tokens = max_tokens;
+
+                    app.extensionManager.toast.add({
+                        severity: "success",
+                        summary: "参数已更新",
+                        detail: `${modelName} 的参数已保存`,
+                        life: 2000
+                    });
+                } catch (error) {
+                    logger.error('更新模型参数失败', error);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "更新失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                    throw error;
                 }
-                // 清空面板引用，下次打开时重新创建（以便根据提供商决定是否显示切换按钮）
-                autocompletePanel = null;
-                showRecommended = false; // 重置为默认状态
-                document.removeEventListener('click', handleOutsideClick, true);
-            }, 120);
-        };
-        
-        // 加载模型列表（独立函数，用于初次加载和切换时重载）
-        const loadModels = async () => {
-            const provider = getProvider();
-            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
-            
-            // 显示加载状态
-            itemsList.innerHTML = '<li class="p-dropdown-item" style="color: var(--p-text-muted-color);">正在加载模型列表...</li>';
-            
-            // 获取模型列表
-            try {
-                const response = await fetch('/prompt_assistant/api/models/list', {
-                    method: 'POST',
+            }
+        });
+    }
+
+    /**
+     * 批量更新模型参数
+     */
+    async _updateModelParams(serviceId, modelType, modelName, params) {
+        if (!serviceId) {
+            logger.error("更新模型参数失败: serviceId为空");
+            throw new Error("服务ID不能为空");
+        }
+        try {
+            // 依次更新每个参数
+            for (const [paramName, paramValue] of Object.entries(params)) {
+                const url = APIService.getApiUrl(`/services/${encodeURIComponent(serviceId)}/models/parameter`);
+                logger.debug(`[v2] 正在更新参数: ${url}`, { modelType, modelName, paramName, paramValue });
+
+                const res = await fetch(url, {
+                    method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        provider: provider,
                         model_type: modelType,
-                        recommended: showRecommended
+                        model_name: modelName,
+                        parameter_name: paramName,
+                        parameter_value: paramValue
                     })
                 });
-                
-                const result = await response.json();
-                
-                if (result.success && result.models && result.models.length > 0) {
-                    modelsList = result.models;
-                    renderModelsList(modelsList);
-                } else {
-                    const errorMsg = result.error || '未找到可用的模型';
-                    itemsList.innerHTML = `<li class="p-dropdown-item" style="color: var(--p-message-error-color);">${errorMsg}</li>`;
-                    modelsList = [];
+
+                if (!res.ok) {
+                    const text = await res.text();
+                    logger.error(`更新参数请求失败: ${res.status} ${res.statusText}`, text);
+                    throw new Error(`请求失败: ${res.status} ${res.statusText}`);
                 }
-            } catch (error) {
-                logger.error(`获取模型列表失败: ${error.message}`);
-                itemsList.innerHTML = `<li class="p-dropdown-item" style="color: var(--p-message-error-color);">获取模型列表失败: ${error.message}</li>`;
-                modelsList = [];
-            }
-        };
-        
-        // 打开面板并显示模型列表
-        const openPanel = async () => {
-            const provider = getProvider();
-            
-            // 创建面板（如果不存在）
-            if (!autocompletePanel) {
-                autocompletePanel = createAutocompletePanel();
-                
-                // 如果是智谱、硅基流动或302，添加切换按钮
-                if (provider === 'zhipu' || provider === 'siliconflow' || provider === '302ai') {
-                    const toggleButton = createToggleButton();
-                    autocompletePanel.insertBefore(toggleButton, autocompletePanel.firstChild);
-                }
-            }
-            
-            // 添加到body
-            document.body.appendChild(autocompletePanel);
-            
-            // 计算位置
-            const rect = input.getBoundingClientRect();
-            autocompletePanel.style.top = rect.bottom + 'px';
-            autocompletePanel.style.left = rect.left + 'px';
-            autocompletePanel.style.width = rect.width + 'px';
-            
-            // 显示面板
-            autocompletePanel.classList.remove('p-hidden');
-            autocompletePanel.offsetHeight; // 强制重排
-            autocompletePanel.classList.add('p-enter-active');
-            
-            isOpen = true;
-            
-            // 添加事件监听
-            document.addEventListener('click', handleOutsideClick, true);
-            window.addEventListener('resize', updatePanelPosition);
-            window.addEventListener('scroll', updatePanelPosition, true);
-            
-            // 加载模型列表
-            await loadModels();
-        };
-        
-        // 渲染模型列表
-        const renderModelsList = (models, filterText = '') => {
-            if (!autocompletePanel) return;
-            
-            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
-            itemsList.innerHTML = '';
-            
-            // 过滤模型
-            const filteredModels = filterText
-                ? models.filter(model => model.id.toLowerCase().includes(filterText.toLowerCase()))
-                : models;
-            
-            if (filteredModels.length === 0) {
-                itemsList.innerHTML = '<li class="p-dropdown-item" style="color: var(--p-text-muted-color);">未找到匹配的模型</li>';
-                return;
-            }
-            
-            filteredModels.forEach((model, index) => {
-                const item = document.createElement('li');
-                item.className = 'p-dropdown-item';
-                item.textContent = model.name;
-                item.dataset.value = model.id;
-                item.dataset.index = index;
-                item.setAttribute('role', 'option');
-                
-                item.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    input.value = model.id;
-                    closePanel();
-                });
-                
-                itemsList.appendChild(item);
-            });
-        };
-        
-        // 处理键盘导航
-        const handleKeyDown = (e) => {
-            if (!isOpen || !autocompletePanel) return;
-            
-            const itemsList = autocompletePanel.querySelector('.p-dropdown-items');
-            const items = Array.from(itemsList.querySelectorAll('.p-dropdown-item[data-value]'));
-            
-            if (items.length === 0) return;
-            
-            switch (e.key) {
-                case 'ArrowDown':
-                    e.preventDefault();
-                    selectedIndex = (selectedIndex + 1) % items.length;
-                    updateSelection(items);
-                    break;
-                case 'ArrowUp':
-                    e.preventDefault();
-                    selectedIndex = selectedIndex <= 0 ? items.length - 1 : selectedIndex - 1;
-                    updateSelection(items);
-                    break;
-                case 'Enter':
-                    e.preventDefault();
-                    if (selectedIndex >= 0 && selectedIndex < items.length) {
-                        const selectedItem = items[selectedIndex];
-                        input.value = selectedItem.dataset.value;
-                        closePanel();
+
+                const text = await res.text();
+                try {
+                    const result = JSON.parse(text);
+                    if (!result.success) {
+                        throw new Error(result.error || '更新参数失败');
                     }
-                    break;
-                case 'Escape':
-                    e.preventDefault();
-                    closePanel();
-                    break;
+                } catch (e) {
+                    logger.error(`解析响应JSON失败: ${text}`, e);
+                    throw new Error(`解析响应失败: ${e.message}`);
+                }
             }
-        };
-        
-        // 更新选中状态
-        const updateSelection = (items) => {
-            items.forEach((item, index) => {
-                if (index === selectedIndex) {
-                    item.classList.add('p-highlight');
-                    item.scrollIntoView({ block: 'nearest' });
+
+            logger.debug(`已批量更新模型参数: ${modelName}`, params);
+
+        } catch (error) {
+            logger.error('批量更新模型参数失败', error);
+            throw error;
+        }
+    }
+
+
+    /**
+     * 获取可用模型列表
+     */
+    async _getAvailableModels(service, modelType) {
+        try {
+            // 调用后端API获取模型列表
+            const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models?model_type=${modelType}`));
+            const result = await res.json();
+
+            // 返回结果包含success、models或error
+            return result;
+
+        } catch (error) {
+            logger.error(`获取模型列表异常: ${error.message}`);
+            return {
+                success: false,
+                error: `网络错误: ${error.message}`
+            };
+        }
+    }
+
+    /**
+     * 显示添加模型列表框（使用多选组件）
+     */
+    _showAddModelDialog(service, modelType, container) {
+        // 获取触发按钮
+        const addBtn = event.target.closest('button');
+
+        // 使用新的多选listbox组件
+        createMultiSelectListbox({
+            triggerElement: addBtn,
+            placeholder: `搜索${modelType === 'llm' ? 'LLM' : 'VLM'}模型...`,
+            fetchItems: async () => {
+                const result = await this._getAvailableModels(service, modelType);
+
+                if (!result.success) {
+                    throw new Error(result.error || '获取模型列表失败');
+                }
+
+                return result.models[modelType] || [];
+            },
+            onConfirm: async (selectedModels, searchInputValue) => {
+                // 如果没有勾选模型,但搜索框有内容,则将搜索框内容作为模型名称添加
+                if (selectedModels.length === 0 && searchInputValue && searchInputValue.trim()) {
+                    const modelName = searchInputValue.trim();
+                    await this._addModel(service, modelType, modelName, container);
                 } else {
-                    item.classList.remove('p-highlight');
+                    // 批量添加选中的模型
+                    for (const modelName of selectedModels) {
+                        await this._addModel(service, modelType, modelName, container);
+                    }
+                }
+            }
+        });
+    }
+
+    /**
+     * 获取推荐模型列表（已移除，返回空数组）
+     */
+    async _getRecommendedModels(modelType) {
+        // 推荐模型已移除，所有模型从服务商API获取
+        return [];
+    }
+
+    /**
+     * 添加模型
+     */
+    async _addModel(service, modelType, modelName, container) {
+        try {
+            // 调用后端API添加模型
+            const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_type: modelType,
+                    model_name: modelName,
+                    temperature: 0.7,
+                    top_p: 0.9,
+                    max_tokens: 512
+                })
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '添加模型失败');
+            }
+
+            // 更新本地数据
+            const modelList = modelType === 'llm' ? service.llm_models : service.vlm_models;
+            if (!modelList) {
+                if (modelType === 'llm') {
+                    service.llm_models = [];
+                } else {
+                    service.vlm_models = [];
+                }
+            }
+
+            const updatedList = modelType === 'llm' ? service.llm_models : service.vlm_models;
+            updatedList.push({
+                name: modelName,
+                is_default: updatedList.length === 0,
+                temperature: 0.7,
+                top_p: 0.9,
+                max_tokens: 512
+            });
+
+            // 移除空提示
+            const emptyHint = container.querySelector('.empty-hint');
+            if (emptyHint) {
+                emptyHint.remove();
+            }
+
+            // 添加新标签
+            const newTag = this._createModelTag({
+                name: modelName,
+                is_default: updatedList.length === 1
+            }, service, modelType);
+            container.appendChild(newTag);
+
+            // 初始化或更新Sortable（确保新添加的标签可以拖动）
+            // 先销毁旧的Sortable实例（如果存在）
+            if (container.sortableInstance) {
+                container.sortableInstance.destroy();
+            }
+
+            // 创建新的Sortable实例
+            container.sortableInstance = new Sortable(container, {
+                animation: 150,
+                ghostClass: 'sortable-ghost',
+                handle: '.model-tag',
+                onEnd: async (evt) => {
+                    await this._updateModelOrder(service.id, modelType, container);
                 }
             });
-        };
-        
-        // 处理外部点击
-        const handleOutsideClick = (e) => {
-            if (input.contains(e.target)) {
-                return;
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "模型已添加",
+                life: 2000
+            });
+
+        } catch (error) {
+            logger.error('添加模型失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "添加失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+    /**
+     * 删除模型
+     */
+    async _deleteModel(service, modelType, modelName, tagElement) {
+        // 使用createSettingsDialog创建确认窗口
+        createSettingsDialog({
+            title: '<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>确认删除',
+            isConfirmDialog: true,
+            dialogClassName: 'confirm-dialog',
+            saveButtonText: '删除',
+            saveButtonIcon: 'pi-trash',
+            isDangerButton: true,
+            cancelButtonText: '取消',
+            renderContent: (content) => {
+                content.className = 'confirm-dialog-content-simple';
+
+                const confirmMessage = document.createElement('p');
+                confirmMessage.className = 'confirm-dialog-message-simple';
+                confirmMessage.textContent = `确定要删除模型"${modelName}"吗？`;
+
+                content.appendChild(confirmMessage);
+            },
+            onSave: async () => {
+                try {
+                    // 调用后端API删除模型
+                    const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models/${modelType}/${encodeURIComponent(modelName)}`), {
+                        method: 'DELETE'
+                    });
+
+                    const result = await res.json();
+
+                    if (!result.success) {
+                        throw new Error(result.error || '删除模型失败');
+                    }
+
+                    // 更新本地数据
+                    const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+                    const index = models.findIndex(m => m.name === modelName);
+                    if (index >= 0) {
+                        models.splice(index, 1);
+                    }
+
+                    // 移除标签
+                    tagElement.remove();
+
+                    // 如果删除后为空，显示空提示
+                    const container = tagElement.parentElement;
+                    if (container && container.children.length === 0) {
+                        const emptyHint = document.createElement('div');
+                        emptyHint.className = 'empty-hint';
+                        emptyHint.textContent = '暂无配置模型，点击"+ 添加模型"开始配置';
+                        emptyHint.style.cssText = `
+                            font-size: 12px;
+                            color: var(--p-text-muted-color);
+                            padding: 8px;
+                        `;
+                        container.appendChild(emptyHint);
+                    }
+
+                    app.extensionManager.toast.add({
+                        severity: "success",
+                        summary: "模型已删除",
+                        life: 2000
+                    });
+
+                    return true; // 允许关闭对话框
+
+                } catch (error) {
+                    logger.error('删除模型失败', error);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "删除失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                    return false; // 阻止关闭对话框
+                }
             }
-            if (autocompletePanel && autocompletePanel.contains(e.target)) {
-                return;
-            }
-            closePanel();
-        };
-        
-        // 添加事件监听器
-        input.addEventListener('focus', () => {
-            // 所有提供商都支持自动完成
-            openPanel();
         });
-        
-        input.addEventListener('input', () => {
-            if (isOpen && modelsList.length > 0) {
-                renderModelsList(modelsList, input.value);
-                selectedIndex = -1;
+    }
+
+    /**
+     * 设置默认模型
+     */
+    async _setDefaultModel(service, modelType, modelName, tagElement) {
+        try {
+            // 调用后端API设置默认模型
+            const res = await fetch(APIService.getApiUrl(`/services/${service.id}/models/default`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_type: modelType,
+                    model_name: modelName
+                })
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '设置默认模型失败');
+            }
+
+            // 更新本地数据
+            const models = modelType === 'llm' ? service.llm_models : service.vlm_models;
+            models.forEach(m => {
+                m.is_default = m.name === modelName;
+            });
+
+            // ---直接更新DOM，无需重新加载---
+            const container = tagElement?.parentElement;
+            if (container) {
+                // 移除所有标签的默认状态
+                container.querySelectorAll('.model-tag').forEach(tag => {
+                    tag.classList.remove('default');
+                    // 移除旧的默认标记
+                    const oldBadge = tag.querySelector('.model-tag-badge');
+                    if (oldBadge) {
+                        oldBadge.remove();
+                    }
+                });
+
+                // 为新的默认模型添加样式和标记
+                if (tagElement) {
+                    tagElement.classList.add('default');
+                    // 在名称后面添加默认标记
+                    const nameSpan = tagElement.querySelector('.model-tag-name');
+                    if (nameSpan) {
+                        const defaultBadge = document.createElement('span');
+                        defaultBadge.className = 'model-tag-badge';
+                        defaultBadge.textContent = '默认';
+                        nameSpan.after(defaultBadge);
+                    }
+                }
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: `已设置"${modelName}"为默认模型`,
+                life: 2000
+            });
+
+        } catch (error) {
+            logger.error('设置默认模型失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "设置失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+    /**
+     * 更新模型顺序
+     */
+    async _updateModelOrder(serviceId, modelType, container) {
+        try {
+            const modelTags = container.querySelectorAll('.model-tag');
+            const newOrder = Array.from(modelTags).map(tag => tag.dataset.modelName);
+
+            // 调用后端API更新顺序
+            const res = await fetch(APIService.getApiUrl(`/services/${serviceId}/models/order`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model_type: modelType,
+                    model_names: newOrder
+                })
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '更新模型顺序失败');
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "模型顺序已更新",
+                life: 2000
+            });
+
+        } catch (error) {
+            logger.error('更新模型顺序失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "更新失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+    /**
+     * 删除服务商
+     */
+    async _deleteService(serviceId) {
+        // 查找服务名称
+        const service = this.services.find(s => s.id === serviceId);
+        const serviceName = service ? service.name : serviceId;
+
+        // 使用createSettingsDialog创建确认窗口
+        createSettingsDialog({
+            title: '<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>确认删除',
+            isConfirmDialog: true,
+            dialogClassName: 'confirm-dialog',
+            saveButtonText: '删除',
+            saveButtonIcon: 'pi-trash',
+            isDangerButton: true,
+            cancelButtonText: '取消',
+            renderContent: (content) => {
+                content.className = 'confirm-dialog-content-simple';
+
+                const confirmMessage = document.createElement('p');
+                confirmMessage.className = 'confirm-dialog-message-simple';
+                confirmMessage.textContent = `确定要删除服务商"${serviceName}"吗？`;
+
+                content.appendChild(confirmMessage);
+            },
+            onSave: async () => {
+                try {
+                    const res = await fetch(APIService.getApiUrl(`/services/${serviceId}`), {
+                        method: 'DELETE'
+                    });
+
+                    const result = await res.json();
+
+                    if (result.success) {
+                        app.extensionManager.toast.add({
+                            severity: "success",
+                            summary: "删除成功",
+                            life: 3000
+                        });
+
+                        // 重新加载配置并刷新UI
+                        await this._loadAllConfigs();
+
+                        // 查找并移除对应的标签和内容
+                        const tabButton = document.querySelector(`.tab-button[data-tab="${serviceId}"]`);
+                        if (tabButton) {
+                            tabButton.remove();
+                        }
+
+                        const tabPane = document.querySelector(`.tab-pane[data-tab="${serviceId}"]`);
+                        if (tabPane) {
+                            tabPane.remove();
+                        }
+
+                        // 自动切换到百度翻译标签
+                        const header = document.querySelector('.tab-header');
+                        const contentContainer = document.querySelector('.tab-content');
+                        if (header && contentContainer) {
+                            this._switchTab('baidu', header, contentContainer);
+                        }
+
+                        // 如果是最后一个服务商，显示空提示
+                        const listContainer = document.querySelector('.services-list');
+                        if (listContainer && this.services.length === 0) {
+                            const emptyHint = document.createElement('div');
+                            emptyHint.style.cssText = `
+                                text-align: center;
+                                padding: 40px;
+                                color: var(--p-text-muted-color);
+                            `;
+                            emptyHint.textContent = '暂无服务商，点击"新增服务商"开始配置';
+                            listContainer.appendChild(emptyHint);
+                        }
+
+                        return true; // 允许关闭对话框
+                    } else {
+                        throw new Error(result.error || '删除失败');
+                    }
+                } catch (error) {
+                    logger.error('删除服务商失败', error);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "删除失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                    return false; // 阻止关闭对话框
+                }
             }
         });
-        
-        input.addEventListener('keydown', handleKeyDown);
+    }
+
+    /**
+     * 更新服务商配置
+     */
+    async _updateService(serviceId, updates) {
+        try {
+            const res = await fetch(APIService.getApiUrl(`/services/${serviceId}`), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates)
+            });
+
+            const result = await res.json();
+
+            if (!result.success) {
+                throw new Error(result.error || '更新失败');
+            }
+
+            // 同步更新本地内存中的服务商数据
+            const service = this.services.find(s => s.id === serviceId);
+            if (service) {
+                Object.assign(service, updates);
+            }
+
+            logger.debug('服务商配置已更新', serviceId);
+
+            // 显示成功提示
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "服务商配置已更新",
+                life: 2000
+            });
+        } catch (error) {
+            logger.error('更新服务商失败', error);
+            app.extensionManager.toast.add({
+                severity: "error",
+                summary: "更新失败",
+                detail: error.message,
+                life: 3000
+            });
+        }
+    }
+
+
+
+    /**
+     * 加载掩码后的API Key
+     * @param {string} serviceId 服务商ID
+     * @returns {Promise<string|null>} 掩码后的API Key
+     */
+    async _loadMaskedApiKey(serviceId) {
+        try {
+            const res = await fetch(APIService.getApiUrl(`/services/${serviceId}/masked`));
+            const result = await res.json();
+
+            if (result.success && result.service) {
+                return result.service.api_key_masked || null;
+            }
+
+            return null;
+        } catch (error) {
+            logger.error('加载掩码API Key失败', error);
+            return null;
+        }
     }
 }
 

@@ -13,8 +13,11 @@ import { UIToolkit } from "./utils/UIToolkit.js";
 import { logger } from './utils/logger.js';
 import { HistoryCacheService, TagCacheService } from './services/cache.js';
 import { imageCaption, ImageCaption } from './modules/imageCaption.js';
+import { nodeHelpTranslator } from './modules/nodeHelpTranslator.js';
+import { nodeMountService, RENDER_MODE } from './services/NodeMountService.js';
+import './node/captionFrame.js'; // 导入视频手动抽帧功能
 
-// import { ensureAutoTranslateInterceptorInstalled } from './services/interceptor.js'; // 导入自动翻译拦截器
+
 
 // ====================== 全局配置与状态 ======================
 
@@ -43,11 +46,35 @@ app.registerExtension({
      */
     async setup() {
         try {
+            // 初始化节点挂载服务（需要在其他初始化之前）
+            nodeMountService.initialize();
+
+            // 注册渲染模式切换处理
+            nodeMountService.onModeChange(async (newMode, oldMode) => {
+                logger.log(`[index] 渲染模式切换检测 | ${oldMode} -> ${newMode}`);
+                // 重新初始化所有小助手
+                if (window.FEATURES.enabled) {
+                    // 先清理所有现有实例
+                    promptAssistant.cleanup(null, true);
+                    imageCaption.cleanup(null, true);
+
+                    // 优化：不再使用长延迟，而是通过 requestAnimationFrame 尽快触发
+                    // NodeMountService 内部的 Observer 机制会处理 DOM 等待
+                    requestAnimationFrame(async () => {
+                        await promptAssistant.toggleGlobalFeature(true, true);
+                        if (window.FEATURES.imageCaption) {
+                            await imageCaption.toggleGlobalFeature(true, true);
+                        }
+                        logger.log(`[index] 渲染模式切换后重新初始化完成`);
+                    });
+                }
+            });
+
             // 注册设置选项
             registerSettings();
 
             // 初始化自动翻译拦截器（独立于提示词小助手）
-            // ensureAutoTranslateInterceptorInstalled();
+
 
             // 初始化提示词小助手（内部会处理版本号检查和总开关状态）
             await promptAssistant.initialize();
@@ -76,7 +103,8 @@ app.registerExtension({
                 HistoryCacheService,
                 TagCacheService,
                 imageCaption,
-                ImageCaption
+                ImageCaption,
+                nodeHelpTranslator
             });
 
             // 然后再自动注册服务功能
@@ -86,12 +114,103 @@ app.registerExtension({
                 if (window.FEATURES.imageCaption) {
                     await imageCaption.toggleGlobalFeature(true, false);
                 }
+                // 初始化节点帮助翻译模块（根据功能开关）
+                if (window.FEATURES.nodeHelpTranslator) {
+                    nodeHelpTranslator.initialize();
+                }
             }
 
             logger.log("扩展初始化完成");
         } catch (error) {
             logger.error(`扩展初始化失败: ${error.message}`);
         }
+
+        // 延迟hook Note/MarkdownNote/PreviewAny节点类型
+        setTimeout(() => {
+            try {
+                const NoteNodeType = LiteGraph.registered_node_types['Note'];
+                const MarkdownNoteNodeType = LiteGraph.registered_node_types['MarkdownNote'];
+                const PreviewAnyNodeType = LiteGraph.registered_node_types['PreviewAny'];
+                const PreviewTextNodeType = LiteGraph.registered_node_types['PreviewTextNode'];
+
+                if (NoteNodeType) this._hookNoteNodeType(NoteNodeType, 'Note');
+                if (MarkdownNoteNodeType) this._hookNoteNodeType(MarkdownNoteNodeType, 'MarkdownNote');
+                if (PreviewAnyNodeType) this._hookNoteNodeType(PreviewAnyNodeType, 'PreviewAny');
+                if (PreviewTextNodeType) this._hookNoteNodeType(PreviewTextNodeType, 'PreviewTextNode');
+
+                // 可能的其他名称变体
+                const altNames = ['PreviewText', 'Preview as Text', 'Markdown Preview'];
+                altNames.forEach(name => {
+                    const nodeType = LiteGraph.registered_node_types[name];
+                    if (nodeType) {
+                        this._hookNoteNodeType(nodeType, name);
+                        logger.debug(`[setup] 注入Preview节点成功 | 类型: ${name}`);
+                    }
+                });
+            } catch (error) {
+                logger.error(`[setup] Hook Note节点失败: ${error.message}`);
+            }
+        }, 50);
+    },
+
+    /**
+     * 手动hook使用comfy-markdown的节点类型
+     * 包括 Note、MarkdownNote、PreviewTextNode 等
+     * 因为这些节点通过registerCustomNodes注册，beforeRegisterNodeDef可能无法捕获
+     */
+    _hookNoteNodeType(NodeType, typeName) {
+        if (!NodeType || !NodeType.prototype) {
+            logger.warn(`[_hookNoteNodeType] 无效的节点类型: ${typeName}`);
+            return;
+        }
+
+        const origOnNodeCreated = NodeType.prototype.onNodeCreated;
+        const origOnSelected = NodeType.prototype.onSelected;
+
+        // Hook onNodeCreated
+        NodeType.prototype.onNodeCreated = function () {
+            if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
+
+            const nodeRef = this;
+
+            // 优化：移除差异化延迟，立即触发检查
+            // 内部 Observer 会处理 Vue 模式下的 DOM 等待
+            requestAnimationFrame(() => {
+                if (!window.FEATURES.enabled || !nodeRef?.id || nodeRef.id === -1) return;
+
+                if (PromptAssistant.isValidNode(nodeRef)) {
+                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                    if (creationMode === "auto" && !nodeRef._promptAssistantInitialized) {
+                        nodeRef._promptAssistantInitialized = true;
+                        promptAssistant.checkAndSetupNode(nodeRef);
+                    }
+                }
+            });
+        };
+
+        // Hook onSelected
+        NodeType.prototype.onSelected = function () {
+            if (origOnSelected) origOnSelected.apply(this, arguments);
+            if (!window.FEATURES.enabled) return;
+
+            const nodeRef = this;
+            const checkAndSetup = () => {
+                nodeRef._promptAssistantInitialized = false;
+                promptAssistant.checkAndSetupNode(nodeRef);
+            };
+
+            // 优化：移除长延迟，仅保留极短延迟以确保栈清理
+            // 主要依赖内部 Observer 机制
+            if (LiteGraph.vueNodesMode === true) {
+                requestAnimationFrame(() => requestAnimationFrame(checkAndSetup));
+            } else {
+                checkAndSetup();
+            }
+        };
+    },
+
+    // ---其他方法保持不变---
+    async _setupOtherMethods() {
 
         // 仅保留工作流ID识别功能，不处理工作流切换事件
         try {
@@ -120,6 +239,40 @@ app.registerExtension({
                 try {
                     // 调用原始加载方法
                     const result = await origLoadGraphData.apply(this, arguments);
+
+                    // 工作流加载完成后，如果设置为自动创建，则初始化所有节点
+                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                    if (creationMode === "auto" && window.FEATURES.enabled) {
+                        // 优化：移除长延迟
+                        requestAnimationFrame(() => {
+                            if (app.graph?._nodes) {
+                                app.graph._nodes.forEach(node => {
+                                    if (node && PromptAssistant.isValidNode(node) && !node._promptAssistantInitialized) {
+                                        node._promptAssistantInitialized = true;
+                                        promptAssistant.checkAndSetupNode(node);
+                                    }
+                                });
+                            }
+                        });
+                    }
+
+                    // 检查反推小助手创建模式
+                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+                    if (imageCaptionCreationMode === "auto" && window.FEATURES.enabled && window.FEATURES.imageCaption) {
+                        requestAnimationFrame(() => {
+                            if (app.graph && app.graph._nodes) {
+                                app.graph._nodes.forEach(node => {
+                                    if (node && imageCaption.hasValidImage(node)) {
+                                        if (!node._imageCaptionInitialized) {
+                                            node._imageCaptionInitialized = true;
+                                            imageCaption.checkAndSetupNode(node);
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    }
+
                     return result;
                 } finally {
                     // 延迟重置工作流切换标记
@@ -140,33 +293,30 @@ app.registerExtension({
      */
     async nodeCreated(node) {
         try {
-            // 始终检查总开关状态
-            if (!window.FEATURES.enabled) {
-                return;
-            }
+            if (!window.FEATURES.enabled || !node?.id || node.id === -1) return;
 
-            // 只在节点被选中时进行检测和初始化
-            if (!node || !node.id || node.id === -1) {
-                return;
-            }
+            requestAnimationFrame(() => {
+                if (!node?.id || node.id === -1) return;
 
-            // 检查是否为提示词节点
-            if (PromptAssistant.isValidNode(node)) {
-                if (!node._promptAssistantInitialized) {
-                    node._promptAssistantInitialized = true;
-                    promptAssistant.checkAndSetupNode(node);
+                // 检查是否为提示词节点
+                if (PromptAssistant.isValidNode(node)) {
+                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                    if (creationMode === "auto" && !node._promptAssistantInitialized) {
+                        node._promptAssistantInitialized = true;
+                        promptAssistant.checkAndSetupNode(node);
+                    }
+                    return;
                 }
-                return;
-            }
 
-            // 检查是否为图像节点，同时检查图像反推功能开关
-            if (window.FEATURES.imageCaption && imageCaption.hasValidImage(node)) {
-                if (!node._imageCaptionInitialized) {
-                    node._imageCaptionInitialized = true;
-                    imageCaption.checkAndSetupNode(node);
+                // 检查是否为图像节点
+                if (window.FEATURES.imageCaption && imageCaption.hasValidImage(node)) {
+                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+                    if (imageCaptionCreationMode === "auto" && !node._imageCaptionInitialized) {
+                        node._imageCaptionInitialized = true;
+                        imageCaption.checkAndSetupNode(node);
+                    }
                 }
-                return;
-            }
+            });
         } catch (error) {
             logger.error(`节点创建处理失败: ${error.message}`);
         }
@@ -236,9 +386,43 @@ app.registerExtension({
                 return;
             }
 
-            // 设置未初始化标记，等待nodeCreated钩子处理
+            // 设置未初始化标记
             this._promptAssistantInitialized = false;
             this._imageCaptionInitialized = false;
+
+            // 【关键修复】直接在这里调用检查逻辑，而不是依赖扩展的nodeCreated钩子
+            // Vue mode下Note节点可能不会触发扩展的nodeCreated钩子
+            const nodeRef = this;
+            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+            // 优化：使用 requestAnimationFrame 替代 setTimeout
+            requestAnimationFrame(() => {
+                if (!nodeRef || !nodeRef.id || nodeRef.id === -1) {
+                    return;
+                }
+
+                logger.debug(() => `[onNodeCreated注入] 延迟检查 | ID: ${nodeRef.id} | 类型: ${nodeRef.type}`);
+
+                // 检查是否为提示词节点
+                if (PromptAssistant.isValidNode(nodeRef)) {
+                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+
+                    if (creationMode === "auto" && !nodeRef._promptAssistantInitialized) {
+                        nodeRef._promptAssistantInitialized = true;
+                        logger.debug(() => `[onNodeCreated注入] 创建小助手 | ID: ${nodeRef.id} | 类型: ${nodeRef.type}`);
+                        promptAssistant.checkAndSetupNode(nodeRef);
+                    }
+                }
+
+                // 检查是否为图像节点
+                if (window.FEATURES.imageCaption && imageCaption.hasValidImage(nodeRef)) {
+                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+
+                    if (imageCaptionCreationMode === "auto" && !nodeRef._imageCaptionInitialized) {
+                        nodeRef._imageCaptionInitialized = true;
+                        imageCaption.checkAndSetupNode(nodeRef);
+                    }
+                }
+            });
         };
 
         // 注入节点选择方法
@@ -252,19 +436,33 @@ app.registerExtension({
                 return;
             }
 
-            // 重置提示词小助手初始化标记，确保每次选择都重新检测节点状态
-            this._promptAssistantInitialized = false;
-            promptAssistant.checkAndSetupNode(this);
+            const nodeRef = this;
 
-            // 确保选择事件能触发到图像小助手，同时检查图像反推功能开关
-            if (window.FEATURES.imageCaption &&
-                app.canvas && app.canvas._imageCaptionSelectionHandler) {
-                // 重置初始化标记，确保每次选择都重新检测节点状态
-                this._imageCaptionInitialized = false;
+            // Vue mode下需要延迟执行，确保DOM渲染完成
+            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+            const checkAndSetup = () => {
+                // 重置提示词小助手初始化标记，确保每次选择都重新检测节点状态
+                // 无论是自动还是手动模式，选中时都尝试检查（作为手动触发或自动模式的重试/补救）
+                nodeRef._promptAssistantInitialized = false;
+                promptAssistant.checkAndSetupNode(nodeRef);
 
-                const selected_nodes = {};
-                selected_nodes[this.id] = this;
-                app.canvas._imageCaptionSelectionHandler(selected_nodes);
+                // 确保选择事件能触发到图像小助手，同时检查图像反推功能开关
+                if (window.FEATURES.imageCaption &&
+                    app.canvas && app.canvas._imageCaptionSelectionHandler) {
+                    // 重置初始化标记，确保每次选择都重新检测节点状态
+                    nodeRef._imageCaptionInitialized = false;
+
+                    const selected_nodes = {};
+                    selected_nodes[nodeRef.id] = nodeRef;
+                    app.canvas._imageCaptionSelectionHandler(selected_nodes);
+                }
+            };
+
+            if (isVueMode) {
+                // Vue mode下使用 requestAnimationFrame 快速响应
+                requestAnimationFrame(() => requestAnimationFrame(checkAndSetup));
+            } else {
+                checkAndSetup();
             }
         };
 

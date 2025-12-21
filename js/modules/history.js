@@ -168,7 +168,20 @@ class HistoryManager {
 
         const title = document.createElement('div');
         title.className = 'popup_title';
-        title.textContent = '历史记录';
+        title.style.display = 'flex';
+        title.style.alignItems = 'center';
+
+        // 添加图标
+        const iconContainer = ResourceManager.getIcon('icon-history.svg');
+        if (iconContainer) {
+            iconContainer.style.width = '18px';
+            iconContainer.style.height = '18px';
+            iconContainer.style.color = 'var(--p-dialog-color)';
+            iconContainer.style.marginRight = '8px';
+            title.appendChild(iconContainer);
+        }
+
+        title.appendChild(document.createTextNode('历史记录'));
 
         const actions = document.createElement('div');
         actions.className = 'popup_actions';
@@ -452,7 +465,7 @@ class HistoryManager {
                                 break;
                             case 'expand':
                                 operationSpan.className = 'history_operation expanded';
-                                operationSpan.textContent = '扩写';
+                                operationSpan.textContent = '提示词优化';
                                 break;
                             case 'caption':
                                 operationSpan.className = 'history_operation caption';

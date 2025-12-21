@@ -17,17 +17,20 @@ let HistoryCacheService = null;
 let imageCaption = null;
 // 外部注入的 ImageCaption 类
 let ImageCaption = null;
+// 外部注入的 nodeHelpTranslator 实例
+let nodeHelpTranslator = null;
 
 /**
  * 注入依赖实例（由主入口调用）
  */
-export function setFeatureModuleDeps({ promptAssistant: pa, PromptAssistant: PAC, UIToolkit: ui, HistoryCacheService: hc, imageCaption: ic, ImageCaption: ICC }) {
+export function setFeatureModuleDeps({ promptAssistant: pa, PromptAssistant: PAC, UIToolkit: ui, HistoryCacheService: hc, imageCaption: ic, ImageCaption: ICC, nodeHelpTranslator: nht }) {
     promptAssistant = pa;
     PromptAssistant = PAC;
     UIToolkit = ui;
     HistoryCacheService = hc;
     imageCaption = ic;
     ImageCaption = ICC;
+    nodeHelpTranslator = nht;
     // 初始化时同步日志级别
     try {
         if (typeof window !== 'undefined' && window.FEATURES) {
@@ -56,12 +59,65 @@ export const FEATURES = {
     translate: true,
     autoTranslate: false, // 自动翻译功能
     imageCaption: true, // 图像反推提示词功能
+    nodeHelpTranslator: true, // 节点帮助文档翻译功能
 
     // 翻译格式化选项
     translateFormatPunctuation: true, // 标点符号自动转成半角
     translateFormatSpace: true, // 移除多余空格
     translateFormatDots: false, // 处理连续点号
     translateFormatNewline: false, // 保留换行符
+
+    // 系统设置
+    showStreamingProgress: true, // 显示流式输出进度（终端日志）
+
+    /**
+     * 从配置加载功能开关状态
+     * 必须在 app.ui.settings 加载完成后调用
+     */
+    loadSettings() {
+        if (typeof app === 'undefined' || !app.ui || !app.ui.settings) return;
+
+        // 辅助函数：加载布尔值设置，如果未设置则保持默认值
+        const loadBool = (key, settingId) => {
+            const val = app.ui.settings.getSettingValue(settingId);
+            if (typeof val === 'boolean') {
+                this[key] = val;
+            }
+        };
+
+        // 加载基础功能开关
+        loadBool('enabled', "PromptAssistant.Features.Enabled");
+        loadBool('history', "PromptAssistant.Features.History");
+        loadBool('tag', "PromptAssistant.Features.Tag");
+        loadBool('expand', "PromptAssistant.Features.Expand");
+        loadBool('translate', "PromptAssistant.Features.Translate");
+        loadBool('imageCaption', "PromptAssistant.Features.ImageCaption");
+        loadBool('nodeHelpTranslator', "PromptAssistant.Features.NodeHelpTranslator");
+        loadBool('useTranslateCache', "PromptAssistant.Features.UseTranslateCache");
+
+        // 加载翻译格式化选项
+        loadBool('translateFormatPunctuation', "PromptAssistant.Features.TranslateFormatPunctuation");
+        loadBool('translateFormatSpace', "PromptAssistant.Features.TranslateFormatSpace");
+        loadBool('translateFormatDots', "PromptAssistant.Features.TranslateFormatDots");
+        loadBool('translateFormatNewline', "PromptAssistant.Features.TranslateFormatNewline");
+
+        // 加载系统设置
+        loadBool('showStreamingProgress', "PromptAssistant.Settings.ShowStreamingProgress");
+
+        // 加载日志级别
+        const logLevel = app.ui.settings.getSettingValue("PromptAssistant.Settings.LogLevel");
+        if (logLevel !== undefined) {
+            // 确保是数字
+            const level = parseInt(logLevel);
+            if (!isNaN(level)) {
+                if (typeof window !== 'undefined') {
+                    if (!window.FEATURES) window.FEATURES = {};
+                    window.FEATURES.logLevel = level;
+                }
+                if (logger) logger.setLevel(level);
+            }
+        }
+    },
 
     /**
      * 更新所有实例的按钮显示状态
@@ -102,8 +158,8 @@ export const FEATURES = {
                     instance.buttons['translate'].style.display = this.translate ? 'block' : 'none';
                 }
 
-                // 记录日志
-                logger.debug(`按钮更新 | 节点ID: ${instance.nodeId}`);
+                // 记录日志 (太频繁，已移除)
+                // logger.debug(`按钮更新 | 节点ID: ${instance.nodeId}`);
             }
         });
 
@@ -155,7 +211,7 @@ export function handleFeatureChange(featureName, value, oldValue) {
                 }
             });
             logger.debug(`功能重建 | 结果:完成 | 功能: ${featureName}`);
-            
+
             // 重新计算并更新所有实例的宽度
             promptAssistant.updateAllInstancesWidth();
         }
@@ -188,6 +244,12 @@ export function handleFeatureChange(featureName, value, oldValue) {
                 });
             }
         }
+
+        // 如果是节点帮助翻译功能被启用
+        if (featureName === '节点帮助翻译' && nodeHelpTranslator) {
+            // 启用节点帮助翻译功能
+            nodeHelpTranslator.initialize();
+        }
     } else {
         // 否则只更新显示状态
         FEATURES.updateButtonsVisibility();
@@ -197,7 +259,13 @@ export function handleFeatureChange(featureName, value, oldValue) {
             // 清理所有图像小助手实例
             imageCaption.cleanup();
         }
-        
+
+        // 如果是节点帮助翻译功能被禁用
+        if (featureName === '节点帮助翻译' && !value && nodeHelpTranslator) {
+            // 清理节点帮助翻译功能
+            nodeHelpTranslator.cleanup();
+        }
+
         // 功能开关变化时，更新所有实例的宽度
         if (PromptAssistant.instances.size > 0) {
             promptAssistant.updateAllInstancesWidth();
