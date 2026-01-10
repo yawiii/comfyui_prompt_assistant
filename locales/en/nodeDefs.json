@@ -13,11 +13,11 @@
             },
             "custom_rule_content": {
                 "name": "Custom Rule Content",
-                "tooltip": "Enter your custom rule here"
+                "tooltip": "Enter your custom rule here; 💡Input trigger word [R] to force re-execution"
             },
             "user_prompt": {
                 "name": "User Prompt",
-                "tooltip": "Your prompt to be enhanced"
+                "tooltip": "Your prompt to be enhanced; 💡Input trigger word [R] to force re-execution"
             },
             "llm_service": {
                 "name": "LLM Service",
@@ -29,7 +29,7 @@
             },
             "source_text": {
                 "name": "Source Text",
-                "tooltip": "Optional input text"
+                "tooltip": "Optional input text; 💡Input trigger word [R] to force re-execution"
             }
         },
         "outputs": {
@@ -57,11 +57,11 @@
             },
             "custom_rule_content": {
                 "name": "Custom Rule Content",
-                "tooltip": "Custom rule content"
+                "tooltip": "Custom rule content; 💡Input trigger word [R] to force re-execution"
             },
             "user_prompt": {
                 "name": "User Prompt",
-                "tooltip": "Enter additional prompts here, sent with the rule"
+                "tooltip": "Enter additional prompts here, sent with the rule; 💡Input trigger word [R] to force re-execution"
             },
             "vlm_service": {
                 "name": "VLM Service",
@@ -89,7 +89,7 @@
         "inputs": {
             "source_text": {
                 "name": "Source Text",
-                "tooltip": "Text to translate"
+                "tooltip": "Text to translate; 💡Input trigger word [R] to force re-execution"
             },
             "target_language": {
                 "name": "Target Language",
@@ -129,11 +129,11 @@
             },
             "custom_rule_content": {
                 "name": "Custom Rule Content",
-                "tooltip": "Custom rule content"
+                "tooltip": "Custom rule content; 💡Input trigger word [R] to force re-execution"
             },
             "user_prompt": {
                 "name": "User Prompt",
-                "tooltip": "Enter additional prompts here, sent with the rule"
+                "tooltip": "Enter additional prompts here, sent with the rule; 💡Input trigger word [R] to force re-execution"
             },
             "vlm_service": {
                 "name": "VLM Service",
@@ -193,7 +193,7 @@
             },
             "user_prompt": {
                 "name": "User Prompt",
-                "tooltip": "Enter additional prompts here, sent with the preset"
+                "tooltip": "Enter additional prompts here, sent with the preset; 💡Input trigger word [R] to force re-execution"
             },
             "vlm_service": {
                 "name": "VLM Service",

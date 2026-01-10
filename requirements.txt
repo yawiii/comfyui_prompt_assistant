@@ -1,4 +1,3 @@
 httpx
-opencv-python
 imageio
 imageio-ffmpeg

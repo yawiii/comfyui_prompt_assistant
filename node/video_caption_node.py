@@ -65,8 +65,8 @@ class VideoCaptionNode(VLMNodeBase):
             "required": {
                 "rule": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "默认视频反推提示词", "tooltip": "💡Template Config: Settings -> ✨Prompt Assistant -> Rule Editor"}),
                 "custom_rule": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "⚠️ Enable to use custom rule content below instead of preset"}),
-                "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容,仅在启用'临时规则'时生效"}),
-                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求，将与规则一起发送给模型"}),
+                "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "请输入临时规则内容,仅在启用'临时规则'时生效", "tooltip": "在此输入您的自定义规则内容; 💡输入触发词[R],可以让节点每次都被执行"}),
+                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求，将与规则一起发送给模型", "tooltip": "输入额外的具体要求，将与规则一起发送给模型; 💡输入触发词[R],可以让节点每次都被执行"}),
                 "vlm_service": (service_options, {"default": default_service, "tooltip": "Select VLM service and model"}),
                 "sampling_mode": (["Auto (Uniform)", "Manual (Indices)"], {"default": "Auto (Uniform)"}),
                 "frame_count": ("INT", {"default": 5, "min": 1, "max": 32, "step": 1, "tooltip": "💡Only for 'Auto' mode. Frame limits: GLM-4V≤5, GLM-4.6V≤100, Qwen-VL≤100, Gemini≤3000, Grok≤10"}),

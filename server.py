@@ -1800,46 +1800,17 @@ async def get_video_info(request):
             return web.json_response({"success": False, "error": "找不到视频文件"}, status=404)
 
         # 读取元数据
-        try:
-            import cv2
-            
-            cap = cv2.VideoCapture(file_path)
-            if not cap.isOpened():
-                return web.json_response({"success": False, "error": "无法打开视频文件"}, status=500)
-            
-            # 获取视频信息
-            fps = cap.get(cv2.CAP_PROP_FPS)
-            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-            
-            # 有效性检查：某些视频格式 cv2 返回无效值
-            if fps <= 0:
-                fps = 30  # 默认 fps
-            if total_frames <= 0 or total_frames > 1e9:  # 无效或异常大的值
-                # 尝试通过读取所有帧来计算
-                total_frames = 0
-                while True:
-                    ret = cap.grab()
-                    if not ret:
-                        break
-                    total_frames += 1
-                # 重新打开视频以释放资源
-                cap.release()
-                cap = cv2.VideoCapture(file_path)
-            
-            duration = total_frames / fps if fps > 0 else 0
-            
-            cap.release()
-            
-            
+        info_result = get_video_frame_info(file_path)
+        if info_result["success"]:
             return web.json_response({
                 "success": True,
-                "fps": fps,
-                "duration": duration,
-                "total_frames": total_frames,
+                "fps": info_result["original_fps"],
+                "duration": info_result["duration"],
+                "total_frames": info_result["original_total_frames"],
                 "path": file_path
             })
-        except Exception as e:
-            return web.json_response({"success": False, "error": f"读取视频元数据失败: {str(e)}"}, status=500)
+        else:
+            return web.json_response({"success": False, "error": f"读取视频元数据失败: {info_result.get('error')}"}, status=500)
             
     except Exception as e:
         return web.json_response({"success": False, "error": str(e)}, status=500)

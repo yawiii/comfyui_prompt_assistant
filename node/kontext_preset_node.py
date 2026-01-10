@@ -73,7 +73,7 @@ class KontextPresetNode(VLMNodeBase):
             "required": {
                 "image": ("IMAGE",),
                 "kontext_preset": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "情境深度融合"}),
-                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求,将与预设一起发送给模型"}),
+                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求,将与预设一起发送给模型", "tooltip": "输入额外的具体要求,将与预设一起发送给模型; 💡输入触发词[R],可以让节点每次都被执行"}),
                 "vlm_service": (service_options, {"default": default_service, "tooltip": "Select VLM service and model"}),
                 # Ollama Automatic VRAM Unload
                 "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),

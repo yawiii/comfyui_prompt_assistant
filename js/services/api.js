@@ -46,6 +46,14 @@ function getDynamicApiBase() {
 
 class APIService {
     /**
+     * 获取动态 API 基础路径
+     * 暴露模块级的 getDynamicApiBase 函数供外部调用
+     */
+    static getDynamicApiBase() {
+        return getDynamicApiBase();
+    }
+
+    /**
      * 构建完整的API URL
      */
     static getApiUrl(path) {

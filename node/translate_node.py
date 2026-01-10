@@ -29,7 +29,7 @@ class PromptTranslate(LLMNodeBase):
         
         return {
             "required": {
-                "source_text": ("STRING", {"forceInput": True, "default": "", "multiline": True, "placeholder": "Input text to translate..."}),
+                "source_text": ("STRING", {"forceInput": True, "default": "", "multiline": True, "placeholder": "Input text to translate...", "tooltip": "需要翻译的文本; 💡输入触发词[R],可以让节点每次都被执行"}),
                 "target_language": (["English", "Chinese"], {"default": "English"}),
                 "translate_service": (service_options, {"default": default_service, "tooltip": "Select translation service and model"}),
                 # Ollama Automatic VRAM Unload

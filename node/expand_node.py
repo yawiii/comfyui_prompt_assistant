@@ -65,9 +65,9 @@ class PromptExpand(LLMNodeBase):
                 # 临时规则开关
                 "custom_rule": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Enable to use custom rule content below instead of preset"}),
                 # 临时规则内容输入框
-                "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "在此输入临时规则，仅在启用'临时规则'时生效"}),
+                "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "在此输入临时规则，仅在启用'临时规则'时生效", "tooltip": "在此输入您的自定义规则内容; 💡输入触发词[R],可以让节点每次都被执行"}),
                 # 用户提示词
-                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "填写的要优化的提示词原文，若存在原文端口输入和内容输入，将合并提交"}),
+                "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "填写的要优化的提示词原文，若存在原文端口输入和内容输入，将合并提交", "tooltip": "想要增强的原始提示词; 💡输入触发词[R],可以让节点每次都被执行"}),
                 # 扩写服务
                 "llm_service": (service_options, {"default": default_service, "tooltip": "Select LLM service and model"}),
                 # Ollama自动释放显存
@@ -75,7 +75,7 @@ class PromptExpand(LLMNodeBase):
             },
             "optional": {
                 # 原文输入端口
-                "source_text": ("STRING", {"default": "", "multiline": True, "defaultInput": True, "placeholder": "Input text to enhance..."}),
+                "source_text": ("STRING", {"default": "", "multiline": True, "defaultInput": True, "placeholder": "Input text to enhance...", "tooltip": "可选的输入文本; 💡输入触发词[R],可以让节点每次都被执行"}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
