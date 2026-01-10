@@ -58,15 +58,14 @@ app.registerExtension({
                     promptAssistant.cleanup(null, true);
                     imageCaption.cleanup(null, true);
 
-                    // 优化：不再使用长延迟，而是通过 requestAnimationFrame 尽快触发
-                    // NodeMountService 内部的 Observer 机制会处理 DOM 等待
-                    requestAnimationFrame(async () => {
-                        await promptAssistant.toggleGlobalFeature(true, true);
-                        if (window.FEATURES.imageCaption) {
-                            await imageCaption.toggleGlobalFeature(true, true);
-                        }
-                        logger.log(`[index] 渲染模式切换后重新初始化完成`);
-                    });
+                    // 等待一帧确保 DOM 更新
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+
+                    await promptAssistant.toggleGlobalFeature(true, true);
+                    if (window.FEATURES.imageCaption) {
+                        await imageCaption.toggleGlobalFeature(true, true);
+                    }
+                    logger.log(`[index] 渲染模式切换后重新初始化完成`);
                 }
             });
 
@@ -120,7 +119,7 @@ app.registerExtension({
                 }
             }
 
-            logger.log("扩展初始化完成");
+            logger.debug("扩展初始化完成");
         } catch (error) {
             logger.error(`扩展初始化失败: ${error.message}`);
         }
@@ -151,62 +150,210 @@ app.registerExtension({
                 logger.error(`[setup] Hook Note节点失败: ${error.message}`);
             }
         }, 50);
+
+        // ---全局节点监听---
+        this._bindGraphHooks(app.graph);
+
+        // ---子图进入/退出监听（Vue Node 2.0 自动创建支持）---
+        this._setupGraphSwitchListener();
+
+        // 暴露 _injectUniversalHooks 供外部使用
+        app.registerExtension._injectUniversalHooks = this._injectUniversalHooks.bind(this);
     },
 
     /**
-     * 手动hook使用comfy-markdown的节点类型
-     * 包括 Note、MarkdownNote、PreviewTextNode 等
-     * 因为这些节点通过registerCustomNodes注册，beforeRegisterNodeDef可能无法捕获
+     * 设置画布 graph 切换监听器
+     * 检测进入/退出子图事件，自动创建模式下重新扫描节点
      */
-    _hookNoteNodeType(NodeType, typeName) {
-        if (!NodeType || !NodeType.prototype) {
-            logger.warn(`[_hookNoteNodeType] 无效的节点类型: ${typeName}`);
-            return;
-        }
+    _setupGraphSwitchListener() {
+        if (!app.canvas) return;
 
-        const origOnNodeCreated = NodeType.prototype.onNodeCreated;
-        const origOnSelected = NodeType.prototype.onSelected;
+        // 记录上一次的 graph 引用
+        let lastGraph = app.canvas.graph;
+        const self = this;
 
-        // Hook onNodeCreated
-        NodeType.prototype.onNodeCreated = function () {
-            if (origOnNodeCreated) origOnNodeCreated.apply(this, arguments);
-
-            const nodeRef = this;
-
-            // 优化：移除差异化延迟，立即触发检查
-            // 内部 Observer 会处理 Vue 模式下的 DOM 等待
-            requestAnimationFrame(() => {
-                if (!window.FEATURES.enabled || !nodeRef?.id || nodeRef.id === -1) return;
-
-                if (PromptAssistant.isValidNode(nodeRef)) {
-                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
-                    if (creationMode === "auto" && !nodeRef._promptAssistantInitialized) {
-                        nodeRef._promptAssistantInitialized = true;
-                        promptAssistant.checkAndSetupNode(nodeRef);
-                    }
-                }
-            });
+        // 通过 Object.defineProperty hook app.canvas.graph 的 setter
+        // 当 graph 切换（进入/退出子图）时触发扫描
+        const originalDescriptor = Object.getOwnPropertyDescriptor(app.canvas, 'graph') || {
+            value: app.canvas.graph,
+            writable: true,
+            configurable: true
         };
 
-        // Hook onSelected
-        NodeType.prototype.onSelected = function () {
-            if (origOnSelected) origOnSelected.apply(this, arguments);
-            if (!window.FEATURES.enabled) return;
+        // 保存原始值
+        let _graphValue = app.canvas.graph;
 
-            const nodeRef = this;
-            const checkAndSetup = () => {
-                nodeRef._promptAssistantInitialized = false;
-                promptAssistant.checkAndSetupNode(nodeRef);
+        Object.defineProperty(app.canvas, 'graph', {
+            get() {
+                return _graphValue;
+            },
+            set(newGraph) {
+                const oldGraph = _graphValue;
+                _graphValue = newGraph;
+
+                // 如果有原始 setter，调用它
+                if (originalDescriptor.set) {
+                    originalDescriptor.set.call(this, newGraph);
+                }
+
+                // 检测 graph 切换
+                if (newGraph && newGraph !== oldGraph) {
+                    logger.debug(`[graphSwitch] 检测到画布切换 | 旧Graph: ${oldGraph?._workflow_id || 'unknown'} -> 新Graph: ${newGraph?._workflow_id || 'unknown'}`);
+
+                    // 延迟执行，确保画布切换完成
+                    const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+                    const delay = isVueMode ? 300 : 100;
+
+                    setTimeout(() => {
+                        self._onGraphSwitch(newGraph);
+                    }, delay);
+                }
+            },
+            configurable: true,
+            enumerable: true
+        });
+
+        logger.debug('[graphSwitch] 画布切换监听器已设置');
+    },
+
+    /**
+     * 画布切换后的处理逻辑
+     * 复用 _bindGraphHooks 的扫描逻辑，避免代码重复
+     * @param {object} graph - 新的 graph 对象
+     */
+    _onGraphSwitch(graph) {
+        if (!graph || !window.FEATURES.enabled) return;
+
+        // 调用已有的绑定钩子方法，并传入 resetFlags 选项以重置节点初始化标记
+        this._bindGraphHooks(graph, { resetFlags: true });
+    },
+
+    /**
+     * 为指定 graph 绑定节点挂载钩子
+     * 支持主画布和子图内部
+     * @param {object} graph - graph 对象
+     * @param {object} options - 选项 { resetFlags: 是否重置节点初始化标记 }
+     */
+    _bindGraphHooks(graph, options = {}) {
+        if (!graph) return;
+        const { resetFlags = false } = options;
+
+        // 绑定钩子（只执行一次）
+        if (!graph._promptAssistantHooksInjected) {
+            graph._promptAssistantHooksInjected = true;
+
+            const origOnNodeAdded = graph.onNodeAdded;
+            graph.onNodeAdded = (node) => {
+                if (origOnNodeAdded) origOnNodeAdded.apply(graph, [node]);
+
+                if (!window.FEATURES.enabled || !node) return;
+
+                // 1. 动态注入 Hooks (onSelected, onRemoved)
+                this._injectUniversalHooks(node);
+
+                // 2. 自动挂载尝试
+                this._handleNodeActive(node, { delay: true });
             };
 
-            // 优化：移除长延迟，仅保留极短延迟以确保栈清理
-            // 主要依赖内部 Observer 机制
-            if (LiteGraph.vueNodesMode === true) {
-                requestAnimationFrame(() => requestAnimationFrame(checkAndSetup));
-            } else {
-                checkAndSetup();
-            }
+            // logger.log(`[graphHooks] 已绑定 graph 钩子 | ID: ${graph._workflow_id || graph.constructor?.name || 'unknown'}`);
+
+            // 【关键】处理进入子图时已存在的节点
+            // Vue 模式需要更长延迟，确保 DOM 渲染完成
+            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+            const scanDelay = isVueMode ? 500 : 100;
+
+            const scanExistingNodes = () => {
+                if (!window.FEATURES.enabled) return;
+
+                const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                const icCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+
+                // 只要任意一个模块开启了自动创建，就需要扫描现有节点
+                if (creationMode !== "auto" && icCreationMode !== "auto") {
+                    // logger.debugSample(() => `[graphHooks] 跳过初始扫描 | PA模式: ${creationMode} | IC模式: ${icCreationMode}`);
+                    return;
+                }
+
+                const nodes = graph._nodes || [];
+                if (nodes.length === 0) return;
+
+                nodes.forEach(node => {
+                    if (!node || node.id === -1) return;
+
+                    // 1. 注入钩子 (确保 onSelected/onRemoved 等能正常工作)
+                    this._injectUniversalHooks(node);
+
+                    // 2. 统一分发到激活处理函数，它内部会根据各自的自动创建设置进行判断
+                    this._handleNodeActive(node, { delay: false });
+                });
+            };
+
+            setTimeout(scanExistingNodes, scanDelay);
+        }
+
+        // 【新增】如果需要重置标记（子图切换场景），立即扫描现有节点
+        if (resetFlags) {
+            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+            const delay = isVueMode ? 300 : 100;
+
+            setTimeout(() => {
+                const nodes = graph._nodes || [];
+                nodes.forEach(node => {
+                    if (!node || node.id === -1) return;
+
+                    // 重置初始化标记，允许重新创建
+                    node._promptAssistantInitialized = false;
+                    node._imageCaptionInitialized = false;
+
+                    // 注入钩子
+                    this._injectUniversalHooks(node);
+
+                    // 触发自动创建
+                    this._handleNodeActive(node, { delay: false });
+                });
+
+                if (nodes.length > 0) {
+                    logger.debug(`[graphSwitch] 自动扫描完成 | 节点数: ${nodes.length}`);
+                }
+            }, delay);
+        }
+    },
+
+    /**
+     * 为所有节点注入通用的交互钩子 (onSelected, onRemoved)
+     * 特别是针对动态创建的子图节点，确确保能够响应点击和资源清理
+     * @param {object} node - LiteGraph 节点实例
+     */
+    _injectUniversalHooks(node) {
+        if (!node || node._promptAssistantHooksInjected) return;
+
+        const self = this;
+        const origOnSelected = node.onSelected;
+        const origOnRemoved = node.onRemoved;
+
+        // 实例级覆盖 (针对动态创建或特殊节点)
+        node.onSelected = function () {
+            if (origOnSelected) origOnSelected.apply(this, arguments);
+            self._handleNodeActive(this, { reset: true, delay: true });
         };
+
+        node.onRemoved = function () {
+            self._handleNodeCleanup(this);
+            if (origOnRemoved) origOnRemoved.apply(this, arguments);
+        };
+
+        node._promptAssistantHooksInjected = true;
+    },
+
+    /**
+     * @deprecated 已由 _injectUniversalHooks 替代，保留用于注册时的遗留支持
+     */
+    _hookNoteNodeType(NodeType, typeName) {
+        if (!NodeType || !NodeType.prototype) return;
+
+        // 我们不再重写原型方法，而是通过 onNodeAdded 动态注入实例方法
+        // 这在 Node 2.0 动态创建时更可靠
+        // logger.debug(`[_hookNoteNodeType] 类型已注册: ${typeName}`);
     },
 
     // ---其他方法保持不变---
@@ -240,38 +387,16 @@ app.registerExtension({
                     // 调用原始加载方法
                     const result = await origLoadGraphData.apply(this, arguments);
 
-                    // 工作流加载完成后，如果设置为自动创建，则初始化所有节点
-                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
-                    if (creationMode === "auto" && window.FEATURES.enabled) {
-                        // 优化：移除长延迟
-                        requestAnimationFrame(() => {
-                            if (app.graph?._nodes) {
-                                app.graph._nodes.forEach(node => {
-                                    if (node && PromptAssistant.isValidNode(node) && !node._promptAssistantInitialized) {
-                                        node._promptAssistantInitialized = true;
-                                        promptAssistant.checkAndSetupNode(node);
-                                    }
-                                });
-                            }
-                        });
-                    }
-
-                    // 检查反推小助手创建模式
-                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
-                    if (imageCaptionCreationMode === "auto" && window.FEATURES.enabled && window.FEATURES.imageCaption) {
-                        requestAnimationFrame(() => {
-                            if (app.graph && app.graph._nodes) {
-                                app.graph._nodes.forEach(node => {
-                                    if (node && imageCaption.hasValidImage(node)) {
-                                        if (!node._imageCaptionInitialized) {
-                                            node._imageCaptionInitialized = true;
-                                            imageCaption.checkAndSetupNode(node);
-                                        }
-                                    }
-                                });
-                            }
-                        });
-                    }
+                    // 工作流加载完成后，统一处理现有节点的激活（包括自动创建判定）
+                    requestAnimationFrame(() => {
+                        if (app.graph && app.graph._nodes) {
+                            app.graph._nodes.forEach(node => {
+                                if (node && node.id !== -1) {
+                                    this._handleNodeActive(node, { delay: false });
+                                }
+                            });
+                        }
+                    });
 
                     return result;
                 } finally {
@@ -292,237 +417,119 @@ app.registerExtension({
      * 在节点创建时初始化特定类型节点的小助手
      */
     async nodeCreated(node) {
-        try {
-            if (!window.FEATURES.enabled || !node?.id || node.id === -1) return;
-
-            requestAnimationFrame(() => {
-                if (!node?.id || node.id === -1) return;
-
-                // 检查是否为提示词节点
-                if (PromptAssistant.isValidNode(node)) {
-                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
-                    if (creationMode === "auto" && !node._promptAssistantInitialized) {
-                        node._promptAssistantInitialized = true;
-                        promptAssistant.checkAndSetupNode(node);
-                    }
-                    return;
-                }
-
-                // 检查是否为图像节点
-                if (window.FEATURES.imageCaption && imageCaption.hasValidImage(node)) {
-                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
-                    if (imageCaptionCreationMode === "auto" && !node._imageCaptionInitialized) {
-                        node._imageCaptionInitialized = true;
-                        imageCaption.checkAndSetupNode(node);
-                    }
-                }
-            });
-        } catch (error) {
-            logger.error(`节点创建处理失败: ${error.message}`);
-        }
+        // nodeCreated 钩子现在主要用于补齐子图节点的特殊交互，大部分逻辑已通过 onNodeCreated 注入
+        if (!node || node.id === -1) return;
+        this._injectUniversalHooks(node);
     },
 
-    /**
-     * 节点移除钩子
-     * 在节点被删除时清理对应的小助手实例
-     */
     async nodeRemoved(node) {
-        // 如果正在切换工作流，则不执行任何清理操作
-        if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
-            return;
-        }
-
-        try {
-            if (!node || node.id === undefined || node.id === -1) return;
-
-            // 安全获取节点ID，用于日志记录
-            const nodeId = node.id;
-
-            // 添加清理标记，避免重复清理
-            node._promptAssistantCleaned = false;
-            node._imageCaptionCleaned = false;
-
-            // 清理提示词小助手
-            if (node._promptAssistantInitialized) {
-                promptAssistant.cleanup(nodeId);
-                node._promptAssistantCleaned = true;
-                logger.debug(`[节点移除钩子] 提示词小助手清理完成 | 节点ID: ${nodeId}`);
-            }
-
-            // 清理图像小助手
-            if (node._imageCaptionInitialized) {
-                imageCaption.cleanup(nodeId);
-                node._imageCaptionCleaned = true;
-                logger.debug(`[节点移除钩子] 图像小助手清理完成 | 节点ID: ${nodeId}`);
-            }
-        } catch (error) {
-            const safeNodeId = node && node.id !== undefined ? node.id : "unknown";
-            logger.error(`[节点移除钩子] 处理失败 | 节点ID: ${safeNodeId} | 错误: ${error.message}`);
-        }
+        if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) return;
+        this._handleNodeCleanup(node);
     },
 
     /**
      * 节点定义注册前钩子
      * 向所有节点类型注入小助手相关功能
      */
+
+
+    // --- 统一生命周期管理逻辑 (重构点) ---
+
+    /**
+     * 统一处理节点的“进入/激活”逻辑
+     * 涵盖：新节点创建(onNodeCreated), 全局节点添加(onNodeAdded), 节点选中(onSelected)
+     * @param {object} node - 节点实例
+     * @param {object} options - 配置参数 { reset: 是否强制重置标记, delay: 是否使用 raf 延迟 }
+     */
+    _handleNodeActive(node, options = {}) {
+        if (!node || !window.FEATURES.enabled) return;
+        if (node.id === -1) return;
+
+        const { reset = false, delay = true } = options;
+        if (reset) {
+            node._promptAssistantInitialized = false;
+            node._imageCaptionInitialized = false;
+        }
+
+        const run = () => {
+            if (!node || !node.id || node.id === -1) return;
+
+            // 1. 提示词小助手核心入口
+            if (PromptAssistant.isValidNode(node)) {
+                const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                if ((creationMode === "auto" || reset) && !node._promptAssistantInitialized) {
+                    node._promptAssistantInitialized = true;
+                    promptAssistant.checkAndSetupNode(node);
+                }
+            }
+
+            // 2. 图像反推小助手入口
+            const isSupportedICNode = imageCaption.isSupportedNode && imageCaption.isSupportedNode(node);
+            if (window.FEATURES.imageCaption && isSupportedICNode) {
+                const icCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+                if (reset && app.canvas?._imageCaptionSelectionHandler) {
+                    node._imageCaptionInitialized = false;
+                    app.canvas._imageCaptionSelectionHandler({ [node.id]: node });
+                } else if (icCreationMode === "auto" && !node._imageCaptionInitialized) {
+                    node._imageCaptionInitialized = true;
+                    imageCaption.checkAndSetupNode(node);
+                }
+            }
+        };
+
+        if (delay) {
+            requestAnimationFrame(() => requestAnimationFrame(run));
+        } else {
+            run();
+        }
+    },
+
+    /**
+     * 统一处理节点的“销毁/清理”逻辑
+     * @param {object} node - 节点实例
+     */
+    _handleNodeCleanup(node) {
+        if (!node || node.id === undefined || node.id === -1) return;
+        const nodeId = node.id;
+
+        // 执行清理并标记状态
+        if (node._promptAssistantInitialized || !node._promptAssistantCleaned) {
+            promptAssistant.cleanup(nodeId, false);
+            node._promptAssistantCleaned = true;
+        }
+        if (node._imageCaptionInitialized || !node._imageCaptionCleaned) {
+            imageCaption.cleanup(nodeId, false);
+            node._imageCaptionCleaned = true;
+        }
+    },
+
+    /**
+     * 注册前的批量原型注入
+     */
     async beforeRegisterNodeDef(nodeType, nodeData) {
-        // 保存原始方法
-        const origOnNodeCreated = nodeType.prototype.onNodeCreated;
-        const origOnRemoved = nodeType.prototype.onRemoved;
-        const origOnSelected = nodeType.prototype.onSelected;
+        const self = this;
+        const proto = nodeType.prototype;
 
-        // 注入节点创建方法
-        nodeType.prototype.onNodeCreated = function () {
-            if (origOnNodeCreated) {
-                origOnNodeCreated.apply(this, arguments);
-            }
+        const origOnCreated = proto.onNodeCreated;
+        const origOnSelected = proto.onSelected;
+        const origOnRemoved = proto.onRemoved;
 
-            // 始终检查最新的总开关状态
-            const currentEnabled = app.ui.settings.getSettingValue("PromptAssistant.Features.Enabled");
-            window.FEATURES.enabled = currentEnabled !== undefined ? currentEnabled : true;
-
-            // 总开关关闭时，直接返回
-            if (!window.FEATURES.enabled) {
-                return;
-            }
-
-            // 设置未初始化标记
-            this._promptAssistantInitialized = false;
-            this._imageCaptionInitialized = false;
-
-            // 【关键修复】直接在这里调用检查逻辑，而不是依赖扩展的nodeCreated钩子
-            // Vue mode下Note节点可能不会触发扩展的nodeCreated钩子
-            const nodeRef = this;
-            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
-            // 优化：使用 requestAnimationFrame 替代 setTimeout
-            requestAnimationFrame(() => {
-                if (!nodeRef || !nodeRef.id || nodeRef.id === -1) {
-                    return;
-                }
-
-                logger.debug(() => `[onNodeCreated注入] 延迟检查 | ID: ${nodeRef.id} | 类型: ${nodeRef.type}`);
-
-                // 检查是否为提示词节点
-                if (PromptAssistant.isValidNode(nodeRef)) {
-                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
-
-                    if (creationMode === "auto" && !nodeRef._promptAssistantInitialized) {
-                        nodeRef._promptAssistantInitialized = true;
-                        logger.debug(() => `[onNodeCreated注入] 创建小助手 | ID: ${nodeRef.id} | 类型: ${nodeRef.type}`);
-                        promptAssistant.checkAndSetupNode(nodeRef);
-                    }
-                }
-
-                // 检查是否为图像节点
-                if (window.FEATURES.imageCaption && imageCaption.hasValidImage(nodeRef)) {
-                    const imageCaptionCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
-
-                    if (imageCaptionCreationMode === "auto" && !nodeRef._imageCaptionInitialized) {
-                        nodeRef._imageCaptionInitialized = true;
-                        imageCaption.checkAndSetupNode(nodeRef);
-                    }
-                }
-            });
+        // 注入创建钩子 (原型级补救)
+        proto.onNodeCreated = function () {
+            if (origOnCreated) origOnCreated.apply(this, arguments);
+            self._handleNodeActive(this, { delay: true });
         };
 
-        // 注入节点选择方法
-        nodeType.prototype.onSelected = function () {
-            if (origOnSelected) {
-                origOnSelected.apply(this, arguments);
-            }
-
-            // 确保总开关开启
-            if (!window.FEATURES.enabled) {
-                return;
-            }
-
-            const nodeRef = this;
-
-            // Vue mode下需要延迟执行，确保DOM渲染完成
-            const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
-            const checkAndSetup = () => {
-                // 重置提示词小助手初始化标记，确保每次选择都重新检测节点状态
-                // 无论是自动还是手动模式，选中时都尝试检查（作为手动触发或自动模式的重试/补救）
-                nodeRef._promptAssistantInitialized = false;
-                promptAssistant.checkAndSetupNode(nodeRef);
-
-                // 确保选择事件能触发到图像小助手，同时检查图像反推功能开关
-                if (window.FEATURES.imageCaption &&
-                    app.canvas && app.canvas._imageCaptionSelectionHandler) {
-                    // 重置初始化标记，确保每次选择都重新检测节点状态
-                    nodeRef._imageCaptionInitialized = false;
-
-                    const selected_nodes = {};
-                    selected_nodes[nodeRef.id] = nodeRef;
-                    app.canvas._imageCaptionSelectionHandler(selected_nodes);
-                }
-            };
-
-            if (isVueMode) {
-                // Vue mode下使用 requestAnimationFrame 快速响应
-                requestAnimationFrame(() => requestAnimationFrame(checkAndSetup));
-            } else {
-                checkAndSetup();
-            }
+        // 注入选中钩子 (原型级补救)
+        proto.onSelected = function () {
+            if (origOnSelected) origOnSelected.apply(this, arguments);
+            self._handleNodeActive(this, { reset: true, delay: true });
         };
 
-        // 注入节点移除方法
-        nodeType.prototype.onRemoved = function () {
-            try {
-                // 首先检查this和this.id是否存在和有效
-                if (!this) {
-                    logger.debug("[onRemoved方法] 节点实例不存在，跳过清理");
-                    if (origOnRemoved) {
-                        origOnRemoved.apply(this, arguments);
-                    }
-                    return;
-                }
-
-                // 安全获取节点ID，如果不存在则使用占位符
-                const nodeId = this.id !== undefined ? this.id : "unknown";
-
-                // 清理提示词小助手（如果尚未清理）
-                if (this._promptAssistantInitialized && !this._promptAssistantCleaned) {
-                    if (this.id !== undefined) {
-                        promptAssistant.cleanup(this.id);
-                        this._promptAssistantCleaned = true;
-                    }
-                }
-
-                // 清理图像小助手（如果尚未清理）
-                if (this._imageCaptionInitialized && !this._imageCaptionCleaned) {
-                    if (this.id !== undefined) {
-                        imageCaption.cleanup(this.id);
-                        this._imageCaptionCleaned = true;
-                    }
-                }
-
-                // 即使没有初始化标记，也尝试清理（关键修复）
-                // 这是为了处理可能的边缘情况，确保完全清理
-                if (!this._promptAssistantCleaned && this.id !== undefined) {
-                    promptAssistant.cleanup(this.id, true);
-                }
-                if (!this._imageCaptionCleaned && this.id !== undefined) {
-                    imageCaption.cleanup(this.id, true);
-                }
-
-                // 简化：仅在两者都清理完成时输出一次
-                if (this._promptAssistantCleaned && this._imageCaptionCleaned) {
-                    logger.log(`[节点清理] 完成 | 节点ID: ${nodeId}`);
-                }
-
-                if (origOnRemoved) {
-                    origOnRemoved.apply(this, arguments);
-                }
-            } catch (error) {
-                // 安全获取节点ID，用于错误日志
-                const safeNodeId = this && this.id !== undefined ? this.id : "unknown";
-                logger.error(`[onRemoved方法] 清理失败 | 节点ID: ${safeNodeId} | 错误: ${error.message}`);
-                // 确保原始方法仍然被调用
-                if (origOnRemoved) {
-                    origOnRemoved.apply(this, arguments);
-                }
-            }
+        // 注入移除钩子 (原型级补救)
+        proto.onRemoved = function () {
+            self._handleNodeCleanup(this);
+            if (origOnRemoved) origOnRemoved.apply(this, arguments);
         };
     },
 

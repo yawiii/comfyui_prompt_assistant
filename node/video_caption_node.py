@@ -69,7 +69,7 @@ class VideoCaptionNode(VLMNodeBase):
                 "user_prompt": ("STRING", {"multiline": True, "default": "", "placeholder": "输入额外的具体要求，将与规则一起发送给模型"}),
                 "vlm_service": (service_options, {"default": default_service, "tooltip": "Select VLM service and model"}),
                 "sampling_mode": (["Auto (Uniform)", "Manual (Indices)"], {"default": "Auto (Uniform)"}),
-                "frame_count": ("INT", {"default": 8, "min": 1, "max": 32, "step": 1, "tooltip": "💡Only for 'Auto' mode. Number of frames to sample."}),
+                "frame_count": ("INT", {"default": 5, "min": 1, "max": 32, "step": 1, "tooltip": "💡Only for 'Auto' mode. Frame limits: GLM-4V≤5, GLM-4.6V≤100, Qwen-VL≤100, Gemini≤3000, Grok≤10"}),
                 "manual_indices": ("STRING", {"default": "", "placeholder": "Input indices (e.g. 0,10,20) or range (e.g. 0-10)", "tooltip": "💡Only for 'Manual' mode. Supports comma-separated or range. Negative indices allowed."}),
                 # Ollama Automatic VRAM Unload
                 "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),
@@ -94,6 +94,10 @@ class VideoCaptionNode(VLMNodeBase):
         """
         只在输入内容真正变化时才触发重新执行
         """
+        # 检查是否包含强制刷新符号 [R]
+        if cls._check_is_changed_bypass(rule, custom_rule_content, user_prompt):
+            return float("nan")
+
         # 提取实际的tensor数据
         target_input = None
         if video is not None:
@@ -312,8 +316,8 @@ class VideoCaptionNode(VLMNodeBase):
             log_prepare(TASK_VIDEO_CAPTION, request_id, SOURCE_NODE, service_display_name, model_display, rule_name, {"模式": sampling_mode})
             
             # [Debug] 输出抽帧参数详情
-            print(f"{self.PROCESS_PREFIX} [video-caption-debug] 输入tensor形状:{input_tensor.shape} | is_pre_sampled:{is_pre_sampled}")
-            print(f"{self.PROCESS_PREFIX} [video-caption-debug] sampling_mode:{sampling_mode} | frame_count:{frame_count} | manual_indices:{manual_indices}")
+            # print(f"{self.PROCESS_PREFIX} [video-caption-debug] 输入tensor形状:{input_tensor.shape} | is_pre_sampled:{is_pre_sampled}")
+            # print(f"{self.PROCESS_PREFIX} [video-caption-debug] sampling_mode:{sampling_mode} | frame_count:{frame_count} | manual_indices:{manual_indices}")
             
             # 准备抽帧参数
             sampling_kwargs = {}    
@@ -329,7 +333,13 @@ class VideoCaptionNode(VLMNodeBase):
             )
             
             # [Debug] 输出抽帧结果
-            print(f"{self.PROCESS_PREFIX} [video-caption] 抽帧完成 | 帧数量:{len(frames_data)} | 预览tensor:{preview_tensor.shape}")
+            # print(f"{self.PROCESS_PREFIX} [video-caption] 抽帧完成 | 帧数量:{len(frames_data)} | 预览tensor:{preview_tensor.shape}")
+            
+            # ---注入帧数元信息到提示词---
+            # 解决模型识别帧数与实际帧数不一致的问题
+            actual_frame_count = len(frames_data)
+            frame_info_prefix = f"[重要提示：本次共提供了 {actual_frame_count} 帧图像，请务必逐帧分析，确保输出的描述数量与帧数一致。]\n\n"
+            prompt_template = frame_info_prefix + prompt_template
             
             # 调用多图像分析 - 使用基类方法
             result = self._run_vision_task(

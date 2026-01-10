@@ -6,6 +6,25 @@
 import { app } from "../../../../scripts/app.js";
 import { logger } from '../utils/logger.js';
 
+// ---动态 Z-Index 计算---
+/**
+ * 获取 ComfyUI 设置弹窗的 z-index 值
+ * 只针对 ComfyUI 的 p-dialog 元素进行查找，避免遍历所有 DOM 元素造成性能问题
+ * @returns {number} ComfyUI 弹窗的 z-index 值，如果不存在则返回基础值
+ */
+function getComfyUIDialogZIndex() {
+    // ComfyUI 使用 PrimeVue，设置弹窗的类名是 .p-dialog
+    const comfyDialog = document.querySelector('.p-dialog');
+    if (comfyDialog) {
+        const zIndex = parseInt(window.getComputedStyle(comfyDialog).zIndex, 10);
+        if (!isNaN(zIndex)) {
+            return zIndex;
+        }
+    }
+    // 如果没有找到 ComfyUI 弹窗，返回 CSS 变量定义的基础值
+    return 10200;
+}
+
 /**
  * 创建通用的设置弹窗
  * @param {Object} options 弹窗配置选项
@@ -377,6 +396,14 @@ export function createSettingsDialog(options) {
             modal.appendChild(footer);
         }
 
+        // 动态计算 z-index，确保始终在 ComfyUI 弹窗之上
+        // 必须在 appendChild 之前设置，否则动画起始帧会使用 CSS 静态值
+        const baseZIndex = getComfyUIDialogZIndex() + 10;
+        modal.style.zIndex = baseZIndex;
+        if (overlay) {
+            overlay.style.zIndex = baseZIndex - 1;
+        }
+
         // 显示弹窗和遮罩层
         document.body.appendChild(modal);
 
@@ -623,53 +650,72 @@ export function createSelectGroup(label, options, initialValue = null, config = 
     dropdownList.className = 'p-dropdown-items';
     dropdownList.setAttribute('role', 'listbox');
 
-    // Populate options
-    options.forEach(opt => {
-        const optionEl = document.createElement('option');
-        optionEl.value = opt.value;
-        optionEl.textContent = opt.text;
-        select.appendChild(optionEl);
+    /**
+     * 更新下拉框选项
+     * @param {Array<{value: string, text: string}>} newOptions - 新选项列表
+     * @param {string} [newValue=null] - 新选中的值
+     */
+    const updateOptions = (newOptions, newValue = null) => {
+        // 清空现有选项
+        select.innerHTML = '';
+        dropdownList.innerHTML = '';
 
-        const itemEl = document.createElement('li');
-        itemEl.className = 'p-dropdown-item';
-        itemEl.textContent = opt.text;
-        itemEl.dataset.value = opt.value;
-        itemEl.setAttribute('role', 'option');
+        if (!newOptions || newOptions.length === 0) {
+            dropdownLabel.textContent = '暂无选项';
+            return;
+        }
 
-        itemEl.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // Update highlight
-            dropdownList.querySelectorAll('.p-dropdown-item').forEach(el => el.classList.remove('p-highlight'));
-            itemEl.classList.add('p-highlight');
+        // 填充新选项
+        newOptions.forEach(opt => {
+            const optionEl = document.createElement('option');
+            optionEl.value = opt.value;
+            optionEl.textContent = opt.text;
+            select.appendChild(optionEl);
 
-            select.value = opt.value;
-            dropdownLabel.textContent = opt.text;
-            closePanel();
-            select.dispatchEvent(new Event('change', { bubbles: true }));
+            const itemEl = document.createElement('li');
+            itemEl.className = 'p-dropdown-item';
+            itemEl.textContent = opt.text;
+            itemEl.dataset.value = opt.value;
+            itemEl.setAttribute('role', 'option');
+
+            itemEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // Update highlight
+                dropdownList.querySelectorAll('.p-dropdown-item').forEach(el => el.classList.remove('p-highlight'));
+                itemEl.classList.add('p-highlight');
+
+                select.value = opt.value;
+                dropdownLabel.textContent = opt.text;
+                closePanel();
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+
+            dropdownList.appendChild(itemEl);
         });
 
-        dropdownList.appendChild(itemEl);
-    });
+        // 设置选中的值
+        // 如果提供了 newValue 且在选项中，则使用它；否则尝试保持当前值；最后默认首项
+        const currentVal = select.value;
+        const valToSet = (newValue !== null && newOptions.some(o => o.value === newValue))
+            ? newValue
+            : (newOptions.some(o => o.value === currentVal) ? currentVal : newOptions[0].value);
 
-    // Set initial display value
-    const valueToSet = initialValue !== null && options.some(o => o.value === initialValue)
-        ? initialValue
-        : (options.length > 0 ? options[0].value : null);
-
-    if (valueToSet !== null) {
-        const selectedOption = options.find(o => o.value === valueToSet);
-        if (selectedOption) {
-            dropdownLabel.textContent = selectedOption.text;
-            select.value = selectedOption.value;
-            // Set initial highlight
-            const initialItem = dropdownList.querySelector(`.p-dropdown-item[data-value="${select.value}"]`);
-            if (initialItem) {
-                initialItem.classList.add('p-highlight');
+        if (valToSet !== null) {
+            const selectedOption = newOptions.find(o => o.value === valToSet);
+            if (selectedOption) {
+                dropdownLabel.textContent = selectedOption.text;
+                select.value = selectedOption.value;
+                // 设置高亮
+                const initialItem = dropdownList.querySelector(`.p-dropdown-item[data-value="${valToSet}"]`);
+                if (initialItem) {
+                    initialItem.classList.add('p-highlight');
+                }
             }
         }
-    } else {
-        dropdownLabel.textContent = ' '; // Placeholder
-    }
+    };
+
+    // 初始化渲染选项
+    updateOptions(options, initialValue);
 
     // Assemble dropdown
     dropdownItemsWrapper.appendChild(dropdownList);
@@ -744,7 +790,8 @@ export function createSelectGroup(label, options, initialValue = null, config = 
         dropdownPanel.style.top = rect.bottom + 'px';
         dropdownPanel.style.left = rect.left + 'px';
         dropdownPanel.style.width = rect.width + 'px';
-        // 样式由 CSS 中的 .pa-dropdown-panel 接管，避免依赖 PrimeVue 变量
+        // 动态计算 z-index，确保在 ComfyUI 弹窗之上
+        dropdownPanel.style.zIndex = getComfyUIDialogZIndex() + 15;
 
         dropdownPanel.classList.remove('p-hidden');
         // 强制重排，确保动画生效
@@ -793,7 +840,7 @@ export function createSelectGroup(label, options, initialValue = null, config = 
         }
     });
 
-    return { group, select };
+    return { group, select, updateOptions };
 }
 
 /**
@@ -966,6 +1013,8 @@ export function createComboBoxGroup(label, options = [], initialValue = '', conf
         dropdownPanel.style.top = rect.bottom + 'px';
         dropdownPanel.style.left = rect.left + 'px';
         dropdownPanel.style.width = rect.width + 'px';
+        // 动态计算 z-index，确保在 ComfyUI 弹窗之上
+        dropdownPanel.style.zIndex = getComfyUIDialogZIndex() + 15;
 
         dropdownPanel.classList.remove('p-hidden');
         dropdownPanel.offsetHeight; // 强制重排
@@ -1252,6 +1301,7 @@ export function createConfirmPopup(options) {
         target,
         message,
         icon = 'pi-info-circle',
+        iconColor = null,
         renderFormContent = null,
         onConfirm,
         onCancel = null,
@@ -1259,7 +1309,8 @@ export function createConfirmPopup(options) {
         cancelLabel = '取消',
         position = 'bottom',
         autoPosition = true,
-        singleButton = false
+        singleButton = false,
+        confirmDanger = false
     } = options;
 
     // 创建气泡框容器
@@ -1276,6 +1327,9 @@ export function createConfirmPopup(options) {
 
     const iconElement = document.createElement('i');
     iconElement.className = `pi ${icon} pa-confirm-popup-icon`;
+    if (iconColor) {
+        iconElement.style.color = iconColor;
+    }
     messageContainer.appendChild(iconElement);
 
     const messageText = document.createElement('span');
@@ -1308,7 +1362,9 @@ export function createConfirmPopup(options) {
     // 单按钮模式：只显示确认按钮
     if (singleButton) {
         const confirmButton = document.createElement('button');
-        confirmButton.className = 'p-button p-component p-button-sm';
+        confirmButton.className = confirmDanger
+            ? 'p-button p-component p-button-sm p-button-danger'
+            : 'p-button p-component p-button-sm';
         confirmButton.innerHTML = `<span class="p-button-icon-left pi pi-check"></span><span class="p-button-label">${confirmLabel}</span>`;
         confirmButton.onclick = async () => {
             try {
@@ -1335,7 +1391,9 @@ export function createConfirmPopup(options) {
         };
 
         const confirmButton = document.createElement('button');
-        confirmButton.className = 'p-button p-component p-button-sm';
+        confirmButton.className = confirmDanger
+            ? 'p-button p-component p-button-sm p-button-danger'
+            : 'p-button p-component p-button-sm';
         confirmButton.innerHTML = `<span class="p-button-icon-left pi pi-check"></span><span class="p-button-label">${confirmLabel}</span>`;
         confirmButton.onclick = async () => {
             try {
@@ -2123,7 +2181,7 @@ export function createMultiSelectListbox(options) {
  * @returns {Object} { container, updateLabel, updateIcon, updateMenu, setMainButtonDisabled, setMenuButtonDisabled }
  */
 export function createSplitButton(options) {
-    const { label = '', icon = '', className = '', onClick = () => { }, items = [] } = options;
+    const { label = '', icon = '', className = '', onClick = () => { }, items = [], align = 'left' } = options;
 
     const container = document.createElement('div');
     container.className = `p-splitbutton p-component${className ? ' ' + className : ''}`;
@@ -2196,76 +2254,195 @@ export function createSplitButton(options) {
 
     let currentItems = items;
     let isOpen = false;
+    let submenuPanels = []; // 存储所有子菜单面板，用于关闭时清理
+
+    // 创建单个菜单项（支持二级子菜单）
+    const createMenuItem = (item, parentPanel) => {
+        if (item.separator) {
+            const sep = document.createElement('li');
+            sep.className = 'pa-context-menu-separator';
+            sep.setAttribute('role', 'separator');
+            return sep;
+        }
+
+        const li = document.createElement('li');
+        li.className = 'pa-context-menu-item';
+        li.setAttribute('role', 'menuitem');
+        if (item.disabled) li.classList.add('disabled');
+
+        const itemContent = document.createElement('div');
+        itemContent.className = 'pa-context-menu-item-content';
+
+        // Icon logic
+        let iconHtml = '';
+        if (typeof item.checked === 'boolean') {
+            const checkIcon = item.checked ? 'pi pi-check' : '';
+            iconHtml = `<span class="pa-context-menu-item-icon ${checkIcon}"></span>`;
+        } else if (item.icon) {
+            iconHtml = `<span class="pa-context-menu-item-icon ${item.icon}"></span>`;
+        } else {
+            iconHtml = '<span class="pa-context-menu-item-icon"></span>';
+        }
+
+        // 检查是否有子菜单
+        const hasSubmenu = item.items && item.items.length > 0;
+
+        itemContent.innerHTML = `
+            ${iconHtml}
+            <span class="pa-context-menu-item-label">${item.label}</span>
+            ${hasSubmenu ? '<span class="pa-context-menu-submenu-icon pi pi-chevron-right"></span>' : ''}
+        `;
+
+        li.appendChild(itemContent);
+
+        // 如果有子菜单
+        if (hasSubmenu) {
+            li.classList.add('pa-context-menu-item-has-submenu');
+
+            // 创建子菜单面板
+            const submenuPanel = document.createElement('div');
+            submenuPanel.className = 'pa-context-menu pa-context-submenu';
+            submenuPanel.style.display = 'none';
+            submenuPanel.style.position = 'fixed';
+
+            const submenuList = document.createElement('ul');
+            submenuList.className = 'pa-context-menu-list';
+            submenuList.setAttribute('role', 'menu');
+
+            item.items.forEach(subItem => {
+                const subLi = createMenuItem(subItem, submenuPanel);
+                submenuList.appendChild(subLi);
+            });
+
+            submenuPanel.appendChild(submenuList);
+            document.body.appendChild(submenuPanel);
+
+            // 将子菜单面板添加到列表中，用于关闭时清理
+            submenuPanels.push(submenuPanel);
+
+            let submenuTimeout = null;
+
+            // 显示子菜单
+            const showSubmenu = () => {
+                clearTimeout(submenuTimeout);
+                submenuPanel.style.display = 'block';
+                submenuPanel.style.zIndex = parseInt(menuPanel.style.zIndex || getComfyUIDialogZIndex()) + 5;
+                submenuPanel.classList.add('pa-context-menu-show');
+
+                // 定位子菜单
+                const liRect = li.getBoundingClientRect();
+                const submenuRect = submenuPanel.getBoundingClientRect();
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+
+                let left = liRect.right + 2;
+                let top = liRect.top;
+
+                // 如果右边空间不够，显示在左边
+                if (left + submenuRect.width > viewportWidth - 10) {
+                    left = liRect.left - submenuRect.width - 2;
+                }
+
+                // 垂直边界检查
+                if (top + submenuRect.height > viewportHeight - 10) {
+                    top = viewportHeight - submenuRect.height - 10;
+                }
+                if (top < 10) top = 10;
+
+                submenuPanel.style.left = `${left}px`;
+                submenuPanel.style.top = `${top}px`;
+            };
+
+            // 隐藏子菜单
+            const hideSubmenu = () => {
+                submenuTimeout = setTimeout(() => {
+                    submenuPanel.classList.remove('pa-context-menu-show');
+                    submenuPanel.classList.add('pa-context-menu-hide');
+                    setTimeout(() => {
+                        submenuPanel.style.display = 'none';
+                        submenuPanel.classList.remove('pa-context-menu-hide');
+                    }, 150);
+                }, 100);
+            };
+
+            // 鼠标进入父项显示子菜单
+            li.addEventListener('mouseenter', showSubmenu);
+            li.addEventListener('mouseleave', hideSubmenu);
+
+            // 保持子菜单打开（当鼠标在子菜单上时）
+            submenuPanel.addEventListener('mouseenter', () => {
+                clearTimeout(submenuTimeout);
+            });
+            submenuPanel.addEventListener('mouseleave', hideSubmenu);
+
+        } else if (!item.disabled) {
+            // 无子菜单且未禁用，绑定点击事件
+            li.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (item.command) {
+                    item.command({ originalEvent: e, item });
+                }
+                closeMenu();
+            });
+        }
+
+        return li;
+    };
 
     const renderMenu = () => {
+        // 先清理之前的子菜单面板
+        submenuPanels.forEach(panel => {
+            if (panel.parentNode) {
+                panel.parentNode.removeChild(panel);
+            }
+        });
+        submenuPanels = [];
+
         menuList.innerHTML = '';
         currentItems.forEach(item => {
-            if (item.separator) {
-                const sep = document.createElement('li');
-                sep.className = 'pa-context-menu-separator';
-                sep.setAttribute('role', 'separator');
-                menuList.appendChild(sep);
-                return;
-            }
-
-            const li = document.createElement('li');
-            li.className = 'pa-context-menu-item';
-            li.setAttribute('role', 'menuitem');
-            if (item.disabled) li.classList.add('disabled');
-
-            const itemContent = document.createElement('div');
-            itemContent.className = 'pa-context-menu-item-content';
-
-            // Icon logic
-            let iconHtml = '';
-            if (typeof item.checked === 'boolean') {
-                const checkIcon = item.checked ? 'pi pi-check' : '';
-                iconHtml = `<span class="pa-context-menu-item-icon ${checkIcon}"></span>`;
-            } else if (item.icon) {
-                iconHtml = `<span class="pa-context-menu-item-icon ${item.icon}"></span>`;
-            } else {
-                iconHtml = '<span class="pa-context-menu-item-icon"></span>';
-            }
-
-            itemContent.innerHTML = `
-                ${iconHtml}
-                <span class="pa-context-menu-item-label">${item.label}</span>
-            `;
-
-            li.appendChild(itemContent);
-
-            if (!item.disabled) {
-                li.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    if (item.command) {
-                        item.command({ originalEvent: e, item });
-                    }
-                    closeMenu();
-                });
-            }
-
+            const li = createMenuItem(item, menuPanel);
             menuList.appendChild(li);
         });
     };
 
     const updatePosition = () => {
         if (!isOpen) return;
-        const rect = menuBtn.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
+
+        // 先确保面板是显示的以便获取宽度
+        menuPanel.style.display = 'block';
+        const panelRect = menuPanel.getBoundingClientRect();
 
         let left = containerRect.left;
         let top = containerRect.bottom + 2;
 
-        // Edge detection could be added here similar to createTooltip
+        if (align === 'right') {
+            left = containerRect.right - panelRect.width;
+        }
+
+        // 边界检查：防止溢出屏幕右侧
+        if (left + panelRect.width > window.innerWidth) {
+            left = window.innerWidth - panelRect.width - 5;
+        }
+        // 边界检查：防止溢出屏幕左侧
+        if (left < 0) left = 5;
 
         menuPanel.style.top = `${top}px`;
         menuPanel.style.left = `${left}px`;
-        // menuPanel.style.minWidth = `${containerRect.width}px`;
     };
 
     const closeMenu = () => {
         if (!isOpen) return;
         isOpen = false;
+
+        // 清理所有子菜单面板
+        submenuPanels.forEach(panel => {
+            if (panel.parentNode) {
+                panel.parentNode.removeChild(panel);
+            }
+        });
+        submenuPanels = [];
+
         menuPanel.classList.remove('pa-context-menu-show');
         menuPanel.classList.add('pa-context-menu-hide');
 
@@ -2285,8 +2462,16 @@ export function createSplitButton(options) {
             return;
         }
         isOpen = true;
+
+        // 支持动态获取菜单项 (如果 items 是函数)
+        if (typeof options.items === 'function') {
+            currentItems = options.items();
+        }
+
         renderMenu(); // Render fresh on open to catch state changes
         menuPanel.style.display = 'block';
+        // 动态计算 z-index，确保在 ComfyUI 弹窗之上
+        menuPanel.style.zIndex = getComfyUIDialogZIndex() + 20;
         menuPanel.classList.add('pa-context-menu-show');
         updatePosition();
 

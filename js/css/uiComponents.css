@@ -2125,6 +2125,11 @@
     position: relative;
 }
 
+/* 移除表头单元格的竖向分割线 */
+.prompt-list-header .prompt-list-cell {
+    border-right: none;
+}
+
 .prompt-scroll-list {
     flex: 1;
     overflow-y: auto;
@@ -2813,6 +2818,34 @@ body.column-resizing * {
 .pa-context-menu-item-label {
     font-size: 14px;
     white-space: nowrap;
+}
+
+/* ---二级子菜单样式--- */
+/* 有子菜单的菜单项 */
+.pa-context-menu-item-has-submenu {
+    position: relative;
+}
+
+.pa-context-menu-item-has-submenu:hover {
+    background-color: var(--p-form-field-filled-hover-background);
+}
+
+/* 子菜单箭头图标 */
+.pa-context-menu-submenu-icon {
+    margin-left: auto;
+    padding-left: 12px;
+    font-size: 10px;
+    color: var(--p-button-text-secondary-color);
+    opacity: 0.7;
+}
+
+.pa-context-menu-item-has-submenu:hover .pa-context-menu-submenu-icon {
+    opacity: 1;
+}
+
+/* 子菜单面板 */
+.pa-context-submenu {
+    min-width: 10rem;
 }
 
 /* ---分隔符--- */

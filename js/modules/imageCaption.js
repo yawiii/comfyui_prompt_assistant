@@ -48,6 +48,13 @@ class ImageCaption {
     }
 
     /**
+     * 检查节点类型是否是允许的图像节点类型（公开方法）
+     */
+    isSupportedNode(node) {
+        return this._isAllowedNodeType(node);
+    }
+
+    /**
      * 检查节点类型是否是允许的图像节点类型
      * @param {object} node - LiteGraph节点对象
      * @param {boolean} debug - 是否打印调试日志
@@ -311,29 +318,21 @@ class ImageCaption {
             return;
         }
 
-        // 使用新的方法检查节点是否有有效且可见的图像
-        const currentImage = this.getNodeImage(node);
+        // 验证现有实例是否有效
+        const existingInstance = ImageCaption.getInstance(node.id);
+        if (existingInstance && existingInstance.element && document.body.contains(existingInstance.element)) {
+            // 实例有效，更新其显示状态（内部会处理图片检测）
+            this.updateAssistantVisibility(existingInstance);
+        } else {
+            // 实例无效或不存在，清理并强制创建（白名单机制）
+            if (existingInstance) {
+                this.cleanup(node.id);
+            }
 
-        if (currentImage) {
-            // 有效图像，创建或显示小助手
-            const existingInstance = ImageCaption.getInstance(node.id);
-
-            // 验证现有实例是否有效
-            if (existingInstance && existingInstance.element && document.body.contains(existingInstance.element)) {
-                // 实例有效，显示它
-                this.showAssistantUI(existingInstance);
-            } else {
-                // 实例无效或不存在，清理并创建新实例
-                if (existingInstance) {
-                    // 先清理可能存在但无效的实例
-                    this.cleanup(node.id);
-                }
-
-                // 创建新的小助手实例
-                const assistant = this.setupNodeAssistant(node);
-                if (assistant) {
-                    logger.log(() => `创建图像小助手 | ID: ${node.id}`);
-                }
+            // 创建新的小助手实例
+            const assistant = this.setupNodeAssistant(node);
+            if (assistant) {
+                logger.debug(() => `[图像小助手] 预挂载成功 | ID: ${node.id} | 等待图像加载...`);
             }
         }
     }
@@ -368,22 +367,44 @@ class ImageCaption {
             return ImageCaption.getInstance(node.id);
         }
 
+        // 保存 nodeId 用于动态获取节点
+        const nodeId = node.id;
+
         // 创建小助手对象
         const assistant = {
-            node,
-            nodeId: node.id,
+            nodeId: nodeId,
             buttons: {},
             isActive: false,
             isTransitioning: false,
-            _eventCleanupFunctions: [], // 用于存储事件清理函数
-            _timers: {} // 用于存储定时器引用
+            isDestroyed: false,
+            _eventCleanupFunctions: [],
+            _timers: {},
+            // 保存初始节点引用作为后备（Vue Node 2.0 子图切换场景）
+            _initialNode: node
         };
+
+        // 动态获取节点的 getter，避免持有已删除节点的引用
+        // 【修复】优先从 graph 获取，失败时回退到初始引用（解决子图切换时画布未同步问题）
+        Object.defineProperty(assistant, 'node', {
+            get() {
+                if (this.isDestroyed) return null;
+                // 优先从当前画布 graph 动态获取
+                const graphNode = app.canvas?.graph?._nodes_by_id?.[this.nodeId];
+                if (graphNode) return graphNode;
+                // 回退：使用初始节点引用（如果仍有效）
+                if (this._initialNode && this._initialNode.id === this.nodeId) {
+                    return this._initialNode;
+                }
+                return null;
+            },
+            configurable: true
+        });
 
         // 创建UI
         this.createAssistantUI(assistant);
 
         // 添加到实例集合
-        ImageCaption.addInstance(node.id, assistant);
+        ImageCaption.addInstance(nodeId, assistant);
 
         // 设置节点折叠状态监听
         this._setupNodeCollapseListener(assistant);
@@ -401,13 +422,13 @@ class ImageCaption {
      * 创建小助手UI
      */
     createAssistantUI(assistant) {
-        if (!assistant?.node) return null;
+        // 【修复】使用 nodeId 作为有效性检查，避免因画布切换时 getter 返回 null 导致创建失败
+        if (!assistant?.nodeId) return null;
 
         try {
             // 获取位置设置
             const locationSetting = app.ui.settings.getSettingValue(
-                "ImageCaption.Location",
-                "bottom-left-h"
+                "ImageCaption.Location"
             );
 
             // Create AssistantContainer instance
@@ -909,6 +930,137 @@ class ImageCaption {
         }
     }
 
+    // ---流式输出辅助方法---
+
+    /**
+     * 创建流式显示浮层
+     /**
+     * 创建节点内嵌流式显示容器
+     */
+    _createStreamingOverlay(assistant) {
+        try {
+            const nodeId = assistant.node?.id;
+            // 策略1：优先尝试获取 Vue 节点容器
+            let mountContainer = document.querySelector(`[data-node-id="${nodeId}"]`);
+            let isLiteGraph = false;
+
+            if (!mountContainer) {
+                // 策略2：LiteGraph 模式，使用 Body 挂载 + Fixed 定位实现“裁切隔离”
+                mountContainer = document.body;
+                isLiteGraph = true;
+            }
+
+            // 创建外层容器
+            const container = document.createElement('div');
+            container.className = 'node-streaming-text-container';
+            if (isLiteGraph) {
+                container.classList.add('is-litegraph');
+            }
+
+            // 创建文本内容容器
+            const content = document.createElement('div');
+            content.className = 'node-streaming-text-content';
+
+            container.appendChild(content);
+            mountContainer.appendChild(container);
+
+            // LiteGraph 模式：启动帧同步位置锁定
+            let syncHandler = null;
+            if (isLiteGraph) {
+                const syncPos = () => {
+                    if (!assistant.streamingOverlay || !assistant.streamingOverlay.container) return;
+                    this._syncLiteGraphPosition(assistant, container);
+                    syncHandler = requestAnimationFrame(syncPos);
+                };
+                syncHandler = requestAnimationFrame(syncPos);
+            }
+
+            // 触发入场动画
+            requestAnimationFrame(() => {
+                container.classList.add('show');
+            });
+
+            return { container, content, isLiteGraph, syncHandler };
+        } catch (error) {
+            logger.error(`创建流式显示容器失败: ${error.message}`);
+            return null;
+        }
+    }
+
+    /**
+     * LiteGraph 模式下的位置与几何同步 (Viewport 绝对定位)
+     */
+    _syncLiteGraphPosition(assistant, container) {
+        const node = assistant.node;
+        if (!node || !app.canvas) return;
+
+        const ds = app.canvas.ds;
+        const pos = node.pos;
+        const size = node.size;
+        const scale = ds?.scale || 1;
+
+        // 1. 获取节点左上角的屏幕坐标
+        let screenX, screenY;
+        if (ds && typeof ds.canvas_to_screen === 'function') {
+            const screenPos = ds.canvas_to_screen(pos[0], pos[1]);
+            screenX = screenPos[0];
+            screenY = screenPos[1];
+        } else {
+            screenX = (pos[0] + (ds?.offset?.[0] || 0)) * scale;
+            screenY = (pos[1] + (ds?.offset?.[1] || 0)) * scale;
+        }
+
+        // 2. 同步几何尺寸：将节点的逻辑宽度、高度转换成屏幕物理像素
+        // 关键点：容器的宽高必须随 scale 同步，才能防止文字“溢出”节点物理边界
+        const physicalWidth = size[0] * scale;
+        const physicalHeight = 100 * scale; // 逻辑高度 100px 转换为物理像素
+
+        // 3. 计算对齐位置
+        // 底部工具栏高度逻辑值为 35px，转换后为 35 * scale
+        const bottomOffset = 35 * scale;
+        const top = screenY + (size[1] * scale) - bottomOffset - physicalHeight;
+
+        // 4. 应用样式到同步容器
+        container.style.width = `${physicalWidth - 16 * scale}px`; // 减去边缘间距
+        container.style.height = `${physicalHeight}px`;
+        container.style.left = `${screenX + 8 * scale}px`;
+        container.style.top = `${top}px`;
+
+        // 5. 同步内容缩放：确保字号随节点大小变化
+        // 注意：我们通过改变容器的 fontSize 来影响内容。
+        // content 容器内部使用相对单位或依靠父级继承。
+        const content = container.querySelector('.node-streaming-text-content');
+        if (content) {
+            content.style.fontSize = `${10 * scale}px`;
+            content.style.lineHeight = `${1.6}`;
+        }
+    }
+
+    /**
+     * 移除流式内嵌容器
+     */
+    _removeStreamingOverlay(assistant, overlayObj) {
+        if (!overlayObj || !overlayObj.container) return;
+        const { container, syncHandler } = overlayObj;
+
+        // 停止同步循环
+        if (syncHandler) {
+            cancelAnimationFrame(syncHandler);
+        }
+
+        try {
+            container.classList.remove('show');
+            setTimeout(() => {
+                if (container.parentNode) {
+                    container.parentNode.removeChild(container);
+                }
+            }, 300);
+        } catch (error) {
+            logger.error(`移除流式容器失败: ${error.message}`);
+            if (container.parentNode) container.parentNode.removeChild(container);
+        }
+    }
+
     /**
      * 处理图像分析
      */
@@ -1056,8 +1208,58 @@ class ImageCaption {
                 throw new Error(`获取反推规则失败: ${error.message}`);
             }
 
-            // 调用图像分析服务，传入提示词内容
-            const result = await APIService.llmAnalyzeImage(imageBase64, promptContent, currentRequestId);
+            // 根据开关选择流式或阻塞式 API
+            let result;
+            let fullContent = '';
+
+            if (FEATURES.enableStreaming !== false) {
+                // 创建内嵌流式对象
+                const overlayObj = this._createStreamingOverlay(assistant);
+                if (!overlayObj) {
+                    logger.error("[图像小助手] 无法创建内嵌流式显示对象");
+                    return;
+                }
+                assistant.streamingOverlay = overlayObj;
+                // 使用流式 API 调用图像分析服务
+                result = await APIService.llmAnalyzeImageStream(
+                    imageBase64,
+                    promptContent,
+                    currentRequestId,
+                    (chunk) => {
+                        // 流式回调：实时更新浮层内容
+                        fullContent += chunk;
+                        if (assistant.streamingOverlay && assistant.streamingOverlay.content) {
+                            const contentEl = assistant.streamingOverlay.content;
+
+                            // 更新文本内容
+                            contentEl.textContent = fullContent;
+
+                            // 滚动容器（保持在底部）
+                            const container = assistant.streamingOverlay.container;
+                            container.scrollTop = container.scrollHeight;
+                        }
+                    }
+                );
+
+                // 确保流式内容在完成后被赋值到结果对象中
+                if (result && result.success && fullContent) {
+                    if (!result.data) result.data = {};
+                    result.data.description = fullContent;
+                }
+            } else {
+                // ---阻塞输出：直接调用图像分析服务---
+                result = await APIService.llmAnalyzeImage(
+                    imageBase64,
+                    promptContent,
+                    currentRequestId
+                );
+            }
+
+            // 移除流式内嵌容器
+            if (assistant.streamingOverlay) {
+                this._removeStreamingOverlay(assistant, assistant.streamingOverlay);
+                assistant.streamingOverlay = null;
+            }
 
             // 清除当前请求ID
             assistant.currentRequestId = null;
@@ -1073,8 +1275,8 @@ class ImageCaption {
                 throw new Error(errorMsg);
             }
 
-            // 获取描述文本
-            const description = result.data.description;
+            // 获取描述文本（优先使用流式收集的内容）
+            const description = fullContent || result.data?.description;
             if (!description) {
                 throw new Error('未获取到图像描述');
             }
@@ -1338,19 +1540,19 @@ class ImageCaption {
 
         // 0. 检查是否正在切换弹窗（切换期间不允许折叠）
         if (PopupManager._isTransitioning) {
-            console.log(`[ActiveState-Image] 阻止折叠 | 原因: PopupManager 正在切换弹窗`);
+
             return true;
         }
 
         // 1. 检查右键菜单是否可见（并且属于当前 assistant）
         if (buttonMenu.isMenuVisible && buttonMenu.menuContext?.widget === assistant) {
-            console.log(`[ActiveState-Image] 阻止折叠 | 原因: 右键菜单可见`);
+
             return true;
         }
 
         // 2. 检查 PopupManager 的活动弹窗是否属于当前 assistant
         if (PopupManager.activePopupInfo?.buttonInfo?.widget === assistant) {
-            console.log(`[ActiveState-Image] 阻止折叠 | 原因: PopupManager.activePopupInfo 匹配`);
+
             return true;
         }
 
@@ -1359,7 +1561,7 @@ class ImageCaption {
             const button = assistant.buttons[buttonId];
             if (button.classList.contains('button-active') ||
                 button.classList.contains('button-processing')) {
-                console.log(`[ActiveState-Image] 阻止折叠 | 原因: 按钮${buttonId}状态激活`);
+
                 return true;
             }
         }
@@ -1453,7 +1655,11 @@ class ImageCaption {
      * 更新小助手可见性
      */
     updateAssistantVisibility(assistant) {
-        if (!assistant) return;
+        // 检查实例是否已销毁
+        if (!assistant || assistant.isDestroyed) return;
+
+        // 动态获取节点
+        const node = assistant.node;
 
         // 记录当前显示状态，用于检测变化
         const wasVisible = assistant.element &&
@@ -1462,14 +1668,13 @@ class ImageCaption {
 
         // 检查总开关和图像反推功能开关状态
         if (!window.FEATURES || !window.FEATURES.enabled || !window.FEATURES.imageCaption) {
-            this.cleanup(assistant.node.id);
+            this.cleanup(assistant.nodeId);
             return;
         }
 
-        // 检查节点是否已被删除（关键修复）
-        if (assistant.node && (!app.canvas || !app.canvas.graph || !app.canvas.graph._nodes_by_id[assistant.node.id])) {
-            // 清理已删除节点的实例
-            this.cleanup(assistant.node.id);
+        // 检查节点是否已被删除
+        if (!node) {
+            this.cleanup(assistant.nodeId);
             return;
         }
 
@@ -1502,6 +1707,32 @@ class ImageCaption {
         // 如果节点没有有效图像，隐藏小助手但不清理实例
         if (!nodeState.hasValidImage) {
             shouldBeVisible = false;
+
+            // ---异步图像检测逻辑 (针对性能优化)---
+            // 如果节点是支持的类型但暂时没图，启动一个内部轻量级探测器
+            if (!assistant._imageDetectionTimer) {
+                const detectImage = () => {
+                    if (!assistant.node) return;
+                    const currentState = this._checkNodeAndCanvasState(assistant.node);
+                    if (currentState.hasValidImage) {
+                        logger.debug(() => `[图像小助手] 异步图像加载成功 | ID: ${assistant.nodeId}`);
+                        assistant._imageDetectionTimer = null;
+                        this.updateAssistantVisibility(assistant);
+                    } else if (document.body.contains(assistant.element)) {
+                        // 继续等待，每秒检测一次 (开销极低)
+                        assistant._imageDetectionTimer = setTimeout(detectImage, 1000);
+                    } else {
+                        assistant._imageDetectionTimer = null;
+                    }
+                };
+                assistant._imageDetectionTimer = setTimeout(detectImage, 1000);
+            }
+        } else {
+            // 已有图像，清理探测定时器
+            if (assistant._imageDetectionTimer) {
+                clearTimeout(assistant._imageDetectionTimer);
+                assistant._imageDetectionTimer = null;
+            }
         }
 
         // 跳过正在过渡的实例，避免动画中断
@@ -1739,15 +1970,16 @@ class ImageCaption {
             // 优化：使用requestAnimationFrame在每一帧更新位置，或者直接利用 LiteGraph 的渲染循环
             // 这里为了跟随平滑，直接在 drawBackground 钩子中更新
             const originalDrawBackground = app.canvas.onDrawBackground;
-            app.canvas.onDrawBackground = function () {
+            const onDrawWrapper = function () {
                 const ret = originalDrawBackground?.apply(this, arguments);
                 updatePosition();
                 return ret;
             };
+            app.canvas.onDrawBackground = onDrawWrapper;
 
             // 添加画布重绘清理函数
             assistant._eventCleanupFunctions.push(() => {
-                if (app.canvas.onDrawBackground === arguments.callee) {
+                if (app.canvas.onDrawBackground === onDrawWrapper) {
                     app.canvas.onDrawBackground = originalDrawBackground;
                 }
             });
@@ -2115,6 +2347,9 @@ class ImageCaption {
     _cleanupSingleInstance(assistant) {
         if (!assistant) return;
 
+        // 标记实例为已销毁
+        assistant.isDestroyed = true;
+
         try {
             // 清理DOM元素
             if (assistant.element && assistant.element.parentNode) {
@@ -2141,13 +2376,17 @@ class ImageCaption {
                 assistant._timers = {};
             }
 
-            // 清理引用
+            if (assistant._imageDetectionTimer) {
+                clearTimeout(assistant._imageDetectionTimer);
+                assistant._imageDetectionTimer = null;
+            }
+
+            // 清理引用（node 属性为动态 getter，无需手动清理）
             assistant.element = null;
             assistant.innerContent = null;
             assistant.hoverArea = null;
             assistant.indicator = null;
             assistant.buttons = {};
-            assistant.node = null;
         } catch (error) {
             logger.error(`清理单个实例失败 | ${error.message}`);
         }
@@ -2187,19 +2426,29 @@ class ImageCaption {
                             node._imageCaptionInitialized = false;
                         }
                     });
+
+                    // 2. 如果开启了自动创建，立即扫描所有有效节点
+                    const icCreationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.ImageCaptionCreationMode") || "auto";
+                    if (icCreationMode === "auto") {
+                        nodes.forEach(node => {
+                            if (node && this.hasValidImage(node) && !node._imageCaptionInitialized) {
+                                node._imageCaptionInitialized = true;
+                                this.checkAndSetupNode(node);
+                            }
+                        });
+                    }
                 }
 
-                // 2. 设置或恢复节点选择事件监听
+                // 3. 设置或恢复节点选择事件监听
                 this.registerNodeSelectionListener();
 
-                // 3. 检查当前选中的节点
+                // 4. 检查当前选中的节点
                 if (app.canvas && app.canvas.selected_nodes) {
                     app.canvas._imageCaptionSelectionHandler(app.canvas.selected_nodes);
                 }
             } else {
                 // === 禁用图像反推功能 ===
                 // 1. 清理所有实例
-                const instanceCount = ImageCaption.instances.size;
                 this.cleanup(null, true);
             }
 
@@ -2210,6 +2459,20 @@ class ImageCaption {
         } catch (error) {
             logger.error(`图像小助手功能开关操作失败 | 错误: ${error.message}`);
         }
+    }
+
+    /**
+     * 更新所有实例的预设尺寸
+     * 当功能开关或配置变更时调用，触发容器的常量布局计算逻辑
+     */
+    updateAllInstancesWidth() {
+        logger.debug(`[图像小助手] 触发所有实例尺寸重算 | 实例数量: ${ImageCaption.instances.size}`);
+
+        ImageCaption.instances.forEach((assistant) => {
+            if (assistant && assistant.container && typeof assistant.container.updateDimensions === 'function') {
+                assistant.container.updateDimensions();
+            }
+        });
     }
 
 }

@@ -34,7 +34,7 @@ class HistoryManager {
             this.currentNodeId = nodeId;
             this.currentInputId = inputId;
 
-            logger.debug(`历史弹窗 | 触发显示 | 节点:${nodeId} | 输入框:${inputId}`);
+            // logger.debug(`历史弹窗 | 触发显示 | 节点:${nodeId} | 输入框:${inputId}`);
 
             // 清理现有事件监听
             this._cleanupEvents();
@@ -64,7 +64,7 @@ class HistoryManager {
                 }
             });
 
-            logger.debug(`历史弹窗 | 结果:显示成功 | 节点:${nodeId}`);
+            // logger.debug(`历史弹窗 | 结果:显示成功 | 节点:${nodeId}`);
         } catch (error) {
             logger.error(`历史弹窗 | 结果:失败 | 错误:${error.message}`);
             this._cleanupAll();

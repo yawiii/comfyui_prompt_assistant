@@ -397,7 +397,7 @@ export class ButtonMenu {
 
         // 【关键】标记正在切换，防止容器折叠
         PopupManager._isTransitioning = true;
-        console.log(`[ButtonMenu] showMenu | 设置 _isTransitioning = true`);
+
 
         await PopupManager.closeAllPopups();
 
@@ -432,7 +432,7 @@ export class ButtonMenu {
 
         // 【关键】清除切换标记，因为菜单已经显示
         PopupManager._isTransitioning = false;
-        console.log(`[ButtonMenu] showMenu | 设置 _isTransitioning = false`);
+
 
         // 阻止默认右键菜单
         if (event) {
@@ -569,7 +569,7 @@ export class ButtonMenu {
 
         // 重置中央按钮状态
         UIToolkit.setActiveButton(null);
-        logger.debug('右键菜单 | 重置活动按钮');
+        // logger.debug('右键菜单 | 重置活动按钮');
 
         // 触发小助手可见性更新以允许其自动折叠
         if (widget) {

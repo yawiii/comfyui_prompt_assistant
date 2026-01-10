@@ -84,9 +84,10 @@ class LLMService(OpenAICompatibleService):
             _thinking_extra = thinking_extra  # 使用传入的参数
             _thinking_tag = "（已关闭思维链）" if _thinking_extra else ""
             
-            # 计算base_url
-            native_base = base_url[:-3] if base_url and base_url.endswith('/v1') else (base_url or 'http://localhost:11434')
-            native_base = native_base.rstrip('/')
+            # 计算基准 URL (确保移除 /v1 和末尾斜杠)
+            native_base = base_url.rstrip('/') if base_url else 'http://localhost:11434'
+            if native_base.endswith('/v1'):
+                native_base = native_base[:-3].rstrip('/')
             
             # 智能动态上下文窗口计算 (Token估算策略: 中文0.7/char, 英文0.3/char -> 保守取 0.6/char)
             # 安全地计算输入长度 (包含 System Prompt 和 User Prompt，前提是都在 messages 中)
@@ -146,14 +147,23 @@ class LLMService(OpenAICompatibleService):
                 "stream": True
             }
             
-            # 构建 options
-            # ⚠️ 重要：Ollama 对高级参数兼容性不佳，仅发送 num_ctx 避免冲突
-            # - temperature 和 top_p 冲突
-            # - num_predict 在某些模型上会导致无输出
-            # 因此统一只发送 num_ctx，让模型使用默认配置
-            payload["options"] = {
+            # ---构建 options---
+            # 基础参数：num_ctx（动态上下文窗口大小）
+            options = {
                 "num_ctx": num_ctx
             }
+            
+            # 高级参数：仅在用户启用时发送
+            # 参数说明（基于 Ollama 官方文档）：
+            # - temperature: 控制随机性，默认0.8，值越低输出越稳定
+            # - top_p: 核采样，默认0.9，限制候选词概率范围
+            # - num_predict: 最大生成Token数，默认-1（无限）
+            if enable_advanced_params:
+                options["temperature"] = temperature
+                options["top_p"] = top_p
+                options["num_predict"] = max_tokens
+            
+            payload["options"] = options
             
             # 添加思维链控制参数（如 think: true 或 think: false）
             if _thinking_extra:
@@ -241,8 +251,16 @@ class LLMService(OpenAICompatibleService):
                 
                 try:
                     result = await req_task
+                    # 关键修复：检查返回的结果，如果失败则停止进度条
+                    if not result.get("success"):
+                        pbar.error(result.get("error", "未知错误"))
                     return result
+                except Exception as req_err:
+                    if 'pbar' in locals() and pbar:
+                        pbar.error(f"Ollama 请求异常: {req_err}")
+                    return {"success": False, "error": f"Ollama 请求异常: {req_err}"}
                 except asyncio.CancelledError:
+
                     pbar.cancel(f"{WARN_PREFIX} 任务被中断 | 服务:Ollama")
                     return {"success": False, "error": "任务被中断", "interrupted": True}
                 finally:
@@ -359,17 +377,22 @@ class LLMService(OpenAICompatibleService):
             }
             messages = [lang_message, system_message, {"role": "user", "content": prompt}]
 
-            # Ollama走原生API
-            if provider == 'ollama':
+            # Ollama走原生API (通过服务类型判断)
+            if service and service.get('type') == 'ollama':
                 # 读取 Ollama 服务的配置
-                enable_advanced_params = service.get('enable_advanced_params', False) if service else False
-                filter_thinking_output = service.get('filter_thinking_output', True) if service else True
+                enable_advanced_params = service.get('enable_advanced_params', False)
+                filter_thinking_output = service.get('filter_thinking_output', True)
                 
+                # 统一计算 native_base (确保移除 /v1 和末尾斜杠)
+                native_base = base_url.rstrip('/')
+                if native_base.endswith('/v1'):
+                    native_base = native_base[:-3].rstrip('/')
+                
+                # 再次兜底
+                if not native_base:
+                    native_base = 'http://localhost:11434'
 
-                
                 # 提前计算auto_unload配置
-                native_base = base_url[:-3] if base_url.endswith('/v1') else (base_url or 'http://localhost:11434')
-                native_base = native_base.rstrip('/')
                 _cfg = {
                     'auto_unload': custom_provider_config.get('auto_unload', True) if custom_provider_config else config.get('auto_unload', True),
                     'base_url': native_base
@@ -484,7 +507,7 @@ class LLMService(OpenAICompatibleService):
             Dict: {"success": bool, "data": {"original": str, "translated": str}, "error": str}
         """
         try:
-            # 获取配置（同expand_prompt）
+            # 获取配置（翻译使用专门的翻译服务配置）
             if custom_provider and custom_provider_config:
                 provider = custom_provider
                 api_key = custom_provider_config.get('api_key')
@@ -494,7 +517,9 @@ class LLMService(OpenAICompatibleService):
                 max_tokens = custom_provider_config.get('max_tokens', 2000)
                 base_url = custom_provider_config.get('base_url', '')
             else:
-                config = LLMService._get_config()
+                # 使用翻译服务配置（而非LLM配置）
+                from ..config_manager import config_manager
+                config = config_manager.get_translate_config()
                 provider = config.get('provider', 'unknown')
                 api_key = config.get('api_key')
                 model = config.get('model')
@@ -509,11 +534,15 @@ class LLMService(OpenAICompatibleService):
 
             provider_display_name = LLMService.get_provider_display_name(provider)
 
+            from ..config_manager import config_manager
+            service = config_manager.get_service(provider)
+
             from ..utils.common import REQUEST_PREFIX, PREFIX, format_model_with_thinking
             
             # 检测是否关闭思维链
-            _thinking_extra = build_thinking_suppression(provider, model)
-            thinking_disabled = _thinking_extra is not None
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            _thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            thinking_disabled = _thinking_extra is not None and disable_thinking_enabled
             model_display = format_model_with_thinking(model, thinking_disabled)
 
             # 翻译提示词
@@ -524,19 +553,23 @@ class LLMService(OpenAICompatibleService):
                 {"role": "user", "content": text}
             ]
 
-            # Ollama走原生API
-            if provider == 'ollama':
+            # Ollama走原生API (通过服务类型判断)
+            if service and service.get('type') == 'ollama':
                 # 读取 Ollama 服务的配置
-                from ..config_manager import config_manager
-                service = config_manager.get_service('ollama')
-                disable_thinking_enabled = service.get('disable_thinking', True) if service else True
-                enable_advanced_params = service.get('enable_advanced_params', False) if service else False
-                filter_thinking_output = service.get('filter_thinking_output', True) if service else True
-                _ollama_thinking_extra = build_thinking_suppression('ollama', model) if disable_thinking_enabled else None
+                disable_thinking_enabled = service.get('disable_thinking', True)
+                enable_advanced_params = service.get('enable_advanced_params', False)
+                filter_thinking_output = service.get('filter_thinking_output', True)
+                _ollama_thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
                 
-                # 提前计算auto_unload配置
-                native_base = base_url[:-3] if base_url.endswith('/v1') else (base_url or 'http://localhost:11434')
-                native_base = native_base.rstrip('/')
+                # 统一计算 native_base (确保移除 /v1 和末尾斜杠)
+                native_base = base_url.rstrip('/')
+                if native_base.endswith('/v1'):
+                    native_base = native_base[:-3].rstrip('/')
+                
+                # 再次兜底
+                if not native_base:
+                    native_base = 'http://localhost:11434'
+
                 _cfg = {
                     'auto_unload': custom_provider_config.get('auto_unload', True) if custom_provider_config else config.get('auto_unload', True),
                     'base_url': native_base
@@ -580,13 +613,10 @@ class LLMService(OpenAICompatibleService):
             if not base_url:
                 base_url = LLMService.get_provider_base_url(provider, custom_provider_config if custom_provider else None)
             
-            # 检查disable_thinking、enable_advanced_params和filter_thinking_output配置
-            from ..config_manager import config_manager
-            service = config_manager.get_service(provider)
-            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            # 检查enable_advanced_params和filter_thinking_output配置
             enable_advanced_params = service.get('enable_advanced_params', False) if service else False
             filter_thinking_output = service.get('filter_thinking_output', True) if service else True
-            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            thinking_extra = _thinking_extra # 复用前面计算好的 suppression
             
             result = await LLMService._http_request_chat_completions(
                 base_url=base_url,

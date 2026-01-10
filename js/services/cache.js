@@ -82,7 +82,7 @@ class CacheService {
                 }
             }
             keysToRemove.forEach(key => this.remove(key));
-            logger.debug(`缓存服务 | 清除前缀缓存 | 前缀:${prefix} | 数量:${keysToRemove.length}`);
+            // logger.debug(`缓存服务 | 清除前缀缓存 | 前缀:${prefix} | 数量:${keysToRemove.length}`);
         } catch (error) {
             logger.error(`缓存服务 | 清除前缀缓存失败 | 前缀:${prefix} | 错误:${error.message}`);
         }
@@ -316,7 +316,7 @@ class HistoryCacheService {
             }
 
             this.saveAllHistory(allHistory);
-            logger.debug(`历史缓存 | 添加历史 | 节点:${historyItem.node_id} | 内容长度:${content.length}`);
+            // logger.debug(`历史缓存 | 添加历史 | 节点:${historyItem.node_id} | 内容长度:${content.length}`);
             return true;
         } catch (error) {
             logger.error(`历史缓存 | 添加历史失败 | 错误:${error.message}`);
@@ -344,7 +344,7 @@ class HistoryCacheService {
             // 更新撤销状态
             this.undoStates.set(key, undoState);
 
-            logger.debug(`历史缓存 | 初始化撤销状态 | 节点:${nodeId} | 输入框:${inputId} | 历史数:${inputHistory.length} | 当前位置:${undoState.currentIndex}`);
+            // logger.debug(`历史缓存 | 初始化撤销状态 | 节点:${nodeId} | 输入框:${inputId} | 历史数:${inputHistory.length} | 当前位置:${undoState.currentIndex}`);
         } catch (error) {
             logger.error(`历史缓存 | 初始化撤销状态失败 | 节点:${nodeId} | 输入框:${inputId} | 错误:${error.message}`);
         }
@@ -384,7 +384,7 @@ class HistoryCacheService {
             // 更新状态
             this.undoStates.set(key, state);
 
-            logger.debug(`历史缓存 | 撤销操作 | 节点:${nodeId} | 输入框:${inputId} | 位置:${state.currentIndex}/${history.length - 1} | 内容:${content}`);
+            // logger.debug(`历史缓存 | 撤销操作 | 节点:${nodeId} | 输入框:${inputId} | 位置:${state.currentIndex}/${history.length - 1} | 内容:${content}`);
             return content;
         } catch (error) {
             logger.error(`历史缓存 | 撤销操作失败 | 节点:${nodeId} | 输入框:${inputId} | 错误:${error.message}`);
@@ -474,7 +474,7 @@ class HistoryCacheService {
             this.saveAllHistory([]);
             // 清除所有撤销状态
             this.undoStates.clear();
-            logger.debug("历史缓存 | 清除所有历史");
+            // logger.debug("历史缓存 | 清除所有历史");
         } catch (error) {
             logger.error(`历史缓存 | 清除所有历史失败 | 错误:${error.message}`);
         }
@@ -501,7 +501,7 @@ class HistoryCacheService {
                 }
             }
 
-            logger.debug(`历史缓存 | 清除节点历史 | 节点:${nodeId}`);
+            // logger.debug(`历史缓存 | 清除节点历史 | 节点:${nodeId}`);
         } catch (error) {
             logger.error(`历史缓存 | 清除节点历史失败 | 节点:${nodeId} | 错误:${error.message}`);
         }
@@ -516,7 +516,7 @@ class HistoryCacheService {
             const allHistory = this.getAllHistory();
             const filteredHistory = allHistory.filter(item => item.workflow_id !== workflowId);
             this.saveAllHistory(filteredHistory);
-            logger.debug(`历史缓存 | 清除工作流历史 | 工作流ID:${workflowId}`);
+            // logger.debug(`历史缓存 | 清除工作流历史 | 工作流ID:${workflowId}`);
         } catch (error) {
             logger.error(`历史缓存 | 清除工作流历史失败 | 工作流ID:${workflowId} | 错误:${error.message}`);
         }
@@ -555,7 +555,7 @@ class HistoryCacheService {
             // 保存状态
             this.undoStates.set(key, state);
 
-            logger.debug(`历史缓存 | 更新撤销状态 | 节点:${nodeId} | 输入框:${inputId} | 位置:${state.currentIndex}`);
+            // logger.debug(`历史缓存 | 更新撤销状态 | 节点:${nodeId} | 输入框:${inputId} | 位置:${state.currentIndex}`);
         }
 
         return success;
@@ -580,7 +580,7 @@ class HistoryCacheService {
                 stats.byNode[item.node_id]++;
             });
 
-            logger.debug(`历史缓存 | 获取统计 | 总数:${stats.total} | 节点数:${Object.keys(stats.byNode).length}`);
+            // logger.debug(`历史缓存 | 获取统计 | 总数:${stats.total} | 节点数:${Object.keys(stats.byNode).length}`);
             return stats;
         } catch (error) {
             logger.error(`历史缓存 | 获取统计失败 | 错误:${error.message}`);
@@ -610,10 +610,10 @@ class HistoryCacheService {
                 // 保存修改后的历史记录
                 this.saveAllHistory(allHistory);
 
-                logger.debug(`历史缓存 | 修改操作类型 | 节点:${nodeId} | 输入框:${inputId} | 类型:${newType}`);
+                // logger.debug(`历史缓存 | 修改操作类型 | 节点:${nodeId} | 输入框:${inputId} | 类型:${newType}`);
                 return true;
             } else {
-                logger.debug(`历史缓存 | 修改操作类型失败 | 未找到匹配记录 | 节点:${nodeId} | 输入框:${inputId}`);
+                // logger.debug(`历史缓存 | 修改操作类型失败 | 未找到匹配记录 | 节点:${nodeId} | 输入框:${inputId}`);
                 return false;
             }
         } catch (error) {
@@ -879,7 +879,7 @@ class TagCacheService {
             for (const formatKey of checkOrder) {
                 const format = formats[formatKey];
                 if (format && inputValue.includes(format)) {
-                    logger.debug(`标签检查 | 结果:已存在 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag} | 匹配格式:${formatKey}`);
+                    // logger.debug(`标签检查 | 结果:已存在 | 节点:${nodeId} | 输入框:${inputId} | 标签:${rawTag} | 匹配格式:${formatKey}`);
                     return true;
                 }
             }
@@ -945,7 +945,7 @@ class TagCacheService {
                 this.saveAllTagCache(allCache);
             }
 
-            logger.debug(`标签缓存 | 清除缓存 | 节点:${nodeId} | 输入框:${inputId}`);
+            // logger.debug(`标签缓存 | 清除缓存 | 节点:${nodeId} | 输入框:${inputId}`);
         } catch (error) {
             logger.error(`标签缓存 | 清除缓存失败 | 节点:${nodeId} | 输入框:${inputId} | 错误:${error.message}`);
         }
@@ -973,7 +973,7 @@ class TagCacheService {
             }
 
             const stats = { total, byNode };
-            logger.debug(`标签缓存 | 获取统计 | 总数:${total} | 节点数:${Object.keys(byNode).length}`);
+            // logger.debug(`标签缓存 | 获取统计 | 总数:${total} | 节点数:${Object.keys(byNode).length}`);
             return stats;
         } catch (error) {
             logger.error(`标签缓存 | 获取统计失败 | 错误:${error.message}`);
@@ -1154,7 +1154,7 @@ class TranslateCacheService {
             // 检查是否为原文(key)
             if (cache.has(text)) {
                 const translatedText = cache.get(text);
-                logger.debug(`翻译缓存 | 查询结果:命中原文 | 原文长度:${text.length} | 译文长度:${translatedText.length}`);
+                // logger.debug(`翻译缓存 | 查询结果:命中原文 | 原文长度:${text.length} | 译文长度:${translatedText.length}`);
                 return {
                     type: 'source',
                     text: text,

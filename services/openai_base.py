@@ -240,8 +240,11 @@ class OpenAICompatibleService(BaseAPIService):
                     
                     # 关键修复：停止旧的进度条后再创建新的，防止线程泄漏
                     if pbar:
-                        pbar._closed = True
-                        pbar._stop_event.set()
+                        try:
+                            pbar.error(f"Retry Level {retry_level}...") # 标记前一个进度条为错误/重试状态
+                        except:
+                            pbar._stop_timer()
+
                     
                     # 重新创建进度条用于新一轮重试
                     pbar = ProgressBar(
@@ -293,13 +296,19 @@ class OpenAICompatibleService(BaseAPIService):
                                 
                                 try:
                                     chunk = json.loads(line)
+                                    # --- 调试日志 (2级): 输出原始流式数据 ---
+                                    # print(f"[DEBUG-2] Chunk: {line[:200]}...", flush=True)
+                                    
                                     if chunk.get('choices'):
                                         delta = chunk['choices'][0].get('delta', {})
                                         content = delta.get('content', '') or ''
+                                        # 针对不同厂商的推理字段进行广谱捕获
                                         reasoning = (
                                             delta.get('reasoning_content', '') or 
                                             delta.get('reasoning', '') or 
-                                            delta.get('thinking', '') or ''
+                                            delta.get('thinking', '') or 
+                                            delta.get('thinking_process', '') or  # 备选
+                                            ''
                                         )
                                         if reasoning: reasoning_content += reasoning
                                         if content:
@@ -317,6 +326,8 @@ class OpenAICompatibleService(BaseAPIService):
                             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                             if not final_content.strip():
                                 pbar.error("响应内容为空")
+                                # --- 调试日志 (1级): 警告响应内容为空 ---
+                                print(f"\n{WARN_PREFIX} [API响应调试] 模型:{model} | 状态:成功 | 但最终内容为空字符串", flush=True)
                             else:
                                 pbar.done(char_count=len(final_content), elapsed_ms=elapsed_ms)
                             
@@ -348,6 +359,10 @@ class OpenAICompatibleService(BaseAPIService):
                     
                     try:
                         result = await req_task
+                        # 关键修复：API 返回错误时，确保进度条被停止
+                        if not result.get("success") and not result.get("interrupted"):
+                            if not getattr(pbar, '_closed', False):
+                                pbar.error(result.get("error", "API 错误"))
                         return result
                     except asyncio.CancelledError:
                         pbar.cancel(f"{WARN_PREFIX} 任务被中断 | 服务:{provider_display_name}")
@@ -360,11 +375,12 @@ class OpenAICompatibleService(BaseAPIService):
                 try:
                     result = await _do_stream_request()
                 except Exception as req_err:
-                    last_error_msg = str(req_err)
                     # 网络层面的异常（非HTTP响应），通常不适合通过参数降级解决，除非确认是特定的协议问题
                     # 这里选择继续抛出或作为错误返回，不盲目重试
                     # 但为了稳健，如果是非连接已建立后的错误，可以选择不重试
                     # 为简单起见，仅记录错误
+                    if 'pbar' in locals() and pbar:
+                        pbar.error(f"网络请求异常: {req_err}")
                     return {"success": False, "error": f"网络请求异常: {req_err}"}
 
                 # 检查结果

@@ -64,11 +64,11 @@ THINKING_CONTROL_RULES: List[Dict[str, Any]] = [
     },
     {
         "name": "gemini3_thinking",
-        "description": "Gemini 3.0系列(只能low,无法完全关闭)",
+        "description": "Gemini 3.0系列(通过reasoning_effort控制)",
         "patterns": [r"gemini[-_/.]?3"],
-        "params": {"thinking_level": "low"},
-        "sources": ["Google官方API"],
-        "notes": "⚠️ 无法完全关闭推理,只能设置low/high"
+        "params": {"reasoning_effort": "low"},
+        "sources": ["Google官方API (OpenAI兼容接口)"],
+        "notes": "⚠️ 官方OpenAI端点使用reasoning_effort参数"
     },
     {
         "name": "grok3_mini_reasoning",

@@ -377,15 +377,24 @@ class ProgressBar:
             # 记录本次显示的宽度（包含缓冲空格）
             _global_last_output_len = current_width + len(padding)
 
+    def _stop_timer(self):
+        """停止计时器线程"""
+        self._stop_event.set()
+        # 强制将状态标为已关闭，防止重入
+        self._closed = True
+
     def _timer_loop(self):
         """后台线程：仅在流式模式下定期刷新计时"""
-        while not self._stop_event.is_set() and not self._closed:
-            # 定时刷新当前内容（主要用于更新 WAITING 阶段的时间）
-            self._refresh()
-            
-            # 每 0.1 秒刷新一次
-            if self._stop_event.wait(0.1):
-                break
+        try:
+            while not self._stop_event.is_set() and not self._closed:
+                # 定时刷新当前内容（主要用于更新 WAITING 阶段的时间）
+                self._refresh()
+                
+                # 每 0.1 秒刷新一次
+                if self._stop_event.wait(0.1):
+                    break
+        except Exception:
+            pass # 守护线程异常不应影响主流程
     
     def set_generating(self, char_count: int = 0) -> None:
         """
@@ -433,9 +442,9 @@ class ProgressBar:
         if self._closed:
             return
         
-        self._closed = True
+        self._stop_timer()
         self._state = self.STATE_DONE
-        self._stop_event.set()
+
         
         # 重置全局长度
         with _progress_lock:
@@ -483,8 +492,8 @@ class ProgressBar:
         if self._closed:
             return
         
-        self._closed = True
-        self._stop_event.set()
+        self._stop_timer()
+
         
         # 重置全局长度
         with _progress_lock:
@@ -509,8 +518,8 @@ class ProgressBar:
         if self._closed:
             return
         
-        self._closed = True
-        self._stop_event.set()
+        self._stop_timer()
+
         
         # 重置全局长度
         with _progress_lock:
@@ -532,7 +541,17 @@ class ProgressBar:
     
     def __exit__(self, *args):
         if not self._closed:
+            # 退出上下文时，如果没有显式调用 done/error，则视为成功完成
             self.done()
+
+    def __del__(self):
+        """析构函数：确保对象被回收时停止计时器"""
+        try:
+            # 仅在计时器还在运行时尝试停止
+            if hasattr(self, '_stop_event') and not self._stop_event.is_set():
+                self._stop_timer()
+        except:
+            pass
 
 
 
@@ -821,7 +840,12 @@ def check_multi_image_support(provider: str, model: str) -> tuple:
     if "gemini" in model_lower or "google" in model_lower:
         return (True, 3000)
     
-    # 智谱GLM-4V系列：支持多图像(最多5张)
+    # 智谱GLM系列视觉模型
+    # GLM-4.6V系列：128K上下文，支持大量多图（无官方硬限制）
+    if "glm" in model_lower and "4.6v" in model_lower:
+        return (True, 100)
+    
+    # GLM-4V系列（4V-Plus等）：16K上下文，最多5张
     if "glm" in model_lower and ("4v" in model_lower or "vision" in model_lower):
         return (True, 5)
     

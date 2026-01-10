@@ -27,6 +27,18 @@ class BaseNode:
     LOG_PREFIX = LOG_PREFIX
     REQUEST_PREFIX = REQUEST_PREFIX
     PROCESS_PREFIX = PROCESS_PREFIX
+    
+    @staticmethod
+    def _check_is_changed_bypass(*args, **kwargs):
+        """
+        检查输入中是否包含绕过 IS_CHANGED 限制的专用符号 [R] (不区分大小写)
+        如果包含，返回 True。
+        """
+        # 遍历所有位置参数和关键字参数
+        for v in list(args) + list(kwargs.values()):
+            if isinstance(v, str) and "[R]" in v.upper():
+                return True
+        return False
 
     
     def _run_thread_with_interrupt(

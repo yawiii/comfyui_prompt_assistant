@@ -35,6 +35,15 @@ class APIConfigManager {
     }
 
     /**
+     * 通知系统 API 配置已更新
+     * 触发 pa-config-updated 事件，通知 settings.js 等模块刷新
+     */
+    notifyConfigChange() {
+        logger.debug('分发 API 配置更新事件: pa-config-updated');
+        window.dispatchEvent(new CustomEvent('pa-config-updated'));
+    }
+
+    /**
      * 显示API配置弹窗
      */
     async showAPIConfigModal() {
@@ -153,6 +162,9 @@ class APIConfigManager {
             });
 
             logger.debug('百度翻译配置已保存');
+
+            // 触发配置同步事件
+            this.notifyConfigChange();
 
             // 显示成功提示
             app.extensionManager.toast.add({
@@ -293,6 +305,9 @@ class APIConfigManager {
                 this.services = orderedServices;
 
                 logger.debug('服务商顺序已更新', { order: serviceIds });
+
+                // 触发配置同步事件
+                this.notifyConfigChange();
             } else {
                 throw new Error(result.error || '更新顺序失败');
             }
@@ -589,6 +604,9 @@ class APIConfigManager {
                             // 切换到新标签
                             this._switchTab(newService.id, headerElement, contentElement);
                         }
+
+                        // 触发配置同步事件
+                        this.notifyConfigChange();
                     } else {
                         throw new Error(result.error || '创建失败');
                     }
@@ -1463,7 +1481,7 @@ class APIConfigManager {
                 maxTokensInput.input.min = '1';
                 maxTokensInput.input.max = '8192';
                 maxTokensInput.input.step = '1';
-                maxTokensInput.input.value = selectedModel.max_tokens ?? 512;
+                maxTokensInput.input.value = selectedModel.max_tokens ?? 1024;
                 maxTokensInput.input.dataset.fieldName = 'max_tokens';
                 maxTokensInput.group.style.width = '135px';
                 formContainer.appendChild(maxTokensInput.group);
@@ -1668,7 +1686,7 @@ class APIConfigManager {
                     model_name: modelName,
                     temperature: 0.7,
                     top_p: 0.9,
-                    max_tokens: 512
+                    max_tokens: 1024
                 })
             });
 
@@ -1694,7 +1712,7 @@ class APIConfigManager {
                 is_default: updatedList.length === 0,
                 temperature: 0.7,
                 top_p: 0.9,
-                max_tokens: 512
+                max_tokens: 1024
             });
 
             // 移除空提示
@@ -2011,6 +2029,9 @@ class APIConfigManager {
                             listContainer.appendChild(emptyHint);
                         }
 
+                        // 触发配置同步事件
+                        this.notifyConfigChange();
+
                         return true; // 允许关闭对话框
                     } else {
                         throw new Error(result.error || '删除失败');
@@ -2051,6 +2072,9 @@ class APIConfigManager {
             if (service) {
                 Object.assign(service, updates);
             }
+
+            // 触发配置同步事件
+            this.notifyConfigChange();
 
             logger.debug('服务商配置已更新', serviceId);
 

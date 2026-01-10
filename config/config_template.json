@@ -22,7 +22,7 @@
                     "display_name": "",
                     "is_default": true,
                     "temperature": 0.7,
-                    "max_tokens": 1000,
+                    "max_tokens": 1024,
                     "top_p": 0.9
                 },
                 {
@@ -30,17 +30,25 @@
                     "display_name": "",
                     "is_default": false,
                     "temperature": 0.7,
-                    "max_tokens": 1000,
+                    "max_tokens": 1024,
                     "top_p": 0.9
                 }
             ],
             "vlm_models": [
                 {
-                    "name": "glm-4v-flash",
+                    "name": "glm-4.6V-Flash",
                     "display_name": "",
                     "is_default": true,
                     "temperature": 0.7,
-                    "max_tokens": 500,
+                    "max_tokens": 1024,
+                    "top_p": 0.9
+                },
+                {
+                    "name": "glm-4v-flash",
+                    "display_name": "",
+                    "is_default": false,
+                    "temperature": 0.7,
+                    "max_tokens": 1024,
                     "top_p": 0.9
                 }
             ]
@@ -57,11 +65,11 @@
             "filter_thinking_output": true,
             "llm_models": [
                 {
-                    "name": "gemini-2.5-pro-nothinking",
+                    "name": "gemini-3-flash-preview-nothinking",
                     "display_name": "",
                     "is_default": true,
                     "temperature": 0.7,
-                    "max_tokens": 1000,
+                    "max_tokens": 1024,
                     "top_p": 0.9
                 }
             ],
@@ -71,7 +79,7 @@
                     "display_name": "",
                     "is_default": true,
                     "temperature": 0.7,
-                    "max_tokens": 500,
+                    "max_tokens": 1024,
                     "top_p": 0.9
                 }
             ]

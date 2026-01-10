@@ -1,1 +1,4 @@
-httpx>=0.24.0
+httpx
+opencv-python
+imageio
+imageio-ffmpeg

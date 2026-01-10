@@ -130,7 +130,7 @@ class PromptFormatter {
         try {
             // 判断是否为空输入框
             if (!beforeText && !afterText) {
-                logger.debug('格式判断 | 结果:空输入框 | 使用格式:2');
+                // logger.debug('格式判断 | 结果:空输入框 | 使用格式:2');
                 return 2; // 空输入框使用格式2（空格+标签+逗号）
             }
 
@@ -143,7 +143,7 @@ class PromptFormatter {
 
             // 如果前方没有实际文本（只有空格），使用格式2
             if (!hasTextBefore) {
-                logger.debug('格式判断 | 结果:前方无文本 | 使用格式:2');
+                // logger.debug('格式判断 | 结果:前方无文本 | 使用格式:2');
                 return 2; // 使用格式2（空格+标签+逗号）
             }
 
@@ -159,7 +159,7 @@ class PromptFormatter {
                 formatType = 4; // 前后都无标点，使用格式4（逗号+空格+标签+逗号）
             }
 
-            logger.debug(`格式判断 | 前标点:${hasCommaBefore} | 后标点:${hasCommaAfter} | 前方文本:${hasTextBefore} | 使用格式:${formatType}`);
+            // logger.debug(`格式判断 | 前标点:${hasCommaBefore} | 后标点:${hasCommaAfter} | 前方文本:${hasTextBefore} | 使用格式:${formatType}`);
             return formatType;
 
         } catch (error) {
@@ -208,7 +208,7 @@ class PromptFormatter {
 
             // 记录原始文本用于日志
             const originalText = text;
-            
+
             // 获取格式化选项（从全局 FEATURES 对象）
             const options = {
                 punctuation: window.FEATURES?.translateFormatPunctuation ?? true,
@@ -239,7 +239,7 @@ class PromptFormatter {
                 if (options.space) enabledOptions.push('空格处理');
                 if (options.dots) enabledOptions.push('点号处理');
                 if (options.newline) enabledOptions.push('保留换行');
-                
+
                 const logFormatted = formattedText.length > 100 ?
                     formattedText.substring(0, 100) + '...' : formattedText;
                 logger.debug(`文本格式化 | 选项:[${enabledOptions.join(', ')}] | 结果:"${logFormatted}"`);
@@ -319,19 +319,55 @@ class PromptFormatter {
                 const cnUnits = cnChars.length;
                 const enUnits = enWords.length;
 
-                if (cnUnits > enUnits) {
-                    from = 'zh';
-                    to = 'en';
-                    type = '混合语言-中文占优';
-                } else if (enUnits > cnUnits) {
-                    from = 'en';
-                    to = 'zh';
-                    type = '混合语言-英文占优';
-                } else {
-                    // 数量持平时沿用原逻辑：默认中译英
-                    from = 'zh';
-                    to = 'en';
-                    type = '混合语言';
+                // 获取混合语言翻译规则
+                const rule = window.FEATURES?.mixedLangTranslateRule || 'auto_minor';
+
+                switch (rule) {
+                    case 'to_zh':
+                        // 固定翻译成中文
+                        from = 'en';
+                        to = 'zh';
+                        type = '混合语言→中文';
+                        break;
+                    case 'to_en':
+                        // 固定翻译成英文
+                        from = 'zh';
+                        to = 'en';
+                        type = '混合语言→英文';
+                        break;
+                    case 'auto_major':
+                        // 翻译大比例语言
+                        if (cnUnits > enUnits) {
+                            from = 'zh';
+                            to = 'en';
+                            type = '混合语言-翻译中文';
+                        } else if (enUnits > cnUnits) {
+                            from = 'en';
+                            to = 'zh';
+                            type = '混合语言-翻译英文';
+                        } else {
+                            from = 'zh';
+                            to = 'en';
+                            type = '混合语言';
+                        }
+                        break;
+                    case 'auto_minor':
+                    default:
+                        // 翻译小比例语言（原逻辑）
+                        if (cnUnits > enUnits) {
+                            from = 'en';
+                            to = 'zh';
+                            type = '混合语言-翻译英文';
+                        } else if (enUnits > cnUnits) {
+                            from = 'zh';
+                            to = 'en';
+                            type = '混合语言-翻译中文';
+                        } else {
+                            from = 'zh';
+                            to = 'en';
+                            type = '混合语言';
+                        }
+                        break;
                 }
             }
 

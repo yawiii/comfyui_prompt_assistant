@@ -66,7 +66,7 @@ class ConfigManager:
         self.default_user_tags = {"favorites": []}
         
         # 默认标签选择
-        self.default_tags_selection = {"selected_file": "default.csv"}
+        self.default_tags_selection = {"selected_file": "用户标签.csv"}
 
 
 
@@ -358,28 +358,37 @@ class ConfigManager:
                         return {} # 空文件
                     
                     for row in reader:
-                        if len(row) < 3:
+                        # 过滤无效行
+                        if not row or not any(cell.strip() for cell in row):
+                            continue
+                            
+                        # 至少需要两列：标签名, 标签值
+                        if len(row) < 2:
                             continue
                         
                         tag_name = row[0].strip()
                         tag_value = row[1].strip()
+                        
+                        if not tag_name:
+                            continue
+                            
                         # 分类路径：从第3列开始，过滤空值
                         categories = [c.strip() for c in row[2:] if c.strip()]
-                        
-                        if not tag_name or not categories:
-                            continue
                         
                         # 构建嵌套结构
                         current = result
                         for cat in categories:
-                            if cat not in current:
+                            if cat not in current or not isinstance(current[cat], dict):
                                 current[cat] = {}
                             current = current[cat]
+                        
+                        # 处理空分类占位符：只创建分类结构，不添加标签
+                        if tag_name == "__empty__" or tag_name == "__placeholder__":
+                            continue
                         
                         # 添加标签
                         current[tag_name] = tag_value
                 
-                # self._log(f"成功加载CSV文件: {filename} (编码: {encoding})")
                 return result
             except UnicodeDecodeError:
                 continue
@@ -396,25 +405,57 @@ class ConfigManager:
         
         try:
             rows = []
+            max_depth = 0
             
             def extract_tags(obj, path: list):
+                nonlocal max_depth
+                # 确保 obj 是字典类型
+                if not isinstance(obj, dict):
+                    return
+                
+                # 如果是空分类（空字典），添加占位行
+                if len(obj) == 0 and path:
+                    # 使用 __empty__ 作为占位符标记空分类
+                    rows.append(["__empty__", ""] + path)
+                    max_depth = max(max_depth, len(path))
+                    return
+                
                 for key, value in obj.items():
                     if isinstance(value, str):
                         rows.append([key, value] + path)
+                        max_depth = max(max_depth, len(path))
                     elif isinstance(value, dict):
                         extract_tags(value, path + [key])
             
-            for level1_name, level1_content in tags.items():
-                if isinstance(level1_content, dict):
-                    extract_tags(level1_content, [level1_name])
+            # 提取所有标签
+            extract_tags(tags, [])
+            
+            if not rows:
+                self._log(f"保存CSV标签: 数据为空")
+                # 如果数据为空，写入只含表头的文件或保持现状？
+                # 通常为了防止误删，如果 tags 为空暂不操作或清空文件。
+                # 这里选择写入表头：
+                with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["标签名", "标签值"])
+                return True
+
+            # 动态构建表头
+            header = ["标签名", "标签值"]
+            for i in range(max_depth):
+                num_zh = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
+                suffix = num_zh[i] if i < len(num_zh) else str(i + 1)
+                header.append(f"{suffix}级分类")
             
             with open(csv_path, "w", encoding="utf-8-sig", newline="") as f:
                 writer = csv.writer(f)
-                writer.writerow(["标签名", "标签值", "一级分类", "二级分类", "三级分类", "四级分类"])
+                writer.writerow(header)
                 for row in rows:
-                    while len(row) < 6:
+                    # 补齐长度以匹配表头
+                    while len(row) < len(header):
                         row.append("")
-                    writer.writerow(row[:6])
+                    # 确保 row 长度不超过表头（防御性）
+                    writer.writerow(row[:len(header)])
             
             return True
         except Exception as e:
@@ -732,7 +773,7 @@ class ConfigManager:
             "base_url": service.get('base_url', ''),
             "api_key": api_key,
             "temperature": target_model.get('temperature', 0.7),
-            "max_tokens": target_model.get('max_tokens', 500),
+            "max_tokens": target_model.get('max_tokens', 1024),
             "top_p": target_model.get('top_p', 0.9),
             "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
             "providers": {}  # v2.0中不再使用此字段
@@ -746,7 +787,7 @@ class ConfigManager:
             "base_url": "",
             "api_key": "",
             "temperature": 0.7,
-            "max_tokens": 500,
+            "max_tokens": 1024,
             "top_p": 0.9,
             "providers": {}
         }
@@ -1558,7 +1599,7 @@ class ConfigManager:
     # --- 模型管理方法 ---
     
     def add_model_to_service(self, service_id: str, model_type: str, model_name: str, 
-                            temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 512):
+                            temperature: float = 0.7, top_p: float = 0.9, max_tokens: int = 1024):
         """添加模型到服务商"""
         try:
             config = self.load_config()

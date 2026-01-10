@@ -39,6 +39,11 @@ class NodeMountService {
 
         // 挂载观察者映射 { nodeId: observer }
         this._observers = new Map();
+
+        // ---模式切换互斥锁---
+        this._modeSwitching = false;
+        // 待处理的模式切换请求
+        this._pendingModeChange = null;
     }
 
     // ---初始化与生命周期---
@@ -108,10 +113,23 @@ class NodeMountService {
             (typeLower.includes('preview') && typeLower.includes('text'));
     }
 
+    /**
+     * 检查节点是否为子图节点 (Subgraph)
+     * 子图节点的类型名为 UUID 格式
+     * @param {object} node - 节点对象
+     * @returns {boolean}
+     */
+    _isSubgraphNode(node) {
+        if (!node || !node.type) return false;
+        // UUID 格式：8-4-4-4-12 字符
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.type);
+    }
+
     // ---渲染模式检测---
 
     /**
      * 检测当前渲染模式
+     * 【优化】只使用最可靠的 LiteGraph.vueNodesMode 全局标志
      * @param {boolean} forceRefresh - 是否强制刷新缓存
      * @returns {string} 渲染模式枚举值
      */
@@ -122,32 +140,10 @@ class NodeMountService {
             return this._modeCache;
         }
 
-        let mode = RENDER_MODE.LITEGRAPH;
-
-        try {
-            // 方法1: 检查 LiteGraph 全局标志（最可靠）
-            if (typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true) {
-                mode = RENDER_MODE.VUE_NODES;
-            }
-            // 方法2: 检查设置项
-            else if (app.ui?.settings) {
-                const vueNodesEnabled = app.ui.settings.getSettingValue('Comfy.VueNodes.Enabled');
-                if (vueNodesEnabled === true) {
-                    mode = RENDER_MODE.VUE_NODES;
-                }
-            }
-            // 方法3: 检查DOM特征（备用方案）
-            else {
-                const vueNodeContainer = document.querySelector('[data-node-id]');
-                const domWidget = document.querySelector('.dom-widget');
-                if (vueNodeContainer && !domWidget) {
-                    mode = RENDER_MODE.VUE_NODES;
-                }
-            }
-        } catch (e) {
-            logger.debug(`[NodeMountService] 模式检测异常: ${e.message}`);
-            mode = RENDER_MODE.LITEGRAPH; // 默认回退到传统模式
-        }
+        // 【简化】只使用最可靠的全局标志
+        const mode = (typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true)
+            ? RENDER_MODE.VUE_NODES
+            : RENDER_MODE.LITEGRAPH;
 
         // 更新缓存
         this._modeCache = mode;
@@ -196,33 +192,59 @@ class NodeMountService {
     }
 
     /**
-     * 触发模式切换事件
+     * 检查是否正在进行模式切换
+     * @returns {boolean}
+     */
+    isModeSwitching() {
+        return this._modeSwitching;
+    }
+
+    /**
+     * 触发模式切换事件（带锁保护）
      * @param {string} newMode - 新模式
      * @param {string} oldMode - 旧模式
      */
     _triggerModeChange(newMode, oldMode) {
+        // 如果已在切换中，记录待处理请求并返回
+        if (this._modeSwitching) {
+            this._pendingModeChange = { newMode, oldMode };
+            logger.debug('[NodeMountService] 模式切换已加锁，请求入队列');
+            return;
+        }
+
+        this._modeSwitching = true;
         logger.log(`[NodeMountService] 渲染模式切换 | ${oldMode} -> ${newMode}`);
 
         // 清除缓存
         this._modeCache = null;
 
-        // 执行所有回调
-        this._modeChangeCallbacks.forEach(callback => {
+        // 执行所有回调，等待异步回调完成
+        Promise.all(this._modeChangeCallbacks.map(async callback => {
             try {
-                callback(newMode, oldMode);
+                await callback(newMode, oldMode);
             } catch (e) {
                 logger.error(`[NodeMountService] 模式切换回调执行失败: ${e.message}`);
+            }
+        })).finally(() => {
+            this._modeSwitching = false;
+            // 处理待处理的请求
+            if (this._pendingModeChange) {
+                const pending = this._pendingModeChange;
+                this._pendingModeChange = null;
+                this._triggerModeChange(pending.newMode, pending.oldMode);
             }
         });
     }
 
     /**
      * 设置模式变更监听器
+     * 使用 ComfyUI 官方事件监听渲染模式切换
      */
     _setupModeWatcher() {
-        // 监听 LiteGraph.vueNodesMode 变化（通过定期检测）
+        // 记录状态用于比对
         let lastMode = this.currentMode;
 
+        // 统一的状态变更检查函数
         const checkModeChange = () => {
             const currentMode = this.detectRenderMode(true);
             if (currentMode !== lastMode) {
@@ -233,32 +255,29 @@ class NodeMountService {
             }
         };
 
-        // 设置定期检测（每500ms检测一次）
-        const intervalId = setInterval(checkModeChange, 500);
-        this._cleanupFunctions.push(() => clearInterval(intervalId));
-
-        // 监听设置变更事件（如果可用）
         try {
             if (app.ui?.settings) {
-                // 尝试监听设置变更
-                const originalSettingValue = app.ui.settings.setSettingValue;
-                if (originalSettingValue) {
-                    app.ui.settings.setSettingValue = function (id, value) {
-                        const result = originalSettingValue.apply(this, arguments);
-                        if (id === 'Comfy.VueNodes.Enabled') {
-                            // 延迟检测，等待设置生效
-                            setTimeout(checkModeChange, 100);
-                        }
-                        return result;
-                    };
+                // 监听 ComfyUI 官方 CustomEvent
+                const eventName = 'Comfy.VueNodes.Enabled.change';
+                const handleEvent = () => {
+                    // 延迟 50ms 确保 LiteGraph.vueNodesMode 已完成全局同步
+                    setTimeout(checkModeChange, 50);
+                };
 
-                    this._cleanupFunctions.push(() => {
-                        app.ui.settings.setSettingValue = originalSettingValue;
-                    });
-                }
+                app.ui.settings.addEventListener(eventName, handleEvent);
+                this._cleanupFunctions.push(() => {
+                    app.ui.settings.removeEventListener(eventName, handleEvent);
+                });
+
+                logger.debug('[NodeMountService] 渲染模式监听器已就绪 (事件监听模式)');
+            } else {
+                // 兜底策略: 如果 app.ui.settings 尚未就绪，保留低频轮询
+                const intervalId = setInterval(checkModeChange, 2000);
+                this._cleanupFunctions.push(() => clearInterval(intervalId));
+                logger.debug('[NodeMountService] app.ui.settings 未就绪，启动低频轮询兜底 (2s)');
             }
         } catch (e) {
-            logger.debug(`[NodeMountService] 设置监听器设置失败: ${e.message}`);
+            logger.debug(`[NodeMountService] 模式监听器设置失败: ${e.message}`);
         }
     }
 
@@ -318,7 +337,7 @@ class NodeMountService {
             // 查找带有 data-node-id 的 Vue 节点容器
             const nodeContainer = document.querySelector(`[data-node-id="${node.id}"]`);
             if (!nodeContainer) {
-                logger.debug(`[NodeMountService] Vue模式: 未找到节点容器 | ID: ${node.id}`);
+
                 return null;
             }
 
@@ -326,16 +345,20 @@ class NodeMountService {
             const widgetName = widget.name || widget.id;
             let textarea = null;
 
-            // --- 策略1: 优先使用 widget.inputEl (如果已绑定) ---
+            // 识别节点类型
+            const isSubgraph = this._isSubgraphNode(node);
+            const isMarkdown = this._isMarkdownNode(node);
+
+            // --- 策略1: 优先使用 widget.inputEl (如果已绑定且为 PrimeVue 组件) ---
             if (widget.inputEl && widget.inputEl.tagName === 'TEXTAREA') {
                 if (nodeContainer.contains(widget.inputEl)) {
                     textarea = widget.inputEl;
-                    // logger.debug(`[NodeMountService] Vue模式: 直接使用 widget.inputEl | Widget: ${widgetName}`);
+
                 }
             }
 
-            // --- 策略2: 计算索引位置匹配 (最稳健的方法) ---
-            // 适用于多个同类型输入框的情况 (如 VideoCaptionNode, CLIPTextEncodeSDXL 等)
+            // --- 策略2: 计算索引位置匹配 (子图节点多输入框场景必用) ---
+            // 适用于多个同类型输入框的情况 (如 Subgraph, CLIPTextEncodeSDXL 等)
             if (!textarea && node.widgets) {
                 // 1. 计算当前 widget 在所有 Textarea 类 widget 中的索引
                 let targetIndex = -1;
@@ -352,16 +375,18 @@ class NodeMountService {
                 }
 
                 if (targetIndex !== -1) {
-                    // 2. 获取 DOM 中所有的 textarea
-                    // 注意：querySelectorAll 返回的顺序通常遵循文档流顺序，这与 Vue 渲染顺序一致
-                    const textareas = Array.from(nodeContainer.querySelectorAll('textarea'));
+                    // 2. 获取 DOM 中所有的 PrimeVue textarea（优先）或普通 textarea
+                    const primeTextareas = Array.from(nodeContainer.querySelectorAll('textarea.p-textarea'));
+                    const textareas = primeTextareas.length > 0
+                        ? primeTextareas
+                        : Array.from(nodeContainer.querySelectorAll('textarea'));
 
                     // 3. 按索引匹配
                     if (targetIndex < textareas.length) {
                         textarea = textareas[targetIndex];
-                        logger.debug(`[NodeMountService] Vue模式: 索引匹配成功 [${targetIndex}] | Widget: ${widgetName}`);
+                        logger.debugSample(() => `[NodeMountService] Vue模式: 索引匹配成功 [${targetIndex}] | Widget: ${widgetName} | 子图: ${isSubgraph}`);
                     } else {
-                        logger.debug(`[NodeMountService] Vue模式: 索引匹配越界 [${targetIndex}/${textareas.length}] | Widget: ${widgetName}`);
+
                     }
                 }
             }
@@ -397,12 +422,12 @@ class NodeMountService {
                 const textareas = nodeContainer.querySelectorAll('textarea');
                 if (textareas.length === 1) {
                     textarea = textareas[0];
-                    logger.debug(`[NodeMountService] Vue模式: 唯一匹配兜底 | Widget: ${widgetName}`);
+
                 }
             }
 
             if (!textarea) {
-                logger.debug(`[NodeMountService] Vue模式: 未找到textarea | 节点ID: ${node.id} | Widget: ${widgetName}`);
+
                 // 对于使用comfy-markdown的节点（Note/MarkdownNote/PreviewTextNode等），返回nodeContainer作为容器但textarea为null
                 if (this._isMarkdownNode(node)) {
                     return {
@@ -426,7 +451,9 @@ class NodeMountService {
                 textarea: textarea,
                 nodeContainer: nodeContainer,
                 mode: RENDER_MODE.VUE_NODES,
-                widgetName: widgetName
+                widgetName: widgetName,
+                isSubgraph: isSubgraph,  // 标记是否为子图节点
+                isNoteNode: isMarkdown   // 标记是否为 Markdown 类节点
             };
         } catch (e) {
             logger.error(`[NodeMountService] Vue容器查找失败: ${e.message}`);
@@ -583,7 +610,7 @@ class NodeMountService {
             // 触发回流确保样式生效
             void assistantElement.offsetWidth;
 
-            logger.debug(`[NodeMountService] 挂载成功 | 模式: ${mode}`);
+
             return true;
 
         } catch (e) {
@@ -652,58 +679,76 @@ class NodeMountService {
      * @returns {Promise<object|null>} 容器信息
      */
     async findMountContainerWithRetry(node, widget, options = {}) {
-        // 默认快速响应，但给予足够的总等待时间给Vue渲染
-        const { timeout = 1000 } = options;
+        // 【优化】根据测试验证，Vue nodes 2.0 中 textarea 在节点容器添加时就已存在
+        // 因此大多数情况下不需要复杂的等待逻辑
+        const { timeout = 500 } = options;
 
-        // 尝试立即查找
+        // 尝试立即查找（大多数情况下应该成功）
         const immediateResult = this.findMountContainer(node, widget);
         if (immediateResult && immediateResult.textarea) {
             return immediateResult;
         }
 
-        // 如果是 Note 节点且找到了容器但没找到 textarea，也视为一种中间状态
+        // 如果是 Markdown/Note 节点且找到了容器但没找到 textarea
         if (immediateResult && immediateResult.isNoteNode) {
-            // 继续往下，试图等到 textarea 出现
+            // 继续往下，等待 textarea 出现
         }
 
         const mode = this.detectRenderMode();
 
-        // 只有 Vue 模式下才需要使用 Observer 等待 DOM 渲染
+        // Vue 模式下：简化的等待策略
         if (mode === RENDER_MODE.VUE_NODES) {
-            // 查找 Vue 节点主容器
             const nodeContainer = document.querySelector(`[data-node-id="${node.id}"]`);
 
             if (nodeContainer) {
-                // 在节点容器内等待 textarea 出现
-                // 使用 Observer 监听节点容器的变化
-                logger.debugSample(() => `[NodeMountService] 开始监听DOM变化 | 节点: ${node.id}`);
+                // 使用 Observer 短暂等待 textarea 出现
+
 
                 await this.waitForElement(nodeContainer, () => {
-                    // 每次变化都尝试重新查找完整容器信息
                     const result = this.findMountContainer(node, widget);
                     return (result && result.textarea) ? result : null;
                 }, timeout);
 
-                // 再次尝试获取最终结果
+                // 获取最终结果
                 const finalResult = this.findMountContainer(node, widget);
                 if (finalResult && finalResult.textarea) {
-                    logger.debugSample(() => `[NodeMountService] DOM监听成功，找到容器 | 节点: ${node.id}`);
+
                     return finalResult;
                 }
             }
+        } else if (mode === RENDER_MODE.VUE_NODES) {
+            // 【关键】nodeContainer 还不存在，需要等待节点容器渲染
+            // 监听画布容器，等待 nodeContainer 出现
+            const graphCanvas = document.querySelector('.graph-canvas-container') ||
+                document.querySelector('[class*="graph"]') ||
+                document.body;
+
+
+
+            // 使用 Observer 等待 nodeContainer 出现
+            const waitResult = await this.waitForElement(graphCanvas, () => {
+                const container = document.querySelector(`[data-node-id="${node.id}"]`);
+                if (container) {
+                    // 找到节点容器后，再查找 textarea
+                    const result = this.findMountContainer(node, widget);
+                    return (result && result.textarea) ? result : null;
+                }
+                return null;
+            }, timeout);
+
+            if (waitResult) {
+
+                return this.findMountContainer(node, widget);
+            }
         }
 
-        // 降级策略/LiteGraph模式：简单的延迟重试（次数减少，避免长延迟）
-        // 或者是 Vue 模式下一直没等到
-        const retryCount = 2;
-        for (let i = 0; i < retryCount; i++) {
-            await new Promise(r => setTimeout(r, 200)); // 短间隔
-            const res = this.findMountContainer(node, widget);
-            if (res && res.textarea) return res;
-        }
+        // 降级策略：快速重试一次（仅用于 LiteGraph 模式或 Observer 失效情况）
+        await new Promise(r => setTimeout(r, 100));
+        const retryResult = this.findMountContainer(node, widget);
+        if (retryResult && retryResult.textarea) return retryResult;
 
-        logger.warn(() => `[NodeMountService] 容器查找最终失败 | 节点ID: ${node?.id}`);
-        return null; // 或者返回仅包含 container 的结果（视情况而定）
+        logger.debugSample(() => `[NodeMountService] 容器查找未就绪 | 节点ID: ${node?.id}`);
+        return null;
     }
 }
 

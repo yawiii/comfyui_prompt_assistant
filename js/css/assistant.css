@@ -668,3 +668,100 @@
 .assistant-indicator.indicator-init {
     animation: indicatorAppear 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
 }
+
+/* ==========================================================================
+   10. 流式输出浮层 (Streaming Overlay)
+   ========================================================================== */
+/* 流式输出显示浮层 */
+/* --- 节点内嵌流式显示逻辑 --- */
+
+/* 文本容器：挂载在节点容器底部 */
+.node-streaming-text-container {
+    position: absolute;
+    bottom: 35px;
+    /* 紧贴底部工具条上方 */
+    left: 8px;
+    right: 8px;
+    z-index: 99;
+    pointer-events: none;
+    /* 不干扰节点操作 */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+
+    /* 关键：调整遮罩范围，使其在红框高度内保持清晰，上方迅速渐隐 */
+    -webkit-mask-image: linear-gradient(to top,
+            rgba(0, 0, 0, 1) 0%,
+            rgba(0, 0, 0, 1) 50%,
+            rgba(0, 0, 0, 0) 100%);
+    mask-image: linear-gradient(to top,
+            rgba(0, 0, 0, 1) 0%,
+            rgba(0, 0, 0, 1) 50%,
+            rgba(0, 0, 0, 0) 100%);
+
+    /* 动画 */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    height: 100px;
+    /* 用户调整后的高度 */
+    overflow: hidden;
+}
+
+/* LiteGraph 模式下的高性能同步层 */
+.node-streaming-text-container.is-litegraph {
+    position: fixed;
+    z-index: 10001;
+    pointer-events: none;
+    background: transparent;
+    transform-origin: top left;
+    /* 重要：从计算点开始缩放 */
+    /* 宽度、高度、坐标和 transform 将由 JS 实时注入 */
+}
+
+.node-streaming-text-container.show {
+    opacity: 1;
+}
+
+/* 内部流式文本 */
+.node-streaming-text-content {
+    color: color-mix(in srgb, var(--text-primary), transparent 50%);
+    font-size: 10px;
+    line-height: 1.6;
+    /* text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8), 0 0 2px rgba(0, 0, 0, 1); */
+    white-space: pre-wrap;
+    word-break: break-all;
+    text-align: left;
+    padding-bottom: 6px;
+    /* 让内容始终保持在底部 */
+    margin-top: auto;
+}
+
+
+/* 生成中的提示文本样式 */
+.image-assistant-streaming-overlay.placeholder {
+    color: var(--fg-color, #888);
+    font-style: italic;
+}
+
+/* 自定义滚动条样式，防止破坏圆角 */
+.image-assistant-streaming-overlay::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.image-assistant-streaming-overlay::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 10px;
+}
+
+.image-assistant-streaming-overlay::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--p-panel-border-color), transparent 50%);
+    border-radius: 10px;
+    /* 增加透明边距，使滑块看起来“悬浮”且不贴边 */
+    border: 1px solid transparent;
+    background-clip: content-box;
+}
+
+.image-assistant-streaming-overlay::-webkit-scrollbar-thumb:hover {
+    background-color: var(--p-panel-border-color);
+}

@@ -611,6 +611,10 @@ class MigrationTool:
             # 执行深度合并
             modified = self._deep_merge_defaults(user_data, default_data)
             
+            # ---特殊处理：system_prompts 规则内容覆盖---
+            if file_desc == "system_prompts":
+                modified = self._overwrite_prompts_from_template(user_data, default_data) or modified
+            
             # ---特殊处理：为 system_prompts 中的所有规则补全 category 和 showIn 字段---
             if file_desc == "system_prompts":
                 modified = self._ensure_prompts_have_category(user_data) or modified
@@ -694,6 +698,57 @@ class MigrationTool:
         
         return modified
 
+    def _overwrite_prompts_from_template(self, user_data, template_data):
+        """
+        用模板中的规则内容覆盖用户配置中的同名规则
+        
+        当版本更新时（模板版本 > 用户版本），将模板中的规则内容
+        完整覆盖到用户配置中的对应规则，确保内置规则保持最新。
+        
+        覆盖策略:
+        - 仅覆盖模板和用户配置中都存在的同名规则
+        - 用户自定义的规则（模板中不存在）保持不变
+        - 模板中新增的规则由 _deep_merge_defaults 处理
+        
+        返回是否发生了修改
+        """
+        import copy
+        modified = False
+        
+        # 需要处理的规则类型
+        prompt_types = ['expand_prompts', 'vision_prompts', 'video_prompts', 'translate_prompts']
+        
+        for prompt_type in prompt_types:
+            # 检查模板中是否有该类型
+            if prompt_type not in template_data:
+                continue
+            
+            template_prompts = template_data[prompt_type]
+            if not isinstance(template_prompts, dict):
+                continue
+            
+            # 检查用户配置中是否有该类型
+            if prompt_type not in user_data:
+                continue
+            
+            user_prompts = user_data[prompt_type]
+            if not isinstance(user_prompts, dict):
+                continue
+            
+            # 遍历模板中的每个规则
+            for prompt_id, template_prompt in template_prompts.items():
+                if not isinstance(template_prompt, dict):
+                    continue
+                
+                # 检查用户配置中是否存在同名规则
+                if prompt_id in user_prompts:
+                    # 用模板内容完整覆盖用户规则
+                    user_prompts[prompt_id] = copy.deepcopy(template_prompt)
+                    modified = True
+                    self._log(f"[system_prompts] 覆盖规则: {template_prompt.get('name', prompt_id)}")
+        
+        return modified
+
     def _deep_merge_defaults(self, user_data, default_data):
         """
         递归将 default_data 中的缺失字段合并到 user_data
@@ -736,7 +791,8 @@ class MigrationTool:
         迁移逻辑:
         1. 检查 tags 目录是否为空
         2. 如果为空，读取插件 config 目录下的 tags.json 和 tags_user.json
-        3. 转换为 CSV 格式并写入 "用户标签.csv"
+        3. tags.json → 转换为 "默认标签.csv"
+        4. tags_user.json → 转换为 "用户标签.csv"
         
         CSV 格式: 标签名\t标签值\t一级分类\t二级分类\t三级分类\t四级分类
         """
@@ -748,24 +804,75 @@ class MigrationTool:
             # 2. 读取 JSON 文件
             tags_data, user_tags_data = self._load_legacy_tags_json()
             
+            migrated_count = 0
+            
+            # ---处理 tags.json → 默认标签.csv---
+            if tags_data:
+                csv_rows = []
+                self._extract_tags_recursive(tags_data, [], csv_rows)
+                
+                if csv_rows:
+                    csv_filename = "默认标签.csv"
+                    self._write_tags_csv(csv_rows, csv_filename)
+                    self._log(f"[tags.json] ✅ 成功迁移 {len(csv_rows)} 个标签到 {csv_filename}")
+                    migrated_count += len(csv_rows)
+            
+            # ---处理 tags_user.json → 用户标签.csv---
+            if user_tags_data:
+                csv_rows = []
+                # tags_user.json 是2层结构: {分类: {标签名: 标签值}}
+                for category, tags in user_tags_data.items():
+                    if not isinstance(tags, dict):
+                        continue
+                    
+                    for tag_name, tag_value in tags.items():
+                        # CSV 行: [标签名, 标签值, 一级分类, 二级分类, 三级分类, 四级分类]
+                        row = [
+                            tag_name,
+                            tag_value,
+                            category,
+                            "",  # 二级分类（空）
+                            "",  # 三级分类（空）
+                            ""   # 四级分类（空）
+                        ]
+                        csv_rows.append(row)
+                
+                if csv_rows:
+                    csv_filename = "用户标签.csv"
+                    self._write_tags_csv(csv_rows, csv_filename)
+                    self._log(f"[tags_user.json] ✅ 成功迁移 {len(csv_rows)} 个标签到 {csv_filename}")
+                    migrated_count += len(csv_rows)
+            
+            # ---如果两个文件都不存在，尝试从模板创建默认标签---
             if not tags_data and not user_tags_data:
-                return False
+                template_path = os.path.join(self.plugin_dir, "config", "tags_template.json")
+                if os.path.exists(template_path):
+                    try:
+                        with open(template_path, 'r', encoding='utf-8') as f:
+                            template_data = json.load(f)
+                        
+                        csv_rows = []
+                        self._extract_tags_recursive(template_data, [], csv_rows)
+                        
+                        if csv_rows:
+                            csv_filename = "默认标签.csv"
+                            self._write_tags_csv(csv_rows, csv_filename)
+                            self._log(f"✨ 检测到全新环境，已基于模板创建初始标签文件: {csv_filename}")
+                            return True
+                    except Exception as e:
+                        self._log(f"❗ 从模板创建初始标签失败: {str(e)}")
+                
+                # 模板读取失败或不存在时的最后保底
+                csv_rows = [["欢迎使用提示词小助手", "", "指南", "开始", "", ""]]
+                csv_filename = "默认标签.csv"
+                self._write_tags_csv(csv_rows, csv_filename)
+                self._log(f"✨ 已创建简易初始标签文件: {csv_filename}")
+                return True
             
-            # 3. 转换为 CSV 行数据
-            csv_rows = self._convert_tags_to_csv_rows(tags_data, user_tags_data)
-            
-            if not csv_rows:
-                return False
-            
-            # 4. 写入 CSV 文件
-            csv_filename = "用户标签.csv"
-            self._write_tags_csv(csv_rows, csv_filename)
-            
-            self._log(f"[tags.json] ✅ 成功迁移 {len(csv_rows)} 个标签到 {csv_filename}")
-            return True
+            return migrated_count > 0
             
         except Exception as e:
-            self._log(f"[tags.json] ❗ 标签迁移失败: {str(e)}")
+            self._log(f"[tags] ❗ 标签迁移失败: {str(e)}")
             return False
     
     def _should_migrate_tags(self):
@@ -810,46 +917,6 @@ class MigrationTool:
                 self._log(f"❗ 读取 tags_user.json 失败: {str(e)}")
         
         return tags_data, user_tags_data
-    
-    def _convert_tags_to_csv_rows(self, tags_data, user_tags_data):
-        """
-        将 JSON 标签数据转换为 CSV 行
-        
-        CSV 格式: [标签名, 标签值, 一级分类, 二级分类, 三级分类, 四级分类]
-        
-        参数:
-            tags_data: tags.json 数据（支持2-4层嵌套）
-            user_tags_data: tags_user.json 数据（2层结构）
-        
-        返回:
-            CSV 行列表
-        """
-        csv_rows = []
-        
-        # ---处理 tags.json（递归解析多层嵌套）---
-        if tags_data:
-            self._extract_tags_recursive(tags_data, [], csv_rows)
-        
-        # ---处理 tags_user.json（2层结构: 分类 → 标签）---
-        # 放在"用户标签"一级分类下
-        if user_tags_data:
-            for category, tags in user_tags_data.items():
-                if not isinstance(tags, dict):
-                    continue
-                
-                for tag_name, tag_value in tags.items():
-                    # CSV 行: [标签名, 标签值, 一级分类, 二级分类, 三级分类, 四级分类]
-                    row = [
-                        tag_name,
-                        tag_value,
-                        "用户标签",
-                        category,
-                        "",  # 三级分类（空）
-                        ""   # 四级分类（空）
-                    ]
-                    csv_rows.append(row)
-        
-        return csv_rows
     
     def _extract_tags_recursive(self, data, categories, csv_rows):
         """

@@ -67,8 +67,15 @@ export const FEATURES = {
     translateFormatDots: false, // 处理连续点号
     translateFormatNewline: false, // 保留换行符
 
+    // 混合语言翻译缓存
+    cacheMixedLangTranslation: false, // 是否缓存混合语言翻译结果
+
+    // 混合语言翻译规则
+    mixedLangTranslateRule: 'auto_minor', // 自动翻译小比例语言
+
     // 系统设置
     showStreamingProgress: true, // 显示流式输出进度（终端日志）
+    enableStreaming: true, // 启用前端流式输出效果
 
     /**
      * 从配置加载功能开关状态
@@ -99,10 +106,20 @@ export const FEATURES = {
         loadBool('translateFormatPunctuation', "PromptAssistant.Features.TranslateFormatPunctuation");
         loadBool('translateFormatSpace', "PromptAssistant.Features.TranslateFormatSpace");
         loadBool('translateFormatDots', "PromptAssistant.Features.TranslateFormatDots");
+
+        // 加载混合语言缓存选项
+        loadBool('cacheMixedLangTranslation', "PromptAssistant.Features.CacheMixedLangTranslation");
         loadBool('translateFormatNewline', "PromptAssistant.Features.TranslateFormatNewline");
+
+        // 加载混合语言翻译规则
+        const mixedLangRule = app.ui.settings.getSettingValue("PromptAssistant.Features.MixedLangTranslateRule");
+        if (mixedLangRule) {
+            this.mixedLangTranslateRule = mixedLangRule;
+        }
 
         // 加载系统设置
         loadBool('showStreamingProgress', "PromptAssistant.Settings.ShowStreamingProgress");
+        loadBool('enableStreaming', "PromptAssistant.Settings.EnableStreaming");
 
         // 加载日志级别
         const logLevel = app.ui.settings.getSettingValue("PromptAssistant.Settings.LogLevel");
@@ -214,6 +231,9 @@ export function handleFeatureChange(featureName, value, oldValue) {
 
             // 重新计算并更新所有实例的宽度
             promptAssistant.updateAllInstancesWidth();
+            if (imageCaption && imageCaption.updateAllInstancesWidth) {
+                imageCaption.updateAllInstancesWidth();
+            }
         }
 
         // 如果是图像反推功能被启用
@@ -267,8 +287,11 @@ export function handleFeatureChange(featureName, value, oldValue) {
         }
 
         // 功能开关变化时，更新所有实例的宽度
-        if (PromptAssistant.instances.size > 0) {
+        if (PromptAssistant.instances.size > 0 || (ImageCaption && ImageCaption.instances.size > 0)) {
             promptAssistant.updateAllInstancesWidth();
+            if (imageCaption && imageCaption.updateAllInstancesWidth) {
+                imageCaption.updateAllInstancesWidth();
+            }
         }
     }
 } 

@@ -36,15 +36,8 @@ class PopupManager {
 
         // 如果已有其他弹窗，先关闭它
         if (this.activePopup && this.activePopup !== popup) {
-            console.log(`[PopupManager] 切换弹窗 | 关闭旧弹窗，准备打开新弹窗`);
-
-            // 保存当前活动弹窗的信息
-            const oldPopupInfo = this.activePopupInfo;
-            const oldPopup = this.activePopup;
-
-            // 【关键】标记正在切换弹窗，避免在切换期间触发折叠
+            // 【关键】标记正在切换弹窗
             this._isTransitioning = true;
-            console.log(`[PopupManager] 设置 _isTransitioning = true`);
 
             // 清除当前活动弹窗引用，避免hidePopup中的状态冲突
             this.activePopup = null;
@@ -76,7 +69,6 @@ class PopupManager {
                     this._showNewPopup(options);
                     // 清除切换标记
                     this._isTransitioning = false;
-                    console.log(`[PopupManager] 设置 _isTransitioning = false`);
                     resolve();
                 }, 200);
             });
@@ -95,7 +87,6 @@ class PopupManager {
         // 在所有其他窗口关闭后，设置活动按钮状态
         if (buttonInfo) {
             UIToolkit.setActiveButton(buttonInfo);
-            logger.debug(`弹窗管理器 | 设置活动按钮 | 按钮ID: ${buttonInfo.buttonId}`);
         }
 
         // 保存当前弹窗信息
@@ -177,7 +168,7 @@ class PopupManager {
             mouseup: null
         };
 
-        logger.debug('弹窗管理 | 动作:清理所有事件监听器');
+        // logger.debug('弹窗管理 | 动作:清理所有事件监听器');
     }
 
     /**
@@ -460,7 +451,7 @@ class PopupManager {
             };
         }
 
-        logger.debug('窗口大小调节功能已启用');
+        // logger.debug('窗口大小调节功能已启用');
     }
 
     /**
@@ -494,12 +485,10 @@ class PopupManager {
                 popup.style.top = `${buttonRect.bottom}px`;
                 popup.classList.remove('popup-up');
                 popup.classList.add('popup-down');
-                logger.debug('弹窗 | 位置:下方显示');
             } else {
                 popup.style.top = `${buttonRect.top - popupRect.height}px`;
                 popup.classList.remove('popup-down');
                 popup.classList.add('popup-up');
-                logger.debug('弹窗 | 位置:上方显示');
             }
 
             // 计算水平位置
@@ -512,13 +501,10 @@ class PopupManager {
                 // 下方显示时，依然居中
                 if (canCenterHorizontally) {
                     popup.style.left = `${centeredLeftEdge}px`;
-                    logger.debug('弹窗 | 对齐:居中对齐');
                 } else if (centeredLeftEdge < 0) {
                     popup.style.left = '8px';
-                    logger.debug('弹窗 | 对齐:左侧对齐（左侧空间不足）');
                 } else {
                     popup.style.left = `${viewportWidth - popupRect.width - 8}px`;
-                    logger.debug('弹窗 | 对齐:右侧对齐（右侧空间不足）');
                 }
             } else {
                 // 上方显示时，左对齐（弹窗左侧与按钮左侧对齐），但保证不超出右侧和左侧
@@ -530,7 +516,6 @@ class PopupManager {
                     left = 8;
                 }
                 popup.style.left = `${left}px`;
-                logger.debug('弹窗 | 对齐:左对齐（上方显示，自适应）');
             }
         } catch (error) {
             logger.error(`弹窗 | 位置计算失败 | 错误:${error.message}`);
@@ -569,26 +554,31 @@ class PopupManager {
                 // 检查是否为标签相关的输入框获得焦点
                 const preventCloseTypes = this.activePopupInfo?.preventCloseOnElementTypes || [];
                 const isSpecialInput = activeElement &&
-                    (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA') &&
                     preventCloseTypes.some(type => {
                         return activeElement.classList.contains(type) ||
                             activeElement.closest(`.${type}`) !== null;
                     });
 
                 // 检查是否为目标输入框
-                const isTargetInput = activeElement &&
-                    activeElement.classList.contains('comfy-multiline-input');
+                const isTargetInput = activeElement && (
+                    activeElement.classList.contains('comfy-multiline-input') ||
+                    activeElement.closest('.comfy-multiline-input') !== null ||
+                    activeElement.closest('.comfy-markdown') !== null ||
+                    activeElement.closest('.widget-markdown') !== null ||
+                    activeElement.closest('.tiptap') !== null ||
+                    activeElement.closest('.ProseMirror') !== null
+                );
 
                 // 检查是否是当前节点的输入框
-                const isCurrentNodeInput = isTargetInput && this.activePopupInfo?.buttonInfo?.widget &&
+                const isCurrentNodeInput = this.activePopupInfo?.buttonInfo?.widget &&
                     Object.values(window.PromptAssistantInputWidgetMap || {}).some(mapping => {
-                        return mapping.inputEl === activeElement &&
+                        return (mapping.inputEl === activeElement || mapping.inputEl?.contains(activeElement)) &&
                             mapping.widget === this.activePopupInfo.buttonInfo.widget;
                     });
 
                 // 只有当是特殊输入框或当前节点的输入框时才阻止关闭
-                if (isSpecialInput || isCurrentNodeInput) {
-                    logger.debug('弹窗 | 保持打开 | 原因:' + (isSpecialInput ? '特殊输入框聚焦' : '当前节点输入框聚焦'));
+                if (isSpecialInput || isCurrentNodeInput || isTargetInput) {
+                    logger.debug('弹窗 | 保持打开 | 原因:' + (isSpecialInput ? '特殊输入框聚焦' : (isCurrentNodeInput ? '当前节点输入框聚焦' : '目标输入框聚焦')));
                     return;
                 }
 
@@ -636,18 +626,23 @@ class PopupManager {
             if (isContextMenu || isSettingsModal) return;
 
             // 检查是否点击的是目标输入框
-            const isTargetInput = e.target.classList.contains('comfy-multiline-input');
+            const isTargetInput = e.target.classList.contains('comfy-multiline-input') ||
+                e.target.closest('.comfy-multiline-input') !== null ||
+                e.target.closest('.comfy-markdown') !== null ||
+                e.target.closest('.widget-markdown') !== null ||
+                e.target.closest('.tiptap') !== null ||
+                e.target.closest('.ProseMirror') !== null;
 
             // 检查是否是当前节点的输入框
-            const isCurrentNodeInput = isTargetInput && this.activePopupInfo?.buttonInfo?.widget &&
+            const isCurrentNodeInput = this.activePopupInfo?.buttonInfo?.widget &&
                 Object.values(window.PromptAssistantInputWidgetMap || {}).some(mapping => {
-                    return mapping.inputEl === e.target &&
+                    return (mapping.inputEl === e.target || mapping.inputEl?.contains(e.target)) &&
                         mapping.widget === this.activePopupInfo.buttonInfo.widget;
                 });
 
-            // 如果点击在弹窗外且不是点击激活按钮，且不是阻止关闭的元素，且不是当前节点的输入框，则关闭弹窗
+            // 如果点击在弹窗外且不是点击激活按钮，且不是阻止关闭的元素，且不是当前节点的输入框/目标输入框，则关闭弹窗
             if (!isInPopup && !(isInButton && isInActiveButton) &&
-                !isPreventCloseElement && !isCurrentNodeInput) {
+                !isPreventCloseElement && !isCurrentNodeInput && !isTargetInput) {
                 if (typeof onClose === 'function') {
                     onClose();
                 }
@@ -663,16 +658,15 @@ class PopupManager {
             }
 
             const preventCloseTypes = this.activePopupInfo?.preventCloseOnElementTypes || [];
-            const isSpecialInput = (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') &&
-                preventCloseTypes.some(type => {
-                    return e.target.classList.contains(type) ||
-                        e.target.closest(`.${type}`) !== null;
-                });
+            const isSpecialInput = preventCloseTypes.some(type => {
+                return e.target.classList.contains(type) ||
+                    e.target.closest(`.${type}`) !== null;
+            });
 
             // 检查是否是当前节点的输入框
-            const isCurrentNodeInput = isSpecialInput && this.activePopupInfo?.buttonInfo?.widget &&
+            const isCurrentNodeInput = this.activePopupInfo?.buttonInfo?.widget &&
                 Object.values(window.PromptAssistantInputWidgetMap || {}).some(mapping => {
-                    return mapping.inputEl === e.target &&
+                    return (mapping.inputEl === e.target || mapping.inputEl?.contains(e.target)) &&
                         mapping.widget === this.activePopupInfo.buttonInfo.widget;
                 });
 
@@ -734,7 +728,7 @@ class PopupManager {
             }
         };
 
-        logger.debug('弹窗管理 | 动作:设置关闭事件');
+        // logger.debug('弹窗管理 | 动作:设置关闭事件');
     }
 
     /**

@@ -92,6 +92,10 @@ class KontextPresetNode(VLMNodeBase):
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
         """
+        # 检查是否包含强制刷新符号 [R]
+        if cls._check_is_changed_bypass(kontext_preset, user_prompt):
+            return float("nan")
+
         # 导入图像哈希工具函数
         from ..utils.image import compute_image_hash
         

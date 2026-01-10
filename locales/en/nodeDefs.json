@@ -75,7 +75,11 @@
         "outputs": {
             "0": {
                 "name": "Prompt Output",
-                "tooltip": "Generated caption"
+                "tooltip": "Generated caption (combined for batch)"
+            },
+            "1": {
+                "name": "Prompt List",
+                "tooltip": "List of captions for each image in batch"
             }
         }
     },

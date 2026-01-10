@@ -41,32 +41,24 @@ function calculateAssistantWidth() {
     // 统计非历史功能的数量
     const otherFeaturesCount = [hasTag, hasExpand, hasTranslate].filter(Boolean).length;
 
-    // 根据功能组合返回预设宽度
+    // 根据功能组合返回预设常量宽度
     if (hasHistory && otherFeaturesCount === 3) {
-        // 所有功能全开
-        return 179.04;
+        return 143; // 所有功能全开 (历史3 + 分隔线1 + 其它3)
     } else if (hasHistory && otherFeaturesCount === 2) {
-        // 历史 + 两个其他功能
-        return 151.36;
-    } else if (!hasHistory && otherFeaturesCount === 3) {
-        // 只有三个其他功能
-        return 87.21;
+        return 121; // 历史 + 两个其它
     } else if (hasHistory && otherFeaturesCount === 1) {
-        // 历史 + 一个其他功能
-        return 123.69;
-    } else if (!hasHistory && otherFeaturesCount === 2) {
-        // 只有两个其他功能
-        return 59.54;
+        return 99;  // 历史 + 一个其它
     } else if (hasHistory && otherFeaturesCount === 0) {
-        // 只有历史功能
-        return 87.21;
+        return 77;  // 只有历史功能
+    } else if (!hasHistory && otherFeaturesCount === 3) {
+        return 72;  // 关闭历史的三个功能
+    } else if (!hasHistory && otherFeaturesCount === 2) {
+        return 50;  // 只有两个按钮
     } else if (!hasHistory && otherFeaturesCount === 1) {
-        // 只有一个其他功能
-        return 31.87;
+        return 28;  // 只有一个按钮
     }
 
-    // 默认值（理论上不应该到这里）
-    return 31.87;
+    return 28; // 默认
 }
 
 
@@ -163,6 +155,9 @@ function getInputValue(widget, options = {}) {
  * 支持普通textarea、Tiptap编辑器、ProseMirror编辑器等
  * @param {object} widget - 小助手widget对象
  * @param {string} content - 要设置的内容
+ * @param {object} options - 配置选项
+ * @param {boolean} options.html - 是否作为 HTML 内容设置
+ * @param {boolean} options.silent - 是否静默更新（不触发事件，用于流式输出）
  * @returns {boolean} 是否设置成功
  */
 function setInputValue(widget, content, options = {}) {
@@ -172,13 +167,31 @@ function setInputValue(widget, content, options = {}) {
 
     const inputEl = widget.inputEl;
     const useHtml = options.html === true;
+    const silent = options.silent === true;  // 流式更新时不触发事件
 
     try {
         // 标准textarea
         if (inputEl.tagName === 'TEXTAREA' && inputEl.value !== undefined) {
             inputEl.value = content;
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 关键修复：即使是 silent 模式，也需要同步 widget.value 和 node.widgets[].value
+            // 否则后续 getInputValue 会读取到旧值
+            if (widget.value !== undefined) {
+                widget.value = content;
+            }
+            if (widget.node && widget.node.widgets) {
+                const matchingWidget = widget.node.widgets.find(w =>
+                    w.name === widget.inputId || w.name === 'text'
+                );
+                if (matchingWidget) {
+                    matchingWidget.value = content;
+                }
+            }
+
+            if (!silent) {
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
             return true;
         }
 
@@ -207,16 +220,18 @@ function setInputValue(widget, content, options = {}) {
                 targetEl.innerHTML = content;
             }
 
-            // 触发输入事件
-            targetEl.dispatchEvent(new Event('input', { bubbles: true }));
-            targetEl.dispatchEvent(new Event('change', { bubbles: true }));
+            // 触发输入事件（静默模式下跳过）
+            if (!silent) {
+                targetEl.dispatchEvent(new Event('input', { bubbles: true }));
+                targetEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
 
-            // 同时更新widget.value
+            // 同时更新widget.value（无论是否 silent 都需要同步）
             if (widget.value !== undefined) {
                 widget.value = content;
             }
 
-            // 同时更新node.widgets[].value
+            // 同时更新node.widgets[].value（无论是否 silent 都需要同步）
             if (widget.node && widget.node.widgets) {
                 const matchingWidget = widget.node.widgets.find(w =>
                     w.name === widget.inputId || w.name === 'text'
@@ -236,8 +251,24 @@ function setInputValue(widget, content, options = {}) {
             } else {
                 inputEl.textContent = content;
             }
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
-            inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+
+            // 关键修复：同步 widget.value 和 node.widgets[].value
+            if (widget.value !== undefined) {
+                widget.value = content;
+            }
+            if (widget.node && widget.node.widgets) {
+                const matchingWidget = widget.node.widgets.find(w =>
+                    w.name === widget.inputId || w.name === 'text'
+                );
+                if (matchingWidget) {
+                    matchingWidget.value = content;
+                }
+            }
+
+            if (!silent) {
+                inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+                inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
             return true;
         }
 
@@ -393,6 +424,19 @@ class PromptAssistant {
                     }
 
                     app.canvas.onSelectionChange = app.canvas._promptAssistantSelectionHandler;
+
+                    // 3. 如果开启了自动创建，立即扫描所有有效节点
+                    const creationMode = app.ui.settings.getSettingValue("PromptAssistant.Settings.CreationMode") || "auto";
+                    if (creationMode === "auto") {
+                        const nodes = app.canvas.graph._nodes || [];
+                        nodes.forEach(node => {
+                            if (node && !node._promptAssistantInitialized) {
+                                // 避免在扫描过程中重复处理
+                                node._promptAssistantInitialized = true;
+                                this.checkAndSetupNode(node);
+                            }
+                        });
+                    }
                 }
             } else {
                 // === 禁用所有服务 ===
@@ -427,15 +471,6 @@ class PromptAssistant {
      * 清理所有资源
      */
     cleanup(nodeId = null, silent = false) {
-        // 【调试】添加调用栈追踪，帮助定位触发清理的原因
-        // 在非切换工作流和非静默模式下，打印详细的调用栈
-        if (!window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING && !silent) {
-            if (nodeId !== null && nodeId !== undefined) {
-                console.trace(`[PromptAssistant-调试] cleanup 被调用 | 节点ID: ${nodeId}`);
-                logger.debug(`[cleanup] 调用栈追踪 | 节点ID: ${nodeId} | 请查看控制台 trace 信息`);
-            }
-        }
-
         // 如果正在切换工作流，则只清理UI实例，不删除缓存
         if (window.PROMPT_ASSISTANT_WORKFLOW_SWITCHING) {
             // 简化日志：工作流切换期间不逐条打印节点清理日志，避免高频刷屏
@@ -508,8 +543,7 @@ class PromptAssistant {
                         const remainingTags = tagStats.total;
                         const remainingHistory = HistoryCacheService.getAllHistory().length;
 
-                        logger.log(`[节点清理] 节点ID: ${nodeId} | 实例: ${instanceNames.join(', ')} | 历史: ${historyCount}条 | 标签: ${tagCount}个`);
-                        logger.log(`[剩余统计] 小助手实例: ${remainingInstances}个 | 标签缓存: ${remainingTags}个 | 节点历史缓存: ${remainingHistory}条`);
+                        logger.log(`[清理汇总] 节点ID: ${nodeId} | 清理实例: ${instanceNames.join(', ')} | 历史记录清理: ${historyCount}条 | 标签缓存清理: ${tagCount}个`);
                     }
                 } catch (error) {
                     logger.error(`[节点清理] 失败 | 节点ID: ${nodeId} | 错误: ${error.message}`);
@@ -569,23 +603,32 @@ class PromptAssistant {
      */
     _isMarkdownNode(node) {
         if (!node || !node.type) return false;
-
-        // 已知的使用comfy-markdown的节点类型
         const markdownNodeTypes = ['Note', 'MarkdownNote', 'PreviewAny', 'PreviewTextNode'];
         if (markdownNodeTypes.includes(node.type)) {
             return true;
         }
-
-        // 检查节点类型名称是否包含相关关键词
         const typeLower = node.type.toLowerCase();
         return typeLower.includes('markdown') ||
-            (typeLower.includes('preview') && typeLower.includes('text'));
+            (typeLower.includes('preview') && typeLower.includes('text')) ||
+            typeLower.includes('subgraph'); // 增加对子图的基础判定支持
+    }
+
+    /**
+     * 检查节点是否为子图节点 (Subgraph)
+     * 子图节点的类型名为 UUID 格式
+     * @param {object} node - 节点对象
+     * @returns {boolean}
+     */
+    _isSubgraphNode(node) {
+        if (!node || !node.type) return false;
+        // UUID 格式：8-4-4-4-12 字符
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.type);
     }
 
     // ---实例管理功能---
     /**
      * 检查节点是否有效
-     * Vue mode下Note/MarkdownNote节点可能没有widgets属性，需要特殊处理
+     * Vue mode下Note/MarkdownNote/Subgraph节点需要特殊处理
      */
     static isValidNode(node) {
         if (!node || typeof node.id === 'undefined' || node.id === -1) {
@@ -605,7 +648,15 @@ class PromptAssistant {
             (node.type && node.type.toLowerCase().includes('markdown')) ||
             (node.type && node.type.toLowerCase().includes('preview') && node.type.toLowerCase().includes('text'));
 
-        if (isVueMode && isMarkdownNode) {
+        // 检查是否为子图节点
+        // 1. UUID 格式类型名 (Node 2.0 动态创建)
+        const isUUIDType = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(node.type);
+        // 2. 原生 Subgraph 关键字或 workflow/ 前缀
+        const isSubgraphType = node.type === 'Subgraph' ||
+            node.type.startsWith('workflow/') ||
+            (node.constructor && node.constructor.name === 'Subgraph');
+
+        if (isVueMode && (isMarkdownNode || isUUIDType || isSubgraphType)) {
             // Vue mode下这些节点类型直接视为有效
             return true;
         }
@@ -651,24 +702,41 @@ class PromptAssistant {
 
         const isVueMode = LiteGraph.vueNodesMode === true;
 
-        // Vue mode下Note/MarkdownNote节点特殊处理
+
+
+        // Vue mode下特殊节点（Note/Markdown/Subgraph）即使没有 LiteGraph widgets 也是有效的
         if (!node.widgets) {
-            if (isVueMode && (node.type === 'Note' || node.type === 'MarkdownNote')) {
-                this._handleVueSpecialNode(node);
+
+            if (isVueMode && PromptAssistant.isValidNode(node)) {
+                this._handleVueDomScanNode(node);
             }
+            return;
+        }
+
+        // 后续检查：如果虽然有 widgets 但不是我们识别的有效节点，也回退处理
+        const isValid = PromptAssistant.isValidNode(node);
+        if (!isValid) {
+
             return;
         }
 
         // 获取所有有效的输入控件
         const validInputs = node.widgets.filter(widget => {
             if (!widget.node) widget.node = node;
-            return UIToolkit.isValidInput(widget, { debug: false, node: node });
+            const isValidInput = UIToolkit.isValidInput(widget, { debug: false, node: node });
+
+            return isValidInput;
         });
 
+
+
         if (validInputs.length === 0) {
-            // Vue mode下使用comfy-markdown节点回退处理
-            if (isVueMode && this._isMarkdownNode(node)) {
-                this._handleVueSpecialNode(node);
+            // 非目标节点类型（如 LoadImage）没有文本控件是正常的，使用 debug 级别
+            logger.debug(`[checkAndSetupNode] 节点无有效控件 | ID: ${node.id} | 类型: ${node.type}`);
+
+            // Vue mode下节点可能暂时没有识别到 LiteGraph 控件，强制回退到 DOM 扫描模式
+            if (isVueMode && isValid) {
+                this._handleVueDomScanNode(node);
             }
             return;
         }
@@ -717,7 +785,7 @@ class PromptAssistant {
                         this.cleanup(node.id);
                     } else {
                         // 元素仍然在 DOM 中，可能只是引用变化，不需要清理
-                        logger.debug(() => `[checkAndSetupNode] 输入元素引用变化但仍有效，跳过清理 | 节点ID: ${node.id}`);
+                        // logger.debug(() => `[checkAndSetupNode] 输入元素引用变化但仍有效，跳过清理 | 节点ID: ${node.id}`);
                         return;
                     }
                 } else if (!currentInputEl && instanceInputEl) {
@@ -738,64 +806,107 @@ class PromptAssistant {
             // 【防重复挂载检查】在创建前检查 inputEl 是否已被其他实例挂载
             const inputEl = inputWidget.inputEl || inputWidget.element;
             if (inputEl && inputEl._promptAssistantMounted) {
-                logger.debug(() => `[checkAndSetupNode] 跳过创建 | 原因: inputEl 已被挂载 | 节点ID: ${node.id} | 控件: ${inputId}`);
                 return;
             }
 
             // 创建小助手实例
             const assistant = this.setupNodeAssistant(node, inputWidget, assistantKey);
             if (assistant) {
-                logger.log(() => `创建小助手 | 节点:${node.id} | 控件:${inputId} | 索引:${widgetIndex} | 实例:${assistantKey}`);
-
-
+                logger.debugSample(() => `[小助手] 创建实例 | 节点:${node.id} | 控件:${inputId} | 索引:${widgetIndex}`);
             }
         });
     }
 
     /**
-     * Vue mode下使用comfy-markdown节点的特殊处理
-     * 包括 Note、MarkdownNote、PreviewTextNode 等
-     * 直接从DOM中查找textarea/编辑器并创建小助手
-     */
-    _handleVueSpecialNode(node) {
-        if (!node || !this._isMarkdownNode(node)) return;
+ * Vue mode 下对特殊或动态节点（Note/Subgraph等）的 DOM 扫描处理
+ * 当 LiteGraph widgets 尚未就绪时，直接从 DOM 中扫描 textarea 并挂载
+ */
+    _handleVueDomScanNode(node) {
+        if (!node) return;
+
+        const isMarkdown = this._isMarkdownNode(node);
+        const isSubgraph = this._isSubgraphNode(node);
+
+        // 仅处理我们识别的有效节点
+        if (!isMarkdown && !isSubgraph) return;
 
         const nodeId = node.id;
-        const assistantKey = `${nodeId}_text`;
 
-        // 检查是否已存在实例
+        // 使用 NodeMountService 提供的逻辑，在 DOM 容器中查找所有潜在的输入框
+        const nodeContainer = document.querySelector(`[data-node-id="${nodeId}"]`);
+        if (!nodeContainer) {
+            // 如果容器还没渲染，则启动一次带重试的单次挂载尝试（针对主要输入框）
+            if (isMarkdown) {
+                this._retryDomScan(node, 'text');
+            }
+            return;
+        }
+
+        // 查找所有 textarea（优先找 PrimeVue 的 .p-textarea）
+        const primeTextareas = Array.from(nodeContainer.querySelectorAll('textarea.p-textarea'));
+        const textareas = primeTextareas.length > 0 ? primeTextareas : Array.from(nodeContainer.querySelectorAll('textarea'));
+
+        if (textareas.length === 0) {
+            // 可能是 TipTap 编辑器（针对 Note 节点）
+            const editor = nodeContainer.querySelector('.tiptap') || nodeContainer.querySelector('.ProseMirror');
+            if (editor) {
+                this._mountDomAssistant(node, editor, 'text', 0);
+            }
+            return;
+        }
+
+        // 遍历所有找到的 textarea 并尝试挂载
+        textareas.forEach((el, index) => {
+            // 生成 Key：对于 Note 节点通常只有一个，对于子图有多个
+            const inputId = textareas.length === 1 ? 'text' : `input_${index}`;
+            this._mountDomAssistant(node, el, inputId, index);
+        });
+    }
+
+    /**
+     * 执行实际的 DOM 挂载
+     */
+    _mountDomAssistant(node, element, inputId, index) {
+        const assistantKey = `${node.id}_${inputId}`;
         if (PromptAssistant.hasInstance(assistantKey)) return;
 
-        // 查找节点DOM容器和textarea
-        const nodeContainer = document.querySelector(`[data-node-id="${nodeId}"]`);
-        if (!nodeContainer) return;
+        // 检查元素是否已被挂载
+        if (element._promptAssistantMounted) return;
 
-        const textarea = nodeContainer.querySelector('textarea.p-textarea') ||
-            nodeContainer.querySelector('textarea') ||
-            nodeContainer.querySelector('.tiptap') ||
-            nodeContainer.querySelector('.ProseMirror');
-        if (!textarea) return;
-
-        // 创建虚拟widget对象
+        // 创建虚拟 widget
         const virtualWidget = {
-            name: 'text', id: 'text', type: 'textarea',
-            inputEl: textarea, element: textarea, node: node
+            name: inputId, id: inputId, type: 'textarea',
+            inputEl: element, element: element, node: node,
+            _domIndex: index // 记录 DOM 索引
         };
 
-        // 节点信息
         const nodeInfo = {
             workflow_id: app.graph?._workflow_id || 'unknown',
             nodeType: node.type, inputType: 'text',
             isNoteNode: this._isMarkdownNode(node),
-            isVueMode: true
+            isSubgraph: this._isSubgraphNode(node),
+            isVueMode: true,
+            domIndex: index
         };
 
-        // 创建小助手实例
-        const assistant = this.createAssistant(node, 'text', virtualWidget, nodeInfo, assistantKey);
+        const assistant = this.createAssistant(node, inputId, virtualWidget, nodeInfo, assistantKey);
         if (assistant) {
             this.showAssistantUI(assistant);
-            logger.log(`${node.type}节点小助手创建成功 | ID: ${nodeId}`);
+            logger.debugSample(() => `[DOM扫描] ${node.type}节点挂载成功 | ID: ${node.id} | Key: ${assistantKey}`);
         }
+    }
+
+    /**
+     * 针对初始 DOM 未就绪的情况进行一次带重试的扫描
+     */
+    _retryDomScan(node, inputId) {
+        const widgetStub = { name: inputId, node: node };
+        nodeMountService.findMountContainerWithRetry(node, widgetStub, { timeout: 2000 })
+            .then(result => {
+                if (result && result.textarea) {
+                    this._mountDomAssistant(node, result.textarea, inputId, 0);
+                }
+            });
     }
 
     /**
@@ -803,8 +914,11 @@ class PromptAssistant {
      * 创建小助手实例并初始化显示状态
      */
     setupNodeAssistant(node, inputWidget, assistantKey = null) {
+
+
         // 简化参数检查
         if (!node || !inputWidget) {
+            logger.error(`[setupNodeAssistant] 参数无效 | node: ${!!node} | inputWidget: ${!!inputWidget}`);
             return null;
         }
 
@@ -813,6 +927,8 @@ class PromptAssistant {
             const inputId = inputWidget.name || inputWidget.id || Math.random().toString(36).substring(2, 10);
             const isNoteNode = this._isMarkdownNode(node);
             const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+
+
 
             // 简化节点信息
             const nodeInfo = {
@@ -824,20 +940,21 @@ class PromptAssistant {
             };
 
             // 处理inputWidget的inputEl引用
-            // Vue mode下Note/MarkdownNote节点的element可能为null，需要延迟获取
             let processedWidget = inputWidget;
             if (isNoteNode) {
-                // Note/MarkdownNote节点特殊处理：尝试使用element作为inputEl
                 const inputEl = inputWidget.element || inputWidget.inputEl;
                 processedWidget = {
                     ...inputWidget,
                     inputEl: inputEl,
-                    // Vue mode下标记需要延迟查找textarea
                     _needsDelayedTextareaLookup: isVueMode && !inputEl
                 };
+
+            } else {
+
             }
 
             // 创建小助手实例
+
             const assistant = this.createAssistant(
                 node,
                 inputId,
@@ -847,13 +964,18 @@ class PromptAssistant {
             );
 
             if (assistant) {
-                // 初始化显示状态，始终显示
+
+                // 初始化显示状态
+                // 初始化显示状态
                 this.showAssistantUI(assistant);
                 return assistant;
+            } else {
+                console.warn(`[setupNodeAssistant] ⚠️ createAssistant 返回 null`);
             }
 
             return null;
         } catch (error) {
+            logger.error(`[setupNodeAssistant] ❌ 异常 | 节点: ${node.id} | 错误:`, error);
             logger.error(`创建小助手失败 | 节点ID: ${node.id} | 原因: ${error.message}`);
             return null;
         }
@@ -864,13 +986,14 @@ class PromptAssistant {
      * 根据节点和输入控件构建小助手对象并初始化UI
      */
     createAssistant(node, inputId, inputWidget, nodeInfo = {}, assistantKey = null) {
-        logger.debug(() => `[createAssistant] 开始创建 | 节点ID: ${node?.id} | inputId: ${inputId} | isVueMode: ${typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true}`);
 
-        // 简化前置检查 - Vue mode下允许inputEl暂时不存在
+
+        // 简化前置检查
         if (!window.FEATURES.enabled || !node || !inputId || !inputWidget) {
-            logger.debug(() => `[createAssistant] 前置检查失败 | enabled: ${window.FEATURES.enabled} | node: ${!!node} | inputId: ${inputId} | inputWidget: ${!!inputWidget}`);
+            logger.error(`[createAssistant] ❌ 前置检查失败 | enabled: ${window.FEATURES.enabled} | node: ${!!node} | inputId: ${inputId} | inputWidget: ${!!inputWidget}`);
             return null;
         }
+
 
         // 确保widget设置了node引用
         if (!inputWidget.node) {
@@ -878,31 +1001,37 @@ class PromptAssistant {
         }
 
         // 验证是否为有效输入
+
         if (!UIToolkit.isValidInput(inputWidget, { node: node })) {
-            logger.debug(() => `[createAssistant] 无效输入 | 节点ID: ${node?.id} | 控件: ${inputId}`);
+            console.warn(`[createAssistant] ⚠️ 输入无效 | 节点: ${node?.id} | 控件: ${inputId}`);
             return null;
         }
 
-        // 获取输入元素 - Vue mode下可能暂时不存在，将在_setupUIPosition中查找
-        let inputEl = inputWidget.inputEl || inputWidget.element;
 
-        // 判断是否为Vue mode
+        // 获取输入元素
+        let inputEl = inputWidget.inputEl || inputWidget.element;
         const isVueMode = typeof LiteGraph !== 'undefined' && LiteGraph.vueNodesMode === true;
+
+
 
         // 非Vue mode下，inputEl必须存在
         if (!inputEl && !isVueMode) {
-            logger.debug(() => `[createAssistant] 输入元素不存在 | 节点ID: ${node?.id} | 控件: ${inputId}`);
+            logger.error(`[createAssistant] ❌ 非Vue模式下inputEl不存在 | 节点: ${node?.id}`);
             return null;
         }
 
         const nodeId = node.id;
-        // 使用传入的 assistantKey，如果没有则使用默认生成方式
         const widgetKey = assistantKey || `${nodeId}_${inputId}`;
+
+
 
         // 检查是否已存在实例
         if (PromptAssistant.hasInstance(widgetKey)) {
+
             return PromptAssistant.getInstance(widgetKey);
         }
+
+
 
         // 创建小助手对象
         const widget = {
@@ -912,44 +1041,65 @@ class PromptAssistant {
             inputId,
             widgetKey,
             buttons: {},
-            text_element: inputEl, // Vue mode下可能为null，将在定位时更新
-            inputEl: inputEl,      // Vue mode下可能为null，将在定位时更新
-            node: node,            // 保存node引用，用于getInputValue等函数访问
+            text_element: inputEl,
+            inputEl: inputEl,
+            isDestroyed: false,
             nodeInfo: {
                 ...nodeInfo,
-                nodeId: node.id,
+                nodeId: nodeId,
                 nodeType: node.type,
-                isVueMode: isVueMode // 标记是否为Vue mode
+                isVueMode: isVueMode
             },
-            isTransitioning: false // 添加状态标记，避免频繁切换
+            isTransitioning: false,
+            // 保存初始节点引用作为后备（Vue Node 2.0 子图切换场景）
+            _initialNode: node
         };
 
-        // 创建全局输入框映射（如果不存在）
+        // 动态获取节点的 getter，避免持有已删除节点的引用
+        // 【修复】优先从 graph 获取，失败时回退到初始引用（解决子图切换时画布未同步问题）
+        Object.defineProperty(widget, 'node', {
+            get() {
+                if (this.isDestroyed) return null;
+                // 优先从当前画布 graph 动态获取
+                const graphNode = app.canvas?.graph?._nodes_by_id?.[this.nodeId];
+                if (graphNode) return graphNode;
+                // 回退：使用初始节点引用（如果仍有效）
+                if (this._initialNode && this._initialNode.id === this.nodeId) {
+                    return this._initialNode;
+                }
+                return null;
+            },
+            configurable: true
+        });
+
+
+
+        // 创建全局输入框映射
         if (!window.PromptAssistantInputWidgetMap) {
             window.PromptAssistantInputWidgetMap = {};
         }
 
-        // 将当前输入框添加到映射 - Vue mode下inputEl可能为null，将在定位时更新
         window.PromptAssistantInputWidgetMap[widgetKey] = {
             inputEl: inputEl,
             widget: widget
         };
 
-        logger.debug(`输入框映射 | 添加映射 | 键:${widgetKey} | inputEl: ${inputEl ? 'exists' : 'null (Vue mode)'}`);
+
 
         // 创建UI并添加到实例集合
         this.createAssistantUI(widget, inputWidget);
+
         PromptAssistant.addInstance(widgetKey, widget);
 
-        // 初始化撤销状态和事件绑定 - 仅在inputEl存在时执行
-        // Vue mode下将在_setupUIPosition找到实际textarea后再执行
-        logger.debug(() => `[createAssistant] inputEl检查 | 节点ID: ${nodeId} | inputEl存在: ${!!inputEl} | isVueMode: ${isVueMode}`);
+
+
+        // 初始化绑定
         if (inputEl) {
-            logger.debug(() => `[createAssistant] 调用_initializeInputElBindings | 节点ID: ${nodeId}`);
             this._initializeInputElBindings(widget, inputWidget, node, inputId, nodeInfo);
         } else {
-            logger.debug(() => `[createAssistant] Vue mode - 延迟初始化inputEl绑定 | 节点ID: ${nodeId}`);
+
         }
+
 
         return widget;
     }
@@ -970,9 +1120,13 @@ class PromptAssistant {
         // 初始化撤销状态（只初始化一次，使用widget级别的标记）
         if (!widget._undoStateInitialized) {
             const initialValue = inputEl.value || '';
-            HistoryCacheService.initUndoState(nodeId, inputId, initialValue);
+            // 如果初始值不为空，则直接添加到历史记录中，确保可以撤销回初始状态
+            if (initialValue.trim()) {
+                HistoryCacheService.addHistoryAndUpdateUndoState(nodeId, inputId, initialValue, 'input');
+            } else {
+                HistoryCacheService.initUndoState(nodeId, inputId, initialValue);
+            }
             widget._undoStateInitialized = true;
-            logger.debug(`[初始化] 撤销状态初始化 | 节点ID: ${nodeId}`);
         }
         // 初始化时立即更新撤销/重做按钮状态
         UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
@@ -985,10 +1139,7 @@ class PromptAssistant {
             return;
         }
 
-        // 如果检测到遗留标记，记录一下（仅用于调试）
-        if (inputEl._promptAssistantBound) {
-            logger.debug(`[_initializeInputElBindings] 检测到DOM遗留标记，重新绑定 | 节点ID: ${nodeId}`);
-        }
+        // 如果检测到遗留标记，静默处理
 
         inputEl._promptAssistantBound = true;
         widget._inputEventsBound = true;
@@ -997,7 +1148,7 @@ class PromptAssistant {
         // 绑定输入框失焦事件，写入历史
         // 使用事件管理器添加DOM事件监听
         const removeBlurListener = EventManager.addDOMListener(inputEl, 'blur', async () => {
-            logger.debug(`历史写入准备｜ 原因：失焦事件触发 node_id=${node.id} input_id=${inputId}`);
+            // logger.debug(`历史写入准备｜ 原因：失焦事件触发 node_id=${node.id} input_id=${inputId}`);
             HistoryCacheService.addHistory({
                 workflow_id: nodeInfo?.workflow_id || '',
                 node_id: node.id,
@@ -1010,7 +1161,7 @@ class PromptAssistant {
             HistoryCacheService.initUndoState(node.id, inputId, inputEl.value);
             // 更新按钮状态
             UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-            logger.debug(`历史写入完成｜原因：输入框失焦 node_id=${node.id} input_id=${inputId}`);
+            // logger.debug(`历史写入完成｜原因：输入框失焦 node_id=${node.id} input_id=${inputId}`);
         });
 
         // 保存清理函数引用，以便后续清理
@@ -1060,12 +1211,16 @@ class PromptAssistant {
         const nodeId = widget.nodeId;
         const inputId = widget.inputId;
 
+
+
         try {
+
             // Get location setting
             const locationSetting = app.ui.settings.getSettingValue(
-                "PromptAssistant.Location",
-                "bottom-right-h"
+                "PromptAssistant.Location"
             );
+
+
 
             // Create AssistantContainer instance
             const container = new AssistantContainer({
@@ -1074,70 +1229,75 @@ class PromptAssistant {
                 anchorPosition: locationSetting,
                 enableDragSort: true,
                 onButtonOrderChange: (order) => {
-                    // Order is saved handled by AssistantContainer
-                    // We might want to log or update internal state if needed
                     logger.debug(`[排序更新] 节点:${nodeId} | 新顺序: ${order.join(',')}`);
                 },
                 shouldCollapse: () => {
-                    // Check if we should block collapse (e.g. active buttons)
                     return !this._checkAssistantActiveState(widget);
                 }
             });
 
+
+
             // Render container
             const containerEl = container.render();
 
+
+
             // Set Icon
-            // Existing logic uses ResourceManager
             const mainIcon = ResourceManager.getIcon('icon-main.svg');
             if (mainIcon) {
-                // Remove existing content if any (though render creates empty)
                 if (container.indicator) {
                     container.indicator.innerHTML = '';
                     container.indicator.appendChild(mainIcon);
                 }
             }
 
+
+
             // Save references
             widget.container = container;
             widget.element = containerEl;
-            widget.innerContent = container.content; // Map innerContent to container content
+            widget.innerContent = container.content;
             widget.hoverArea = container.hoverArea;
             widget.indicator = container.indicator;
             widget.buttons = {};
-            // widget.isCollapsed is managed by container, but PromptAssistant might read it
-            // Sync state
+
             Object.defineProperty(widget, 'isCollapsed', {
                 get: () => container.isCollapsed,
                 set: (val) => {
-                    // Manual override? Better to use container methods
                     if (val) container.collapse(); else container.expand();
                 }
             });
-            // widget.isTransitioning also managed by container
             Object.defineProperty(widget, 'isTransitioning', {
                 get: () => container.isTransitioning,
                 set: (val) => { container.isTransitioning = val; }
             });
 
+
+
             // Initialize buttons
             this.addFunctionButtons(widget);
 
-            // Note: _setupUIEventHandling is no longer needed as container handles it
+
 
             // Restore button order
             container.restoreOrder();
+
+
 
             // Setup Positioning
             const inputEl = inputWidget.inputEl || widget.inputEl;
             const graphCanvasContainer = document.querySelector('.graphcanvas');
             const canvasContainerRect = graphCanvasContainer?.getBoundingClientRect();
 
+
+
+
             this._setupUIPosition(widget, inputEl, containerEl, canvasContainerRect, (success) => {
+
                 if (!success) {
-                    logger.debug(`创建小助手失败 | 节点ID: ${nodeId} | 原因: 定位失败 (等待DOM渲染)`);
+                    logger.debugSample(() => `[小助手] 创建暂缓 | 节点ID: ${nodeId} | 原因: 定位容器未就绪 (等待DOM渲染)`);
                     container.destroy();
-                    // Clean up instance map
                     const widgetKey = widget.widgetKey;
                     if (widgetKey && PromptAssistant.instances.has(widgetKey)) {
                         PromptAssistant.instances.delete(widgetKey);
@@ -1148,17 +1308,13 @@ class PromptAssistant {
                     return;
                 }
 
-                // Positioning success
-                // Trigger dimension update now that it is in DOM
+                // 定位成功后更新尺寸
                 container.updateDimensions();
-
-                // Initial visibility check?
-                // AssistantContainer starts collapsed and visible (opacity 1 for indicator)
-                // We might want to initially hide it if needed, but standard behavior is fine.
             });
 
             return containerEl;
         } catch (error) {
+            console.error(`[createAssistantUI] ❌ 异常 | 节点: ${nodeId} | 错误:`, error);
             logger.error(`创建小助手失败 | 节点ID: ${nodeId} | 原因: ${error.message}`);
             return null;
         }
@@ -1283,26 +1439,22 @@ class PromptAssistant {
 
         // 0. 检查是否正在切换弹窗（切换期间不允许折叠）
         if (PopupManager._isTransitioning) {
-            logger.debug(() => `[ActiveState] 阻止折叠 | 原因: PopupManager 正在切换弹窗 | 节点: ${widget.nodeId}`);
             return true;
         }
 
         // 1. 检查右键菜单是否可见（并且属于当前 widget）
         if (buttonMenu.isMenuVisible && buttonMenu.menuContext?.widget === widget) {
-            logger.debug(() => `[ActiveState] 阻止折叠 | 原因: 右键菜单可见 | 节点: ${widget.nodeId}`);
             return true;
         }
 
         // 2. 检查中央按钮状态管理器是否有该widget的激活按钮
         const activeButtonInfo = UIToolkit.getActiveButtonInfo();
         if (activeButtonInfo && activeButtonInfo.widget === widget) {
-            logger.debug(() => `[ActiveState] 阻止折叠 | 原因: UIToolkit.activeButtonInfo 匹配 | 节点: ${widget.nodeId}`);
             return true;
         }
 
         // 3. 检查 PopupManager 的活动弹窗是否属于当前 widget
         if (PopupManager.activePopupInfo?.buttonInfo?.widget === widget) {
-            logger.debug(() => `[ActiveState] 阻止折叠 | 原因: PopupManager.activePopupInfo 匹配 | 节点: ${widget.nodeId}`);
             return true;
         }
 
@@ -1311,13 +1463,10 @@ class PromptAssistant {
             const button = widget.buttons[buttonId];
             if (button.classList.contains('button-active') ||
                 button.classList.contains('button-processing')) {
-                logger.debug(() => `[ActiveState] 阻止折叠 | 原因: 按钮${buttonId}状态激活 | 节点: ${widget.nodeId}`);
                 return true;
             }
         }
 
-        // 调试日志：记录检查结果
-        logger.debug(() => `[ActiveState] 允许折叠 | 节点: ${widget.nodeId} | UIToolkit: ${!!activeButtonInfo} | PopupManager: ${!!PopupManager.activePopupInfo} | 右键菜单: ${buttonMenu.isMenuVisible}`);
         return false;
     }
 
@@ -1336,12 +1485,12 @@ class PromptAssistant {
      * 在功能开关变更时调用，重新计算并设置宽度
      */
     updateAllInstancesWidth() {
-        const newWidth = calculateAssistantWidth();
-        logger.debug(`[宽度更新] 计算新宽度:${newWidth}px | 实例数量:${PromptAssistant.instances.size}`);
+        // 优化：不再手动计算宽度并注入，而是触发每个容器自身的常量布局逻辑
+        logger.debug(`[布局更新] 触发所有实例尺寸重算 | 实例数量:${PromptAssistant.instances.size}`);
 
         PromptAssistant.instances.forEach((widget) => {
-            if (widget && widget.element) {
-                widget.element.style.setProperty('--expanded-width', `${newWidth}px`);
+            if (widget && widget.container && typeof widget.container.updateDimensions === 'function') {
+                widget.container.updateDimensions();
             }
         });
     }
@@ -1382,11 +1531,8 @@ class PromptAssistant {
                 return;
             }
 
-            // 添加高亮效果
-            widget.inputEl.classList.add('input-highlight');
-            setTimeout(() => {
-                widget.inputEl.classList.remove('input-highlight');
-            }, 200);
+            // 使用统一的高亮工具方法 (处理了定时器管理和重绘)
+            UIToolkit._highlightInput(widget.inputEl);
         } catch (error) {
             logger.error(`输入框更新 | 结果:异常 | 错误:${error.message}`);
         }
@@ -1577,35 +1723,63 @@ class PromptAssistant {
                                 // 通知UI可以准备取消操作了
                                 notifyCancelReady(request_id);
 
-                                // 显示扩写中提示
-                                const btnRect = e.currentTarget.getBoundingClientRect();
-                                UIToolkit.showStatusTip(
-                                    e.currentTarget,
-                                    'loading',
-                                    '提示词优化中',
-                                    { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
-                                );
+                                // 根据开关选择流式或阻塞式 API
+                                let result;
+                                let streamContent = '';
 
-                                // 调用LLM服务进行扩写
-                                const result = await APIService.llmExpandPrompt(inputValue, request_id);
+                                if (FEATURES.enableStreaming !== false) {
+                                    // 显示流式优化中提示
+                                    const btnRect = e.currentTarget.getBoundingClientRect();
+                                    UIToolkit.showStatusTip(
+                                        e.currentTarget,
+                                        'loading',
+                                        '提示词优化中',
+                                        { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
+                                    );
 
-                                if (result.success) {
-                                    // 更新输入框内容并添加高亮效果
-                                    this.updateInputWithHighlight(widget, result.data.expanded);
+                                    result = await APIService.llmExpandPromptStream(
+                                        inputValue,
+                                        request_id,
+                                        (chunk) => {
+                                            // 流式回调：实时更新输入框内容
+                                            streamContent += chunk;
+                                            // 使用 setInputValue 更新输入框（不触发事件，避免频繁抖动）
+                                            setInputValue(widget, streamContent, { silent: true });
+                                        }
+                                    );
+                                } else {
+                                    // 显示阻塞式优化中提示
+                                    const btnRect = e.currentTarget.getBoundingClientRect();
+                                    UIToolkit.showStatusTip(
+                                        e.currentTarget,
+                                        'loading',
+                                        '提示词优化中',
+                                        { x: btnRect.left + btnRect.width / 2, y: btnRect.top }
+                                    );
 
-                                    // 添加扩写结果到历史记录
+                                    result = await APIService.llmExpandPrompt(inputValue, request_id);
+                                }
+
+                                // 流式完成后，获取最终内容
+                                const finalContent = streamContent || result?.data?.expanded || '';
+
+                                if (result && result.success && finalContent) {
+                                    // 最终更新（触发事件和高亮）
+                                    this.updateInputWithHighlight(widget, finalContent);
+
+                                    // 添加扩写结果到历史记录（只记录最终结果）
                                     HistoryCacheService.addHistory({
                                         workflow_id: widget.nodeInfo?.workflow_id || '',
                                         node_id: widget.nodeId,
                                         input_id: widget.inputId,
-                                        content: result.data.expanded,
+                                        content: finalContent,
                                         operation_type: 'expand',
                                         request_id: request_id,
                                         timestamp: Date.now()
                                     });
 
                                     // 重置撤销状态
-                                    HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, result.data.expanded);
+                                    HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, finalContent);
 
                                     // 更新按钮状态
                                     UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
@@ -1618,7 +1792,7 @@ class PromptAssistant {
                                     };
                                 } else {
                                     // 不在这里显示错误提示，直接抛出错误让 handleAsyncButtonOperation 处理
-                                    throw new Error(result.error);
+                                    throw new Error(result?.error || '扩写失败');
                                 }
                             } catch (error) {
                                 // 不在这里显示错误提示，直接抛出错误让 handleAsyncButtonOperation 处理
@@ -1866,7 +2040,7 @@ class PromptAssistant {
                                             throw new Error('没有检测到可翻译的内容');
                                         }
                                         // 如果原内容有东西但提取为空，可能全是代码块，保留原内容作为待翻译（实际上API可能跳过）
-                                        // 或者这里 contentToTranslate 保持为 inputValue ?
+                                        // 或者这里 contentToTranslate 为 inputValue ?
                                         // 不，protectAndExtract 没提取到，说明不该翻译。
                                         // 但为了流程继续，如果不抛错，我们假设 contentToTranslate 为空导致后续报错
                                     }
@@ -1955,6 +2129,7 @@ class PromptAssistant {
 
                                 // 获取翻译服务配置
                                 let result;
+                                let streamContent = '';  // 用于流式收集内容
                                 try {
                                     // 获取翻译配置
                                     const configResp = await fetch(APIService.getApiUrl('/config/translate'));
@@ -1969,15 +2144,29 @@ class PromptAssistant {
                                     }
 
                                     if (isBaidu) {
-                                        // 使用百度翻译服务
+                                        // 百度翻译不支持流式，使用原有接口（自动降级）
                                         result = await APIService.baiduTranslate(
                                             contentToTranslate,
                                             langResult.from,
                                             langResult.to,
                                             request_id
                                         );
+                                    } else if (FEATURES.enableStreaming !== false) {
+                                        // ---流式输出：LLM翻译使用流式 API---
+                                        result = await APIService.llmTranslateStream(
+                                            contentToTranslate,
+                                            langResult.from,
+                                            langResult.to,
+                                            request_id,
+                                            (chunk) => {
+                                                // 流式回调：实时更新输入框内容
+                                                streamContent += chunk;
+                                                // 使用 silent 模式更新，避免频繁触发事件
+                                                setInputValue(widget, streamContent, { silent: true, html: isMarkdownLiteGraph });
+                                            }
+                                        );
                                     } else {
-                                        // 使用LLM翻译服务
+                                        // ---阻塞输出：LLM翻译使用普通 API---
                                         result = await APIService.llmTranslate(
                                             contentToTranslate,
                                             langResult.from,
@@ -1995,8 +2184,9 @@ class PromptAssistant {
                                 }
 
                                 if (result.success) {
-                                    // 格式化翻译结果（转换标点符号）
-                                    const formattedText = PromptFormatter.formatTranslatedText(result.data.translated);
+                                    // 格式化翻译结果（优先使用流式收集的内容，否则使用API返回的内容）
+                                    const rawTranslated = streamContent || result.data?.translated || '';
+                                    const formattedText = PromptFormatter.formatTranslatedText(rawTranslated);
 
                                     // 处理 Markdown 格式还原
                                     let finalResultText = formattedText;
@@ -2027,7 +2217,15 @@ class PromptAssistant {
 
                                     // 只有开启缓存时才写入缓存 (使用提取文本和翻译后的片段文本，以便下次能复用)
                                     if (FEATURES.useTranslateCache) {
-                                        TranslateCacheService.addTranslateCache(contentToTranslate, formattedText);
+                                        // 检查是否是混合语言
+                                        const isMixedLang = PromptFormatter.isMixedChineseEnglish(contentToTranslate);
+
+                                        // 只有当不是混合语言，或者用户允许缓存混合语言时才写入缓存
+                                        if (!isMixedLang || FEATURES.cacheMixedLangTranslation) {
+                                            TranslateCacheService.addTranslateCache(contentToTranslate, formattedText);
+                                        } else {
+                                            logger.debug(`翻译缓存 | 跳过:混合语言内容`);
+                                        }
                                     }
 
                                     return {
@@ -2050,7 +2248,7 @@ class PromptAssistant {
                 visible: FEATURES.translate, // Note节点只显示此按钮
                 // 添加右键菜单配置
                 contextMenu: async (widget) => {
-                    const useTranslateCache = app.ui.settings.getSettingValue("PromptAssistant.Features.UseTranslateCache", true);
+                    const useTranslateCache = app.ui.settings.getSettingValue("PromptAssistant.Features.UseTranslateCache");
 
                     // 获取所有服务列表和当前激活状态
                     let services = [];
@@ -2096,6 +2294,11 @@ class PromptAssistant {
                                 if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
                                 UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: 百度翻译`);
                                 logger.log(`翻译服务切换 | 服务: 百度翻译`);
+
+                                // 派发全局事件通知其他组件同步
+                                window.dispatchEvent(new CustomEvent('pa-service-changed', {
+                                    detail: { service_type: 'translate', service_id: 'baidu' }
+                                }));
                             } catch (err) {
                                 logger.error(`切换翻译服务失败: ${err.message}`);
                                 UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
@@ -2126,6 +2329,11 @@ class PromptAssistant {
                                             const modelLabel = model.display_name || model.name;
                                             UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name} - ${modelLabel}`);
                                             logger.log(`翻译服务切换 | 服务: ${service.name} | 模型: ${modelLabel}`);
+
+                                            // 派发全局事件通知其他组件同步
+                                            window.dispatchEvent(new CustomEvent('pa-service-changed', {
+                                                detail: { service_type: 'translate', service_id: service.id, model_name: model.name }
+                                            }));
                                         } catch (err) {
                                             logger.error(`切换翻译模型失败: ${err.message}`);
                                             UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
@@ -2147,6 +2355,11 @@ class PromptAssistant {
                                         if (!res.ok) throw new Error(`服务器返回错误: ${res.status}`);
                                         UIToolkit.showStatusTip(context.buttonElement, 'success', `已切换到: ${service.name}`);
                                         logger.log(`翻译服务切换 | 服务: ${service.name}`);
+
+                                        // 派发全局事件通知其他组件同步
+                                        window.dispatchEvent(new CustomEvent('pa-service-changed', {
+                                            detail: { service_type: 'translate', service_id: service.id }
+                                        }));
                                     } catch (err) {
                                         logger.error(`切换翻译服务失败: ${err.message}`);
                                         UIToolkit.showStatusTip(context.buttonElement, 'error', `切换失败: ${err.message}`);
@@ -2310,6 +2523,11 @@ class PromptAssistant {
         if (!forceUpdate && prevState === hasScrollbar) {
             return; // 状态未变，不做任何操作
         }
+
+        // 【关键修复】在位置/布局调整前，显式移除输入框的高亮状态
+        // 防止浏览器在重排（Relayout）过程中产生动画残留
+        UIToolkit.removeHighlight(inputEl);
+
         containerDiv.dataset.hasScrollbar = String(hasScrollbar);
 
         // 有滚动条时向左偏移，避开滚动条
@@ -2323,18 +2541,20 @@ class PromptAssistant {
      * @param {Function} onComplete - 定位完成回调，接收boolean参数，true表示成功，false表示失败
      */
     _setupUIPosition(widget, inputEl, containerDiv, canvasContainerRect, onComplete) {
-        logger.debug(`[_setupUIPosition] 开始定位 | 节点ID: ${widget.nodeId} | inputEl存在: ${!!inputEl}`);
+
 
         // 清理函数列表
         widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
 
-        // 获取节点对象
-        const node = app.graph?.getNodeById(widget.nodeId);
+        // 【关键修复】直接使用 widget.node 而不是通过 app.graph.getNodeById 查找
+        // 因为进入子图后 app.graph 已经切换到子图的 graph，无法找到主画布节点
+        const node = widget.node;
         if (!node) {
-            logger.debug(`[定位] 节点不存在 | ID: ${widget.nodeId}`);
+            logger.debug(`[定位] widget.node 不存在 | ID: ${widget.nodeId}`);
             if (onComplete) onComplete(false);
             return;
         }
+
 
         // 创建widget对象用于容器查找
         const widgetObj = {
@@ -2352,7 +2572,7 @@ class PromptAssistant {
             retryInterval: isVueMode ? 800 : 500
         }).then(containerInfo => {
             if (!containerInfo) {
-                logger.debug(`[定位] 容器查找失败 | 节点ID: ${widget.nodeId}`);
+                // logger.debug(`[定位] 容器查找失败 | 节点ID: ${widget.nodeId}`);
                 if (onComplete) onComplete(false);
                 return;
             }
@@ -2370,8 +2590,9 @@ class PromptAssistant {
             // 触发回流确保样式生效
             void containerDiv.offsetWidth;
 
+            // 最终成功日志保持精简
+            logger.debug(`[定位] 成功 | ID: ${widget.nodeId} | 模式: ${containerInfo.mode} | 锚点: ${widget.container?.anchorPosition}`);
             if (onComplete) onComplete(true);
-            logger.debug(`[定位] 成功 | 节点ID: ${widget.nodeId} | 模式: ${containerInfo.mode}`);
 
         }).catch(error => {
             logger.error(`[定位] 异常 | 节点ID: ${widget.nodeId} | 错误: ${error.message}`);
@@ -2386,45 +2607,29 @@ class PromptAssistant {
         let { container, textarea, nodeContainer, isNoteNode } = containerInfo;
 
         // 【特殊处理】Note节点在Vue mode下可能需要二次查找textarea
-        // 因为Note节点的DOM结构较简单，直接查找节点容器内的textarea
         if (!textarea && isNoteNode && nodeContainer) {
-            logger.debug(`[Vue定位] Note节点二次查找textarea | 节点ID: ${widget.nodeId}`);
-
-            // 在整个节点容器内查找textarea
             const textareas = nodeContainer.querySelectorAll('textarea');
             if (textareas.length > 0) {
                 textarea = textareas[0];
                 container = textarea.parentElement;
-                logger.debug(`[Vue定位] Note节点找到textarea | 节点ID: ${widget.nodeId}`);
             } else {
-                // 仍然没有找到，可能DOM还未渲染完成
                 logger.warn(`[Vue定位] Note节点仍未找到textarea | 节点ID: ${widget.nodeId}`);
             }
         }
 
-        // 【关键】在Vue mode下，更新widget的inputEl引用为实际的textarea元素
-        // 这样翻译、扩写等功能才能正确读取/写入文本内容
+        // 定期更新输入框引用及事件绑定
         if (textarea && textarea !== widget.inputEl) {
-            const oldInputEl = widget.inputEl;
             widget.inputEl = textarea;
             widget.text_element = textarea;
-
-            // 更新全局输入框映射
             if (window.PromptAssistantInputWidgetMap && window.PromptAssistantInputWidgetMap[widget.widgetKey]) {
                 window.PromptAssistantInputWidgetMap[widget.widgetKey].inputEl = textarea;
             }
 
-            logger.debug(`[Vue定位] 更新inputEl引用 | 节点ID: ${widget.nodeId}`);
-
-            // 为新的textarea绑定事件（如果之前没有绑定过）
-            // 避免重复绑定：检查是否已经有相关事件监听
             if (!textarea._promptAssistantBound) {
                 textarea._promptAssistantBound = true;
                 widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
 
-                // 绑定blur事件用于历史记录
-                const removeBlurListener = EventManager.addDOMListener(textarea, 'blur', async () => {
-                    logger.debug(`[Vue] 历史写入准备 | 原因：失焦事件触发 node_id=${widget.nodeId} input_id=${widget.inputId}`);
+                widget._eventCleanupFunctions.push(EventManager.addDOMListener(textarea, 'blur', async () => {
                     HistoryCacheService.addHistory({
                         workflow_id: widget.nodeInfo?.workflow_id || '',
                         node_id: widget.nodeId,
@@ -2433,114 +2638,76 @@ class PromptAssistant {
                         operation_type: 'input',
                         timestamp: Date.now()
                     });
-                    // 重置撤销状态
                     HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, textarea.value);
-                    // 更新按钮状态
                     UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-                });
-                widget._eventCleanupFunctions.push(removeBlurListener);
+                }));
 
-                // 绑定input事件用于实时更新按钮状态
-                const removeInputListener = EventManager.addDOMListener(textarea, 'input', () => {
+                widget._eventCleanupFunctions.push(EventManager.addDOMListener(textarea, 'input', () => {
                     UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
                     this._adjustPositionForScrollbar(widget, textarea);
-                });
-                widget._eventCleanupFunctions.push(removeInputListener);
+                }));
 
-                // 添加ResizeObserver监听textarea尺寸变化，当节点大小改变时自动调整位置
                 if (window.ResizeObserver) {
                     const resizeObserver = new ResizeObserver(() => {
                         setTimeout(() => this._adjustPositionForScrollbar(widget, textarea), 10);
                     });
                     resizeObserver.observe(textarea);
                     widget._eventCleanupFunctions.push(() => resizeObserver.disconnect());
-                } else {
-                    // 降级方案：监听window resize事件
-                    const removeResizeListener = EventManager.addDOMListener(window, 'resize',
-                        EventManager.debounce(() => this._adjustPositionForScrollbar(widget, textarea), 100)
-                    );
-                    widget._eventCleanupFunctions.push(removeResizeListener);
                 }
 
-                // 初始化撤销状态（只初始化一次，使用widget级别的标记）
                 if (!widget._undoStateInitialized) {
                     HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, textarea.value);
                     widget._undoStateInitialized = true;
-                    logger.debug(`[Vue定位] 撤销状态初始化 | 节点ID: ${widget.nodeId}`);
-                } else {
-                    logger.debug(`[Vue定位] 跳过重复初始化（已在createAssistant中完成） | 节点ID: ${widget.nodeId}`);
                 }
-
-                UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-
-                logger.debug(`[Vue定位] 事件绑定完成 | 节点ID: ${widget.nodeId}`);
-            } else {
-                // 如果已经绑定过事件，只更新按钮状态
-                UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-                logger.debug(`[Vue定位] 跳过重复绑定 | 节点ID: ${widget.nodeId}`);
             }
+            UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
         }
 
-        // 【防重复挂载检查】检查 textarea 是否已被小助手绑定
-        // 如果 textarea 已有挂载标记，说明另一个小助手实例已绑定此 textarea，跳过本次挂载
-        if (textarea && textarea._promptAssistantMounted) {
-            logger.debug(`[Vue定位] 跳过挂载 | 原因: textarea 已被其他小助手绑定 | 节点ID: ${widget.nodeId}`);
-            // 清理当前 widget 实例（因为无法正确挂载）
-            if (widget.widgetKey && PromptAssistant.instances.has(widget.widgetKey)) {
-                PromptAssistant.instances.delete(widget.widgetKey);
-            }
-            if (widget.container) {
-                widget.container.destroy();
-            }
+        // 防重复挂载检查
+        if (textarea && textarea._promptAssistantMounted && textarea._promptAssistantWidgetKey !== widget.widgetKey) {
+            this._cleanupRedundantWidget(widget);
             return;
         }
 
-        // 【防重复挂载检查】检查容器内是否已存在小助手元素
         const existingAssistant = container.querySelector('.assistant-container-common');
-        if (existingAssistant) {
-            logger.debug(`[Vue定位] 跳过挂载 | 原因: 容器内已存在小助手 | 节点ID: ${widget.nodeId}`);
-            // 清理当前 widget 实例（因为无法正确挂载）
-            if (widget.widgetKey && PromptAssistant.instances.has(widget.widgetKey)) {
-                PromptAssistant.instances.delete(widget.widgetKey);
-            }
-            if (widget.container) {
-                widget.container.destroy();
-            }
+        if (existingAssistant && !container.contains(containerDiv)) {
+            this._cleanupRedundantWidget(widget);
             return;
         }
 
-        // 在 textarea 上添加挂载标记
         if (textarea) {
             textarea._promptAssistantMounted = true;
-            // 保存 widgetKey 用于清理时移除标记
             textarea._promptAssistantWidgetKey = widget.widgetKey;
         }
 
-        // Vue node2.0 模式：使用相对定位，根据 anchorPosition 设置位置
         containerDiv.style.position = 'absolute';
         containerDiv.style.zIndex = '10';
-
-        // 确保容器有相对定位
-        const containerPosition = window.getComputedStyle(container).position;
-        if (containerPosition === 'static') {
+        if (window.getComputedStyle(container).position === 'static') {
             container.style.position = 'relative';
         }
 
-        // 添加Vue模式标记类
         containerDiv.classList.add('vue-node-mode');
-
-        // 挂载到容器
-        container.appendChild(containerDiv);
-
-        // 挂载完成后检测并调整滚动条位置
-        // 使用多重延迟策略，确保 textarea 内容已完全加载
-        if (textarea) {
-            requestAnimationFrame(() => this._adjustPositionForScrollbar(widget, textarea, true));
-            setTimeout(() => this._adjustPositionForScrollbar(widget, textarea, true), 50);
-            setTimeout(() => this._adjustPositionForScrollbar(widget, textarea, true), 150);
+        if (!container.contains(containerDiv)) {
+            container.appendChild(containerDiv);
         }
 
-        logger.debug(`[Vue定位] 完成 | 节点ID: ${widget.nodeId} | 锚点: ${widget.container?.anchorPosition}`);
+        if (textarea) {
+            requestAnimationFrame(() => this._adjustPositionForScrollbar(widget, textarea, true));
+            setTimeout(() => this._adjustPositionForScrollbar(widget, textarea, true), 150);
+        }
+    }
+
+    /**
+     * 清理冗余的 Widget 实例（当由于并发原因导致重复创建时）
+     * @private
+     */
+    _cleanupRedundantWidget(widget) {
+        if (widget.widgetKey && PromptAssistant.instances.has(widget.widgetKey)) {
+            PromptAssistant.instances.delete(widget.widgetKey);
+        }
+        if (widget.container) {
+            widget.container.destroy();
+        }
     }
 
     /**
@@ -2560,7 +2727,7 @@ class PromptAssistant {
                 window.PromptAssistantInputWidgetMap[widget.widgetKey].inputEl = textarea;
             }
 
-            logger.debug(`[Litegraph定位] 更新inputEl引用 | 节点ID: ${widget.nodeId}`);
+            // logger.debug(`[Litegraph定位] 更新inputEl引用 | 节点ID: ${widget.nodeId}`);
         }
 
         // 【关键修复】确保事件绑定（与 Vue mode 一致的后备逻辑）
@@ -2569,7 +2736,9 @@ class PromptAssistant {
         // 使用 widget 级别的 flag 判断
         const isBound = widget._inputEventsBound;
 
-        logger.debug(`[Litegraph定位] 事件绑定检查 | 节点ID: ${widget.nodeId} | inputEl存在: ${!!inputEl} | isBound: ${isBound}`);
+        // 精简定位开始日志
+        // logger.debug(`[_setupUIPosition] 开始定位 | 节点ID: ${widget.nodeId}`);
+        // logger.debug(`[Litegraph定位] 事件绑定检查 | 节点ID: ${widget.nodeId} | inputEl存在: ${!!inputEl} | isBound: ${isBound}`);
 
         // 如果没有绑定，则绑定事件
         if (inputEl && !isBound) {
@@ -2581,11 +2750,11 @@ class PromptAssistant {
             inputEl._promptAssistantBound = true;
             widget._inputEventsBound = true; // 设置标记
             widget._eventCleanupFunctions = widget._eventCleanupFunctions || [];
-            logger.debug(`[Litegraph定位] 开始绑定事件 | 节点ID: ${widget.nodeId}`);
+            // logger.debug(`[Litegraph定位] 开始绑定事件 | 节点ID: ${widget.nodeId}`);
 
             // 绑定blur事件用于历史记录
             const removeBlurListener = EventManager.addDOMListener(inputEl, 'blur', async () => {
-                logger.debug(`[Litegraph] 历史写入准备 | 原因：失焦事件触发 node_id=${widget.nodeId} input_id=${widget.inputId}`);
+                // logger.debug(`[Litegraph] 历史写入准备 | 原因：失焦事件触发 node_id=${widget.nodeId} input_id=${widget.inputId}`);
                 HistoryCacheService.addHistory({
                     workflow_id: widget.nodeInfo?.workflow_id || '',
                     node_id: widget.nodeId,
@@ -2608,15 +2777,13 @@ class PromptAssistant {
             });
             widget._eventCleanupFunctions.push(removeInputListener);
 
-            // 初始化撤销状态
             if (!widget._undoStateInitialized) {
                 HistoryCacheService.initUndoState(widget.nodeId, widget.inputId, inputEl.value);
                 widget._undoStateInitialized = true;
-                logger.debug(`[Litegraph定位] 撤销状态初始化 | 节点ID: ${widget.nodeId}`);
             }
 
             UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
-            logger.debug(`[Litegraph定位] 事件绑定完成 | 节点ID: ${widget.nodeId}`);
+            // logger.debug(`[Litegraph定位] 事件绑定完成 | 节点ID: ${widget.nodeId}`);
         } else if (inputEl && inputEl._promptAssistantBound) {
             // 已绑定，只更新按钮状态
             UIToolkit.updateUndoRedoButtonState(widget, HistoryCacheService);
@@ -2676,8 +2843,6 @@ class PromptAssistant {
         if (inputEl) {
             requestAnimationFrame(() => this._adjustPositionForScrollbar(widget, inputEl, true));
         }
-
-        logger.debug(`[Litegraph定位] 完成 | 节点ID: ${widget.nodeId} | 锚点: ${widget.container?.anchorPosition}`);
     }
 
     /**
@@ -2690,6 +2855,9 @@ class PromptAssistant {
                 logger.debug(`实例清理 | 结果:跳过 | 实例:${instanceKey || 'unknown'} | 原因:实例不存在`);
                 return;
             }
+
+            // 标记实例为已销毁
+            instance.isDestroyed = true;
 
             // 1. 重置所有按钮状态
             if (instance.buttons) {
@@ -2737,7 +2905,6 @@ class PromptAssistant {
             // 确保模式切换后可以重新绑定事件
             if (instance.inputEl && instance.inputEl._promptAssistantBound) {
                 instance.inputEl._promptAssistantBound = false;
-                logger.debug(`重置绑定标记 | 节点ID: ${instance.nodeId || instanceKey}`);
             }
             if (instance.text_element && instance.text_element._promptAssistantBound) {
                 instance.text_element._promptAssistantBound = false;
@@ -2748,7 +2915,6 @@ class PromptAssistant {
             if (instance.inputEl && instance.inputEl._promptAssistantMounted) {
                 instance.inputEl._promptAssistantMounted = false;
                 delete instance.inputEl._promptAssistantWidgetKey;
-                logger.debug(`重置挂载标记 | 节点ID: ${instance.nodeId || instanceKey}`);
             }
             if (instance.text_element && instance.text_element._promptAssistantMounted && instance.text_element !== instance.inputEl) {
                 instance.text_element._promptAssistantMounted = false;
@@ -2822,7 +2988,7 @@ class PromptAssistant {
                 logger.debug(`属性清理 | 错误:${err.message}`);
             }
 
-            logger.debug(`实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
+            // logger.debug(`实例清理 | 结果:成功 | 实例:${instanceKey || 'unknown'}`);
         } catch (error) {
             logger.error(`实例清理失败 | 实例:${instanceKey || 'unknown'} | 错误:${error.message}`);
         }

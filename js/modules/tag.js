@@ -39,7 +39,6 @@ class TagManager {
         try {
             if (category && typeof category === 'string') {
                 CacheService.set(this.LAST_TAB_KEY, category);
-                logger.debug(`[助手-标签] 记忆标签页 | 当前:${category}`);
             }
         } catch (e) { }
     }
@@ -71,7 +70,6 @@ class TagManager {
             }
             state[tabName][accordionPath] = isExpanded;
             CacheService.set(this.ACCORDION_STATE_KEY, JSON.stringify(state));
-            logger.debug(`[助手-标签] 记忆手风琴 | 标签页:${tabName} | 路径:${accordionPath} | 展开:${isExpanded}`);
         } catch (e) {
             logger.error(`保存手风琴状态失败: ${e.message}`);
         }
@@ -99,10 +97,56 @@ class TagManager {
         try {
             const size = { width, height };
             CacheService.set(this.POPUP_SIZE_KEY, JSON.stringify(size));
-            logger.debug(`[助手-标签] 记忆窗口大小 | 宽:${width}px | 高:${height}px`);
         } catch (e) {
             logger.error(`保存窗口大小失败: ${e.message}`);
         }
+    }
+
+    /**
+     * 递归查找分类对象
+     * @param {Object} obj 数据对象
+     * @param {string} catName 分类名称
+     * @returns {Object|null} 找到的分类对象或 null
+     * @note 对于虚拟分类"标签"（仅在没有实际分类时使用），返回根对象本身
+     */
+    static _findCategoryRecursively(obj, catName) {
+        if (!obj || typeof obj !== 'object') return null;
+        // 虚拟分类"标签"代表根级别，返回根对象本身
+        // 这个分类仅在 CSV 中没有任何实际分类，只有根标签时使用
+        if (catName === "" || catName === "标签") return obj;
+
+        for (const [key, value] of Object.entries(obj)) {
+            if (key === catName && typeof value === 'object' && value !== null) {
+                return value;
+            }
+            if (typeof value === 'object' && value !== null) {
+                const result = this._findCategoryRecursively(value, catName);
+                if (result) return result;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 递归查找标签及其父对象
+     * @param {Object} obj 数据对象
+     * @param {string} tagName 标签名称
+     * @param {string} tagValue 标签值
+     * @returns {Object|null} 包含 {parent, key} 的对象或 null
+     */
+    static _findTagRecursively(obj, tagName, tagValue) {
+        if (!obj || typeof obj !== 'object') return null;
+
+        for (const [key, value] of Object.entries(obj)) {
+            if (key === tagName && value === tagValue) {
+                return { parent: obj, key: key };
+            }
+            if (typeof value === 'object' && value !== null) {
+                const result = this._findTagRecursively(value, tagName, tagValue);
+                if (result) return result;
+            }
+        }
+        return null;
     }
     static popupInstance = null;
     static onCloseCallback = null;  // 添加关闭回调存储
@@ -191,7 +235,7 @@ class TagManager {
                     this.refreshSearchResultsState();
                 }
 
-                logger.debug(`标签操作 | 动作:移除 | 标签:"${tagName}" | 原始值:"${tagValue}"`);
+                // logger.debug(`标签操作 | 动作:移除 | 标签:"${tagName}" | 原始值:"${tagValue}"`);
             } else {
                 // 标签未使用，插入
                 // 获取光标位置前后的文本
@@ -268,7 +312,7 @@ class TagManager {
                     this.refreshSearchResultsState();
                 }
 
-                logger.debug(`标签操作 | 动作:插入 | 标签:"${tagName}" | 原始值:"${tagValue}" | 格式类型:${formatType} | 插入格式:"${insertFormat}"`);
+                // logger.debug(`标签操作 | 动作:插入 | 标签:"${tagName}" | 原始值:"${tagValue}" | 格式类型:${formatType} | 插入格式:"${insertFormat}"`);
             }
         } catch (error) {
             logger.error(`标签操作失败 | 标签:"${tagName}" | 错误:${error.message}`);
@@ -622,11 +666,23 @@ class TagManager {
             tabContents.style.flex = '1'; // 确保内容区域占满剩余空间
             tabContents.style.minHeight = '0'; // 允许flex收缩
 
-            // 获取所有一级分类
+            // 获取所有一级分类和标签
             const categories = Object.keys(data);
 
-            // 如果没有分类，返回空容器
-            if (categories.length === 0) {
+            // 分离根级别标签（字符串值）和实际分类（对象值）
+            // 注意：我们只在渲染时分离，不修改原始 data 对象
+            const rootTags = {};
+            const actualCategories = [];
+            categories.forEach(key => {
+                if (typeof data[key] === 'string') {
+                    rootTags[key] = data[key];
+                } else {
+                    actualCategories.push(key);
+                }
+            });
+
+            // 如果没有分类且没有根标签，返回空容器
+            if (actualCategories.length === 0 && Object.keys(rootTags).length === 0) {
                 const emptyContainer = document.createElement('div');
                 emptyContainer.className = 'tag_category_container';
                 return emptyContainer;
@@ -663,10 +719,7 @@ class TagManager {
                 const scrollLeft = tabsScroll.scrollLeft;
                 const maxScroll = tabsScroll.scrollWidth - tabsScroll.clientWidth;
 
-                // 临时调试日志 - 显示接近边界时的滚动值
-                if (scrollLeft < 10 || scrollLeft > maxScroll - 10) {
-                    logger.debug(`[标签-滚动] scrollLeft: ${scrollLeft.toFixed(2)}, maxScroll: ${maxScroll.toFixed(2)}`);
-                }
+                // 移除高频滚动调试日志
 
                 leftIndicator.style.display = scrollLeft > 5 ? 'flex' : 'none';
                 rightIndicator.style.display = scrollLeft < (maxScroll - 5) ? 'flex' : 'none';
@@ -768,8 +821,11 @@ class TagManager {
                 }
             }, 100);
 
-            // 为每个一级分类创建标签和内容
-            categories.forEach((category, index) => {
+            // 如果没有实际分类但有根标签，创建一个默认 Tab 来显示它们
+            const finalCategories = actualCategories.length > 0 ? actualCategories : (Object.keys(rootTags).length > 0 ? ["标签"] : []);
+
+            // 为每个分类创建标签和内容
+            finalCategories.forEach((category, index) => {
                 // 创建标签
                 const tab = document.createElement('div');
                 tab.className = 'popup_tab';
@@ -858,14 +914,34 @@ class TagManager {
                     content.style.flexDirection = 'column';
                 }
 
-                // 递归创建子内容（二级分类开始使用手风琴）
-                if (typeof data[category] === 'object' && data[category] !== null) {
-                    const innerContent = this._createInnerAccordion(data[category], '1', category, category);
+                // 获取该分类的数据
+                // 如果是"标签"虚拟分类（仅在没有实际分类时使用），使用根标签作为数据
+                const categoryData = category === "标签" ? rootTags : data[category];
+
+                if (typeof categoryData === 'object' && categoryData !== null) {
+                    // 使用 _createInnerAccordion，它已经支持混合内容（标签+子分类）
+                    const innerContent = this._createInnerAccordion(categoryData, '1', category, category);
                     content.appendChild(innerContent);
                 }
 
                 tabContents.appendChild(content);
             });
+
+            // ---在 Tab 栏末尾添加"新建分类"按钮---
+            const addTabButton = document.createElement('div');
+            addTabButton.className = 'popup_tab add_category_tab';
+            addTabButton.title = '新建分类';
+
+            const addTabIcon = document.createElement('span');
+            addTabIcon.className = 'pi pi-plus';
+            addTabButton.appendChild(addTabIcon);
+
+            const addTabClickCleanup = EventManager.addDOMListener(addTabButton, 'click', (e) => {
+                e.stopPropagation();
+                this._handleAddCategory(addTabButton, null, tabs, tabContents, data);
+            });
+            this.eventCleanups.push(addTabClickCleanup);
+            tabs.appendChild(addTabButton);
 
             // 组装标签页结构
             tabsScroll.appendChild(tabs);
@@ -1375,6 +1451,16 @@ class TagManager {
                 header.appendChild(headerTitle);
                 header.appendChild(headerIcon);
 
+                // 添加右键菜单事件（收藏页面不显示）
+                if (tabName !== 'favorites') {
+                    const headerContextMenuCleanup = EventManager.addDOMListener(header, 'contextmenu', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        this._showCategoryContextMenu(e, key, false, tabName);
+                    });
+                    this.eventCleanups.push(headerContextMenuCleanup);
+                }
+
                 // 添加拖拽时自动展开功能
                 let hoverTimer = null;
                 const dragOverCleanup = EventManager.addDOMListener(header, 'dragover', (e) => {
@@ -1412,10 +1498,9 @@ class TagManager {
                 content.className = 'tag_accordion_content';
 
                 // 递归创建子内容
-                // 对于收藏标签页（categoryName为null）的第一层（level='1'），使用key（CSV文件名）作为categoryName
-                // 对于其他情况，继续传递原来的categoryName
-                const childCategoryName = (categoryName === null && level === '1') ? key : categoryName;
-                const childContent = this._createInnerAccordion(value, (parseInt(level) + 1).toString(), tabName, childCategoryName);
+                // 传递当前手风琴的分类名称（key）作为 categoryName，而不是父分类名称
+                // 这样每个容器的 data-sortable-category 才能正确标识其所属分类
+                const childContent = this._createInnerAccordion(value, (parseInt(level) + 1).toString(), tabName, key);
                 childContent.style.flex = '1'; // 让子内容占满可用空间
                 childContent.style.minHeight = '0'; // 允许flex收缩
                 content.appendChild(childContent);
@@ -1514,6 +1599,24 @@ class TagManager {
                 const tagItem = this._createTagElement(key, value, categoryName);
                 container.appendChild(tagItem);
             }
+        }
+
+        // ---在手风琴列表末尾添加"新建子分类"按钮（仅限 level='1'，即第一级手风琴）---
+        if (level === '1' && tabName !== 'favorites') {
+            const addSubCategoryBtn = document.createElement('div');
+            addSubCategoryBtn.className = 'add_subcategory_button';
+            addSubCategoryBtn.title = '新建子分类';
+
+            const addSubCategoryIcon = document.createElement('span');
+            addSubCategoryIcon.className = 'pi pi-plus';
+            addSubCategoryBtn.appendChild(addSubCategoryIcon);
+
+            const addSubCategoryClickCleanup = EventManager.addDOMListener(addSubCategoryBtn, 'click', (e) => {
+                e.stopPropagation();
+                this._handleAddCategory(addSubCategoryBtn, tabName, null, null, data, categoryName);
+            });
+            this.eventCleanups.push(addSubCategoryClickCleanup);
+            container.appendChild(addSubCategoryBtn);
         }
 
         // 初始化拖拽排序（如果有 Sortable）
@@ -1625,12 +1728,14 @@ class TagManager {
                         const tempObj = { ...data };
                         for (const key in data) delete data[key];
 
+                        // 先添加排序后的标签
                         newOrderKeys.forEach(key => {
                             if (Object.prototype.hasOwnProperty.call(tempObj, key)) {
                                 data[key] = tempObj[key];
                             }
                         });
 
+                        // 补回其他键（即该层级下的子分类）
                         for (const key in tempObj) {
                             if (!Object.prototype.hasOwnProperty.call(data, key)) {
                                 data[key] = tempObj[key];
@@ -1677,18 +1782,20 @@ class TagManager {
                             const tempObj = { ...data };
                             for (const key in data) delete data[key];
 
+                            // 先添加排序后的标签
                             newOrderKeys.forEach(key => {
                                 if (Object.prototype.hasOwnProperty.call(tempObj, key)) {
                                     data[key] = tempObj[key];
                                 }
                             });
 
-                            // 确保没有遗漏
+                            // 补回其他键（即该层级下的子分类/原本就在此处的子分类）
                             for (const key in tempObj) {
                                 if (!Object.prototype.hasOwnProperty.call(data, key)) {
                                     data[key] = tempObj[key];
                                 }
                             }
+
 
                             // 保存排序后的数据
                             await this._saveTagOrder(data, tabName, toCategory);
@@ -1796,23 +1903,9 @@ class TagManager {
                 return false;
             }
 
-            // 递归查找分类
-            const findCategoryRecursively = (obj, catName) => {
-                for (const [key, value] of Object.entries(obj)) {
-                    if (key === catName && typeof value === 'object' && value !== null) {
-                        return value;
-                    }
-                    if (typeof value === 'object' && value !== null) {
-                        const result = findCategoryRecursively(value, catName);
-                        if (result) return result;
-                    }
-                }
-                return null;
-            };
-
             // 获取源分类和目标分类
-            const sourceCategory = findCategoryRecursively(TagManager.tagData, fromCategory);
-            const targetCategory = findCategoryRecursively(TagManager.tagData, toCategory);
+            const sourceCategory = TagManager._findCategoryRecursively(TagManager.tagData, fromCategory);
+            const targetCategory = TagManager._findCategoryRecursively(TagManager.tagData, toCategory);
 
             if (!sourceCategory) {
                 logger.error(`[标签移动] 找不到源分类: ${fromCategory}`);
@@ -2013,6 +2106,9 @@ class TagManager {
         // 检查是否已收藏 (使用传入的 category)
         const isFavorited = this._isTagFavorited(tagValue, category);
 
+        // 查找触发右键的标签元素
+        const tagItem = e.target.closest('.tag_item') || e.currentTarget;
+
         // ---为收藏标签提供简化菜单---
         // 收藏标签（⭐️）是引用类型，不应该被编辑或删除，只能取消收藏
         const menuItems = isFavorited ? [
@@ -2021,8 +2117,8 @@ class TagManager {
                 label: '取消收藏',
                 icon: 'pi-minus-circle',
                 onClick: async () => {
-                    // 标准化分类名
-                    let targetCategory = category || this.currentCsvFile || "默认";
+                    // 使用CSV文件名作为分类名
+                    let targetCategory = this.currentCsvFile || "默认";
                     targetCategory = targetCategory.replace(/\.(csv|json|yaml|yml)$/i, '');
 
                     const success = await ResourceManager.removeFavorite(tagValue, targetCategory);
@@ -2059,8 +2155,8 @@ class TagManager {
                 label: '收藏标签',
                 icon: 'pi-star',
                 onClick: async () => {
-                    // 标准化分类名
-                    let targetCategory = category || this.currentCsvFile || "默认";
+                    // 使用CSV文件名作为分类名
+                    let targetCategory = this.currentCsvFile || "默认";
                     targetCategory = targetCategory.replace(/\.(csv|json|yaml|yml)$/i, '');
 
                     const success = await ResourceManager.addFavorite(tagValue, tagName, targetCategory);
@@ -2092,10 +2188,9 @@ class TagManager {
             {
                 label: '编辑标签',
                 icon: 'pi-pencil',
-                onClick: (e) => {
-                    // 使用 _showContextMenu 传入的 category 参数
-                    // 注意：右键菜单是 append 到 body 的，无法从 e.target 向上查找 .tag_item
-                    this._handleEditTag(e.target, tagName, tagValue, category);
+                onClick: () => {
+                    // 使用识别出的 tagItem 执行编辑
+                    this._handleEditTag(tagItem, tagName, tagValue, category);
                 }
             },
             {
@@ -2106,7 +2201,8 @@ class TagManager {
                 icon: 'pi-trash',
                 danger: true,
                 onClick: () => {
-                    this._handleDeleteTag(tagName, tagValue);
+                    // 使用识别出的 tagItem 执行删除
+                    this._handleDeleteTag(tagItem, tagName, tagValue);
                 }
             }
         ];
@@ -2115,6 +2211,557 @@ class TagManager {
             x: e.clientX,
             y: e.clientY,
             items: menuItems
+        });
+    }
+
+    /**
+     * 处理添加新分类
+     * @param {HTMLElement} triggerElement 触发元素（按钮）
+     * @param {string|null} parentTabName 父 Tab 名称（如果是添加子分类）
+     * @param {HTMLElement|null} tabsContainer Tab 容器（如果是添加顶级分类）
+     * @param {HTMLElement|null} tabContentsContainer Tab 内容容器（如果是添加顶级分类）
+     * @param {Object} data 当前数据对象
+     * @param {string|null} parentCategory 父分类名称（如果是添加子分类）
+     */
+    static _handleAddCategory(triggerElement, parentTabName, tabsContainer, tabContentsContainer, data, parentCategory = null) {
+        const isTopLevel = parentTabName === null; // 是否创建顶级分类（Tab）
+
+        // 创建表单内容渲染函数
+        const renderForm = (container) => {
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '16px';
+            container.style.minWidth = '250px';
+
+            // 分类名输入组 - 使用浮动标签样式
+            const nameGroup = document.createElement('div');
+            nameGroup.className = 'settings-form-group';
+
+            const nameFloatContainer = document.createElement('div');
+            nameFloatContainer.className = 'float-label-container';
+
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'p-inputtext p-component';
+            nameInput.placeholder = ' ';
+
+            const nameLabel = document.createElement('label');
+            nameLabel.textContent = '分类名称';
+
+            nameFloatContainer.appendChild(nameInput);
+            nameFloatContainer.appendChild(nameLabel);
+            nameGroup.appendChild(nameFloatContainer);
+            container.appendChild(nameGroup);
+
+            // 返回引用以便获取值
+            return { nameInput };
+        };
+
+        let inputs = {};
+
+        createConfirmPopup({
+            target: triggerElement,
+            message: isTopLevel ? '创建新的标签页分类' : `在 "${parentTabName}" 下创建子分类`,
+            icon: 'pi-plus',
+            position: 'top',
+            confirmLabel: '创建',
+            renderFormContent: (container) => {
+                inputs = renderForm(container);
+            },
+            onConfirm: async () => {
+                const categoryName = inputs.nameInput.value.trim();
+
+                if (!categoryName) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "输入无效",
+                        detail: "分类名称不能为空",
+                        life: 3000
+                    });
+                    throw new Error("Validation failed");
+                }
+
+                // 检查分类名是否已存在
+                const targetData = isTopLevel ? TagManager.tagData : data;
+                if (targetData && targetData.hasOwnProperty(categoryName)) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "创建失败",
+                        detail: `分类 "${categoryName}" 已存在`,
+                        life: 3000
+                    });
+                    throw new Error("Category already exists");
+                }
+
+                // 保存新分类
+                await this._saveNewCategory(categoryName, isTopLevel, parentTabName, parentCategory);
+            }
+        });
+    }
+
+    /**
+     * 保存新分类到 CSV
+     * @param {string} categoryName 分类名称
+     * @param {boolean} isTopLevel 是否为顶级分类
+     * @param {string|null} parentTabName 父 Tab 名称
+     * @param {string|null} parentCategory 父分类名称
+     */
+    static async _saveNewCategory(categoryName, isTopLevel, parentTabName, parentCategory) {
+        try {
+            // 使用 loadTagsCsv 加载当前 CSV 文件的最新数据
+            const filename = this.currentCsvFile || await ResourceManager.getSelectedTagFile();
+            if (!filename) {
+                throw new Error("无法确定当前 CSV 文件");
+            }
+
+            const data = await ResourceManager.loadTagsCsv(filename);
+            if (!data) {
+                throw new Error("加载标签数据失败");
+            }
+
+            // 确定目标位置并添加新分类
+            if (isTopLevel) {
+                // 检查顶级分类是否已存在
+                if (data.hasOwnProperty(categoryName)) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "分类已存在",
+                        detail: `分类 "${categoryName}" 已存在`,
+                        life: 3000
+                    });
+                    throw new Error("Category already exists");
+                }
+                // 添加顶级分类（空分类需要有一个占位标签才能保存）
+                data[categoryName] = { "__placeholder__": "__empty__" };
+            } else {
+                // 查找父分类
+                const parentData = this._findCategoryRecursively(data, parentTabName);
+                if (!parentData) {
+                    throw new Error(`找不到父分类: ${parentTabName}`);
+                }
+                // 检查子分类是否已存在
+                if (parentData.hasOwnProperty(categoryName)) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "分类已存在",
+                        detail: `分类 "${categoryName}" 已存在于 "${parentTabName}" 下`,
+                        life: 3000
+                    });
+                    throw new Error("Category already exists");
+                }
+                // 添加子分类（空分类需要有一个占位标签才能保存）
+                parentData[categoryName] = { "__placeholder__": "__empty__" };
+            }
+
+            // 保存到 CSV 文件
+            await ResourceManager.saveTagsCsv(filename, data);
+
+            // 重新加载 CSV 数据以刷新缓存
+            const newData = await ResourceManager.loadTagsCsv(filename);
+
+            // 更新静态数据引用
+            TagManager.tagData = newData;
+
+            // 实时刷新 UI
+            if (isTopLevel) {
+                // 顶级分类：在 Tab 栏中添加新 Tab（在"添加分类"按钮之前）
+                const tabs = document.querySelector('.popup_tabs');
+                const tabContents = document.querySelector('.tag_category_container');
+                const addCategoryBtn = tabs?.querySelector('.add_category_tab');
+
+                if (tabs && tabContents && addCategoryBtn) {
+                    // 创建新 Tab
+                    const tab = document.createElement('div');
+                    tab.className = 'popup_tab';
+                    tab.textContent = categoryName;
+                    tab.setAttribute('data-category', categoryName);
+
+                    // 创建内容区域
+                    const content = document.createElement('div');
+                    content.className = 'popup_tab_content';
+                    content.setAttribute('data-category', categoryName);
+                    content.style.flex = '1';
+                    content.style.display = 'none';
+
+                    // 添加 Tab 点击事件
+                    const tabClickCleanup = EventManager.addDOMListener(tab, 'click', () => {
+                        // 取消所有 Tab 激活状态
+                        tabs.querySelectorAll('.popup_tab').forEach(t => t.classList.remove('active'));
+                        tabContents.querySelectorAll('.popup_tab_content').forEach(c => {
+                            c.classList.remove('active');
+                            c.style.display = 'none';
+                        });
+
+                        // 激活当前 Tab
+                        tab.classList.add('active');
+                        content.classList.add('active');
+                        content.style.display = 'block';
+
+                        // 记忆当前选择的标签页
+                        TagManager.setLastActiveTab(categoryName);
+
+                        // 懒加载内容
+                        if (content.getAttribute('data-loaded') !== 'true') {
+                            this._loadCategoryContent(content, newData[categoryName], categoryName);
+                            content.setAttribute('data-loaded', 'true');
+                        }
+                    });
+                    this.eventCleanups.push(tabClickCleanup);
+
+                    // 在"添加分类"按钮之前插入新 Tab
+                    tabs.insertBefore(tab, addCategoryBtn);
+                    tabContents.appendChild(content);
+
+                    // 自动激活新创建的分类
+                    tab.click();
+                }
+            } else {
+                // 子分类：刷新当前 Tab 的内容
+                const activeTab = document.querySelector('.popup_tab.active');
+                const content = document.querySelector('.popup_tab_content.active');
+                if (activeTab && content) {
+                    const cat = activeTab.getAttribute('data-category');
+                    content.innerHTML = '';
+                    content.removeAttribute('data-loaded');
+                    this._loadCategoryContent(content, newData[cat], cat);
+                }
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "创建成功",
+                detail: `分类 "${categoryName}" 已创建`,
+                life: 3000
+            });
+
+        } catch (error) {
+            if (error.message !== "Validation failed" && error.message !== "Category already exists") {
+                logger.error(`创建分类失败: ${error.message}`);
+                app.extensionManager.toast.add({
+                    severity: "error",
+                    summary: "创建失败",
+                    detail: error.message,
+                    life: 3000
+                });
+            }
+        }
+    }
+
+    /**
+     * 显示分类右键菜单
+     * @param {Event} e 鼠标事件
+     * @param {string} categoryName 分类名称
+     * @param {boolean} isTopLevel 是否为顶级分类
+     * @param {string|null} parentCategory 父分类名称（对于手风琴）
+     */
+    static _showCategoryContextMenu(e, categoryName, isTopLevel, parentCategory = null) {
+        // 特殊分类不允许修改或删除
+        const specialCategories = ['⭐️', 'favorites', '已插入', '标签'];
+        if (specialCategories.includes(categoryName)) {
+            return;
+        }
+
+        // 保存触发元素以便后续使用
+        const targetElement = e.target.closest('.popup_tab') || e.target.closest('.tag_accordion_header') || e.target;
+
+        const menuItems = [
+            {
+                label: '修改名称',
+                icon: 'pi-pencil',
+                onClick: () => {
+                    // 从 DOM 获取最新的分类名称
+                    const currentName = isTopLevel
+                        ? targetElement.getAttribute('data-category') || targetElement.textContent.trim()
+                        : targetElement.closest('.tag_accordion')?.getAttribute('data-category') || categoryName;
+                    this._handleEditCategory(targetElement, currentName, isTopLevel, parentCategory);
+                }
+            },
+            {
+                separator: true
+            },
+            {
+                label: '删除分类',
+                icon: 'pi-trash',
+                danger: true,
+                onClick: () => {
+                    // 从 DOM 获取最新的分类名称
+                    const currentName = isTopLevel
+                        ? targetElement.getAttribute('data-category') || targetElement.textContent.trim()
+                        : targetElement.closest('.tag_accordion')?.getAttribute('data-category') || categoryName;
+                    this._handleDeleteCategory(targetElement, currentName, isTopLevel, parentCategory);
+                }
+            }
+        ];
+
+        showContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            items: menuItems
+        });
+    }
+
+    /**
+     * 处理编辑分类名称
+     * @param {HTMLElement} target 触发元素
+     * @param {string} oldName 原分类名称
+     * @param {boolean} isTopLevel 是否为顶级分类
+     * @param {string|null} parentCategory 父分类名称
+     */
+    static _handleEditCategory(target, oldName, isTopLevel, parentCategory) {
+        // 创建表单内容渲染函数
+        const renderForm = (container) => {
+            container.style.display = 'flex';
+            container.style.flexDirection = 'column';
+            container.style.gap = '16px';
+            container.style.minWidth = '250px';
+
+            const nameGroup = document.createElement('div');
+            nameGroup.className = 'settings-form-group';
+
+            const nameFloatContainer = document.createElement('div');
+            nameFloatContainer.className = 'float-label-container';
+
+            const nameInput = document.createElement('input');
+            nameInput.type = 'text';
+            nameInput.className = 'p-inputtext p-component';
+            nameInput.placeholder = ' ';
+            nameInput.value = oldName;
+
+            const nameLabel = document.createElement('label');
+            nameLabel.textContent = '分类名称';
+
+            nameFloatContainer.appendChild(nameInput);
+            nameFloatContainer.appendChild(nameLabel);
+            nameGroup.appendChild(nameFloatContainer);
+            container.appendChild(nameGroup);
+
+            // 自动聚焦并选中文本
+            setTimeout(() => {
+                nameInput.focus();
+                nameInput.select();
+            }, 100);
+
+            return { nameInput };
+        };
+
+        let inputs = {};
+
+        createConfirmPopup({
+            target: target,
+            message: `修改分类名称`,
+            icon: 'pi-pencil',
+            position: 'bottom',
+            confirmLabel: '保存',
+            renderFormContent: (container) => {
+                inputs = renderForm(container);
+            },
+            onConfirm: async () => {
+                const newName = inputs.nameInput.value.trim();
+
+                if (!newName) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "输入无效",
+                        detail: "分类名称不能为空",
+                        life: 3000
+                    });
+                    throw new Error("Validation failed");
+                }
+
+                if (newName === oldName) {
+                    return; // 名称未改变，无需保存
+                }
+
+                await this._saveEditedCategory(oldName, newName, isTopLevel, parentCategory);
+            }
+        });
+    }
+
+    /**
+     * 保存编辑后的分类名称
+     */
+    static async _saveEditedCategory(oldName, newName, isTopLevel, parentCategory) {
+        try {
+            const filename = this.currentCsvFile || await ResourceManager.getSelectedTagFile();
+            if (!filename) {
+                throw new Error("无法确定当前 CSV 文件");
+            }
+
+            const data = await ResourceManager.loadTagsCsv(filename);
+            if (!data) {
+                throw new Error("加载标签数据失败");
+            }
+
+            if (isTopLevel) {
+                // 顶级分类重命名
+                if (data.hasOwnProperty(newName)) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "名称已存在",
+                        detail: `分类 "${newName}" 已存在`,
+                        life: 3000
+                    });
+                    throw new Error("Category already exists");
+                }
+
+                // 复制数据到新名称，删除旧名称
+                data[newName] = data[oldName];
+                delete data[oldName];
+            } else {
+                // 子分类重命名
+                const parentData = this._findCategoryRecursively(data, parentCategory);
+                if (!parentData) {
+                    throw new Error(`找不到父分类: ${parentCategory}`);
+                }
+
+                if (parentData.hasOwnProperty(newName)) {
+                    app.extensionManager.toast.add({
+                        severity: "warn",
+                        summary: "名称已存在",
+                        detail: `分类 "${newName}" 已存在于 "${parentCategory}" 下`,
+                        life: 3000
+                    });
+                    throw new Error("Category already exists");
+                }
+
+                parentData[newName] = parentData[oldName];
+                delete parentData[oldName];
+            }
+
+            await ResourceManager.saveTagsCsv(filename, data);
+            const newData = await ResourceManager.loadTagsCsv(filename);
+            TagManager.tagData = newData;
+
+            // 刷新 UI
+            if (isTopLevel) {
+                // 更新 Tab 名称
+                const tab = document.querySelector(`.popup_tab[data-category="${oldName}"]`);
+                const tabContent = document.querySelector(`.popup_tab_content[data-category="${oldName}"]`);
+                if (tab) {
+                    tab.textContent = newName;
+                    tab.setAttribute('data-category', newName);
+                }
+                if (tabContent) {
+                    tabContent.setAttribute('data-category', newName);
+                }
+            } else {
+                // 刷新当前 Tab 内容
+                const activeTab = document.querySelector('.popup_tab.active');
+                const content = document.querySelector('.popup_tab_content.active');
+                if (activeTab && content) {
+                    const cat = activeTab.getAttribute('data-category');
+                    content.innerHTML = '';
+                    content.removeAttribute('data-loaded');
+                    this._loadCategoryContent(content, newData[cat], cat);
+                }
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "修改成功",
+                detail: `分类已重命名为 "${newName}"`,
+                life: 3000
+            });
+
+        } catch (error) {
+            if (error.message !== "Validation failed" && error.message !== "Category already exists") {
+                logger.error(`修改分类失败: ${error.message}`);
+                app.extensionManager.toast.add({
+                    severity: "error",
+                    summary: "修改失败",
+                    detail: error.message,
+                    life: 3000
+                });
+            }
+        }
+    }
+
+    /**
+     * 处理删除分类
+     */
+    static async _handleDeleteCategory(targetElement, categoryName, isTopLevel, parentCategory) {
+        // 使用确认弹窗 - 定位到触发元素
+        createConfirmPopup({
+            target: targetElement,
+            message: `确定要删除分类 "${categoryName}" 和该分类下的所有标签吗？`,
+            icon: 'pi-exclamation-triangle',
+            iconColor: 'var(--p-orange-500)',
+            position: 'bottom',
+            confirmLabel: '删除',
+            cancelLabel: '取消',
+            confirmDanger: true,
+            onConfirm: async () => {
+                try {
+                    const filename = this.currentCsvFile || await ResourceManager.getSelectedTagFile();
+                    if (!filename) {
+                        throw new Error("无法确定当前 CSV 文件");
+                    }
+
+                    const data = await ResourceManager.loadTagsCsv(filename);
+                    if (!data) {
+                        throw new Error("加载标签数据失败");
+                    }
+
+                    if (isTopLevel) {
+                        delete data[categoryName];
+                    } else {
+                        const parentData = this._findCategoryRecursively(data, parentCategory);
+                        if (parentData) {
+                            delete parentData[categoryName];
+                        }
+                    }
+
+                    await ResourceManager.saveTagsCsv(filename, data);
+                    const newData = await ResourceManager.loadTagsCsv(filename);
+                    TagManager.tagData = newData;
+
+                    // 刷新 UI
+                    if (isTopLevel) {
+                        // 删除 Tab 和内容
+                        const tab = document.querySelector(`.popup_tab[data-category="${categoryName}"]`);
+                        const tabContent = document.querySelector(`.popup_tab_content[data-category="${categoryName}"]`);
+
+                        const wasActive = tab?.classList.contains('active');
+
+                        tab?.remove();
+                        tabContent?.remove();
+
+                        // 如果删除的是当前激活的 Tab，激活第一个普通 Tab
+                        if (wasActive) {
+                            const firstTab = document.querySelector('.popup_tab:not(.add_category_tab)');
+                            if (firstTab) {
+                                firstTab.click();
+                            }
+                        }
+                    } else {
+                        // 刷新当前 Tab 内容
+                        const activeTab = document.querySelector('.popup_tab.active');
+                        const content = document.querySelector('.popup_tab_content.active');
+                        if (activeTab && content) {
+                            const cat = activeTab.getAttribute('data-category');
+                            content.innerHTML = '';
+                            content.removeAttribute('data-loaded');
+                            this._loadCategoryContent(content, newData[cat], cat);
+                        }
+                    }
+
+                    app.extensionManager.toast.add({
+                        severity: "success",
+                        summary: "删除成功",
+                        detail: `分类 "${categoryName}" 已删除`,
+                        life: 3000
+                    });
+
+                } catch (error) {
+                    logger.error(`删除分类失败: ${error.message}`);
+                    app.extensionManager.toast.add({
+                        severity: "error",
+                        summary: "删除失败",
+                        detail: error.message,
+                        life: 3000
+                    });
+                }
+            }
         });
     }
 
@@ -2232,22 +2879,8 @@ class TagManager {
                 throw new Error("加载标签数据失败");
             }
 
-            // 递归查找目标分类
-            const findCategoryRecursively = (obj, catKey) => {
-                for (const [key, value] of Object.entries(obj)) {
-                    if (key === catKey && typeof value === 'object' && value !== null) {
-                        return value;
-                    }
-                    if (typeof value === 'object' && value !== null) {
-                        const result = findCategoryRecursively(value, catKey);
-                        if (result) return result;
-                    }
-                }
-                return null;
-            };
-
             // 查找目标分类
-            let targetCategory = findCategoryRecursively(data, categoryKey);
+            let targetCategory = TagManager._findCategoryRecursively(data, categoryKey);
 
             if (!targetCategory) {
                 // 如果分类不存在，创建新分类
@@ -2424,89 +3057,69 @@ class TagManager {
                 throw new Error("加载标签数据失败");
             }
 
-            // 递归查找包含指定标签的父对象
-            const findTagRecursively = (obj, targetName, targetValue) => {
-                for (const [key, value] of Object.entries(obj)) {
-                    if (key === targetName && value === targetValue) {
-                        return { parent: obj, key: key };
-                    }
-                    if (typeof value === 'object' && value !== null) {
-                        const result = findTagRecursively(value, targetName, targetValue);
-                        if (result) return result;
-                    }
-                }
-                return null;
-            };
-
             // 查找原始标签
-            const found = findTagRecursively(data, oldName, oldValue);
+            const found = TagManager._findTagRecursively(data, oldName, oldValue);
 
-            if (found) {
-                const { parent } = found;
-
-                // 删除旧标签
-                delete parent[oldName];
-
-                // 如果分类改变，需要移动到新分类
-                if (oldCategory !== newCategory && newCategory) {
-                    const findCategoryRecursively = (obj, catName) => {
-                        for (const [key, value] of Object.entries(obj)) {
-                            if (key === catName && typeof value === 'object' && value !== null) {
-                                return value;
-                            }
-                            if (typeof value === 'object' && value !== null) {
-                                const result = findCategoryRecursively(value, catName);
-                                if (result) return result;
-                            }
-                        }
-                        return null;
-                    };
-
-                    let targetCategory = findCategoryRecursively(data, newCategory);
-
-                    if (!targetCategory) {
-                        data[newCategory] = {};
-                        targetCategory = data[newCategory];
-                    }
-
-                    targetCategory[newName] = newValue;
-                } else {
-                    parent[newName] = newValue;
-                }
-
-                // 保存到 CSV 文件
-                await ResourceManager.saveTagsCsv(filename, data);
-
-                // 重新加载 CSV 数据以刷新缓存
-                const newData = await ResourceManager.loadTagsCsv(filename);
-
-                // 更新静态数据引用，确保后续拖拽排序使用最新数据
-                TagManager.tagData = newData;
-
-                // 刷新当前视图
-                const activeTab = document.querySelector('.popup_tab.active');
-                const content = document.querySelector('.popup_tab_content.active');
-                if (activeTab && content) {
-                    const cat = activeTab.getAttribute('data-category');
-                    content.innerHTML = '';
-                    content.removeAttribute('data-loaded');
-
-                    if (cat === 'favorites') {
-                        this._loadCategoryContent(content, this.favorites, 'favorites');
-                    } else {
-                        this._loadCategoryContent(content, newData[cat], cat);
-                    }
-                }
-
-                app.extensionManager.toast.add({
-                    severity: "success",
-                    summary: "保存成功",
-                    detail: "标签已更新",
-                    life: 3000
-                });
-            } else {
+            if (!found) {
                 throw new Error("无法定位原始标签数据，请刷新后重试");
             }
+
+            const { parent } = found;
+
+            // 删除旧标签
+            delete parent[oldName];
+
+            // 确定目标分类对象
+            let targetCategoryObj;
+            if (oldCategory !== newCategory && newCategory) {
+                // 如果分类改变，移动到新分类
+                targetCategoryObj = TagManager._findCategoryRecursively(data, newCategory);
+                if (!targetCategoryObj) {
+                    // 如果目标分类不存在，创建它
+                    data[newCategory] = {};
+                    targetCategoryObj = data[newCategory];
+                }
+            } else {
+                // 分类未变，仍在原父对象中
+                targetCategoryObj = parent;
+            }
+
+            // 添加新标签（或更新后的标签）
+            targetCategoryObj[newName] = newValue;
+
+            // 保存到 CSV 文件
+            const saveSuccess = await ResourceManager.saveTagsCsv(filename, data);
+            if (!saveSuccess) {
+                throw new Error("保存文件失败");
+            }
+
+            // 重新加载并更新状态
+            const newData = await ResourceManager.loadTagsCsv(filename);
+            TagManager.tagData = newData;
+
+            // 刷新当前视图
+            const activeTab = document.querySelector('.popup_tab.active');
+            const content = document.querySelector('.popup_tab_content.active');
+            if (activeTab && content) {
+                const cat = activeTab.getAttribute('data-category');
+                content.innerHTML = '';
+                content.removeAttribute('data-loaded');
+
+                if (cat === 'favorites') {
+                    this._loadCategoryContent(content, this.favorites, 'favorites');
+                } else {
+                    // 常规分类，如果分类名变了可能需要动态加载新分类
+                    const displayCategory = newData[cat] ? cat : newCategory;
+                    this._loadCategoryContent(content, newData[displayCategory] || newData, displayCategory);
+                }
+            }
+
+            app.extensionManager.toast.add({
+                severity: "success",
+                summary: "保存成功",
+                detail: "标签已更新",
+                life: 3000
+            });
 
         } catch (error) {
             logger.error(`保存编辑失败: ${error.message}`);
@@ -2522,29 +3135,16 @@ class TagManager {
     /**
      * 处理删除标签
      */
-    static async _handleDeleteTag(tagName, tagValue) {
-        createSettingsDialog({
-            title: '<i class="pi pi-exclamation-triangle" style="margin-right: 8px; color: var(--p-orange-500);"></i>确认删除',
-            isConfirmDialog: true,
-            dialogClassName: 'confirm-dialog',
-            disableBackdropAndCloseOnClickOutside: true,
-            saveButtonText: '删除',
-            saveButtonIcon: 'pi-trash',
-            isDangerButton: true,
-            cancelButtonText: '取消',
-            renderContent: (content) => {
-                content.style.textAlign = 'center';
-                content.style.padding = '1.5rem 1rem'; // 增加一点内边距
-
-                const confirmMessage = document.createElement('div');
-                confirmMessage.innerHTML = `
-                    <div style="font-size: 1rem; margin-bottom: 0.5rem;">确定要删除标签 <strong>${tagName}</strong> 吗？</div>
-                    <div style="color: var(--p-text-muted-color); font-size: 0.875rem;">此操作将从 CSV 文件中永久删除该标签。</div>
-                `;
-
-                content.appendChild(confirmMessage);
-            },
-            onSave: async () => {
+    static async _handleDeleteTag(targetElement, tagName, tagValue) {
+        createConfirmPopup({
+            target: targetElement || document.body,
+            message: `确定要删除标签 "${tagName}" 吗？`,
+            icon: 'pi-exclamation-triangle',
+            iconColor: 'var(--p-orange-500)',
+            confirmLabel: '删除',
+            cancelLabel: '取消',
+            confirmDanger: true,
+            onConfirm: async () => {
                 try {
                     // 1. 获取当前 CSV 文件名
                     const filename = this.currentCsvFile || await ResourceManager.getSelectedTagFile();
@@ -2553,9 +3153,6 @@ class TagManager {
                     }
 
                     // 2. 加载 CSV 数据
-                    // 注意：为了确保数据的一致性，我们需要重新加载文件而不是使用缓存
-                    // 或者我们相信 ResourceManager 的 loadTagsCsv 会处理好?
-                    // 我们使用 loadTagsCsv，它会返回解析后的数据
                     const data = await ResourceManager.loadTagsCsv(filename);
                     if (!data) {
                         throw new Error("加载标签数据失败");
@@ -2574,9 +3171,6 @@ class TagManager {
                             }
                             if (typeof obj[key] === 'object' && obj[key] !== null) {
                                 if (deleteRecursively(obj[key])) {
-                                    // 如果子对象变空了，是否需要删除子对象？
-                                    // 通常 CSV 转换的对象如果为空可能保留也可能删除。
-                                    // 这里我们简单处理，仅删除标签。
                                     return true;
                                 }
                             }
@@ -2597,10 +3191,6 @@ class TagManager {
                     }
 
                     // 5. 刷新 UI
-                    // 注意：不能使用 refreshTagData()，因为它会获取默认标签而不是当前 CSV 文件
-                    // 直接使用本地已更新的 data 对象
-
-                    // 更新静态数据引用，确保后续拖拽排序使用最新数据
                     TagManager.tagData = data;
 
                     // 重新加载当前视图
@@ -2610,13 +3200,11 @@ class TagManager {
                         const content = document.querySelector(`.popup_tab_content[data-category="${category}"]`);
 
                         if (content) {
-                            // 如果是收藏页或已插入页，逻辑不同
                             if (category === 'favorites') {
                                 this._loadCategoryContent(content, this.favorites, 'favorites');
                             } else if (category === 'inserted') {
                                 this._loadInsertedTagsContent(content);
                             } else {
-                                // 普通分类，使用本地已更新的 data
                                 this._loadCategoryContent(content, data[category], category);
                             }
                         }
@@ -2714,7 +3302,7 @@ class TagManager {
         }
 
         const endTime = performance.now();
-        logger.debug(`标签状态 | 动作:比对 | 节点:${nodeId} | 输入框:${inputId} | 缓存数量:${cacheCount} | 匹配数量:${matchedCount} | 耗时:${(endTime - startTime).toFixed(2)}ms`);
+        // logger.debug(`标签状态 | 动作:比对 | 节点:${nodeId} | 输入框:${inputId} | 缓存数量:${cacheCount} | 匹配数量:${matchedCount} | 耗时:${(endTime - startTime).toFixed(2)}ms`);
 
         return { cacheCount, matchedCount };
     }
@@ -2878,6 +3466,22 @@ class TagManager {
             tabs.appendChild(tab);
             content.appendChild(tabContent);
         });
+
+        // ---在 Tab 栏末尾添加"新建分类"按钮---
+        const addTabButton = document.createElement('div');
+        addTabButton.className = 'popup_tab add_category_tab';
+        addTabButton.title = '新建分类';
+
+        const addTabIcon = document.createElement('span');
+        addTabIcon.className = 'pi pi-plus';
+        addTabButton.appendChild(addTabIcon);
+
+        const addTabClickCleanup = EventManager.addDOMListener(addTabButton, 'click', (e) => {
+            e.stopPropagation();
+            this._handleAddCategory(addTabButton, null, tabs, content, tagData);
+        });
+        this.eventCleanups.push(addTabClickCleanup);
+        tabs.appendChild(addTabButton);
 
         // 添加滚动指示器
         const leftIndicator = document.createElement('div');
@@ -3481,7 +4085,7 @@ class TagManager {
             if (savedSize) {
                 popup.style.width = `${savedSize.width}px`;
                 popup.style.height = `${savedSize.height}px`;
-                logger.debug(`[助手-标签] 恢复窗口大小 | 宽:${savedSize.width}px | 高:${savedSize.height}px`);
+                // logger.debug(`[助手-标签] 恢复窗口大小 | 宽:${savedSize.width}px | 高:${savedSize.height}px`);
             } else {
                 popup.style.width = '600px';
                 popup.style.height = '400px';
@@ -3853,6 +4457,18 @@ class TagManager {
             });
 
             this.eventCleanups.push(tabClickCleanup);
+
+            // 添加右键菜单事件（特殊分类除外）
+            const specialCategories = ['⭐️', 'favorites', '已插入'];
+            if (!specialCategories.includes(category)) {
+                const tabContextMenuCleanup = EventManager.addDOMListener(tab, 'contextmenu', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this._showCategoryContextMenu(e, category, true, null);
+                });
+                this.eventCleanups.push(tabContextMenuCleanup);
+            }
+
             tabs.appendChild(tab);
 
             // 创建内容区域
@@ -3871,6 +4487,76 @@ class TagManager {
 
             tabContents.appendChild(content);
         });
+
+        // ---在 Tab 栏末尾添加"新建分类"按钮---
+        const addTabButton = document.createElement('div');
+        addTabButton.className = 'popup_tab add_category_tab';
+        addTabButton.title = '新建分类';
+
+        const addTabIcon = document.createElement('span');
+        addTabIcon.className = 'pi pi-plus';
+        addTabButton.appendChild(addTabIcon);
+
+        const addTabBtnClickCleanup = EventManager.addDOMListener(addTabButton, 'click', (e) => {
+            e.stopPropagation();
+            this._handleAddCategory(addTabButton, null, tabs, tabContents, tagData);
+        });
+        this.eventCleanups.push(addTabBtnClickCleanup);
+        tabs.appendChild(addTabButton);
+
+        // ---初始化 Tab 栏拖拽排序---
+        if (this.Sortable) {
+            const tabsSortable = new this.Sortable(tabs, {
+                animation: 150,
+                ghostClass: 'tag-ghost',
+                draggable: '.popup_tab:not(.add_category_tab)', // 排除添加按钮
+                delay: 50,
+                onEnd: async (evt) => {
+                    const { oldIndex, newIndex } = evt;
+                    if (oldIndex === newIndex) return;
+
+                    // 获取当前所有 Tab 的新顺序
+                    const newOrder = Array.from(tabs.querySelectorAll('.popup_tab:not(.add_category_tab)'))
+                        .map(tab => tab.getAttribute('data-category'));
+
+                    // 重新排列 tagData
+                    const newTagData = {};
+
+                    // 按照新顺序重建数据对象
+                    newOrder.forEach(category => {
+                        // 特殊分类 (⭐️, 已插入) 不在 tagData 中，跳过
+                        if (category !== '⭐️' && category !== '已插入' && tagData[category]) {
+                            newTagData[category] = tagData[category];
+                        }
+                    });
+
+                    // 确保没有遗漏的数据（以防万一）
+                    Object.keys(tagData).forEach(category => {
+                        if (!newTagData[category]) {
+                            newTagData[category] = tagData[category];
+                        }
+                    });
+
+                    // 更新内存中的数据
+                    TagManager.tagData = newTagData;
+
+                    // 持久化到 CSV
+                    const filename = this.currentCsvFile || await ResourceManager.getSelectedTagFile();
+                    if (filename) {
+                        const success = await ResourceManager.saveTagsCsv(filename, newTagData);
+                        if (success) {
+                            app.extensionManager.toast.add({
+                                severity: "success",
+                                summary: "排序已保存",
+                                detail: "分类显示顺序已更新",
+                                life: 2000
+                            });
+                        }
+                    }
+                }
+            });
+            this.sortables.push(tabsSortable);
+        }
 
         // 初始化滚动指示器，并自动定位到激活的标签页
         setTimeout(() => {
@@ -4300,7 +4986,7 @@ class TagManager {
         });
 
         const endTime = performance.now();
-        logger.debug(`标签状态 | 动作:更新所有 | 节点:${nodeId} | 输入框:${inputId} | 检查数量:${checkedCount} | 匹配数量:${matchedCount} | 耗时:${(endTime - startTime).toFixed(2)}ms`);
+        // logger.debug(`标签状态 | 动作:更新所有 | 节点:${nodeId} | 输入框:${inputId} | 检查数量:${checkedCount} | 匹配数量:${matchedCount} | 耗时:${(endTime - startTime).toFixed(2)}ms`);
     }
 
     /**

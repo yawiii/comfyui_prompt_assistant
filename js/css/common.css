@@ -179,6 +179,10 @@
 /* 应用高亮动画 */
 .input-highlight {
     animation: inputHighlight 0.2s ease-out;
+    background-color: transparent !important;
+    /* 兜底：即使动画卡住，类名存在时也确保透明 */
+    will-change: background-color;
+    /* 优化合成层渲染 */
 }
 
 /* ==========================================================================

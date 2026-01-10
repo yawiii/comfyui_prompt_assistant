@@ -1334,3 +1334,56 @@
 .tag_popup .tag_item:active {
     cursor: grabbing;
 }
+
+/* ---添加分类按钮样式--- */
+
+/* Tab 栏中的添加分类按钮 */
+.popup_container .popup_tab.add_category_tab {
+    padding: 4px 10px 8px 10px;
+    opacity: 0.6;
+    transition: all 0.2s ease;
+    min-width: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.popup_container .popup_tab.add_category_tab:hover {
+    opacity: 1;
+    color: var(--p-primary-500);
+}
+
+.popup_container .popup_tab.add_category_tab .pi {
+    font-size: 10px;
+}
+
+/* 添加分类按钮不显示底部高亮条 */
+.popup_container .popup_tab.add_category_tab::after {
+    display: none;
+}
+
+/* 手风琴列表末尾的添加子分类按钮 */
+.add_subcategory_button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 8px;
+    padding: 8px 16px;
+    border: 1px dashed transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--p-text-muted-color);
+    opacity: 0.5;
+}
+
+.add_subcategory_button:hover {
+    opacity: 1;
+    border-color: var(--p-content-border-color);
+    color: var(--p-text-muted-color);
+    background-color: transparent;
+}
+
+.add_subcategory_button .pi {
+    font-size: 10px;
+}

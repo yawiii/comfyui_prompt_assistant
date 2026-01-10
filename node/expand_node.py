@@ -94,6 +94,10 @@ class PromptExpand(LLMNodeBase):
         只在输入内容真正变化时才触发重新执行
         使用输入参数的哈希值作为判断依据
         """
+        # 检查是否包含强制刷新符号 [R]
+        if cls._check_is_changed_bypass(rule, custom_rule_content, user_prompt, source_text):
+            return float("nan")
+
         text_hash = hashlib.md5(((source_text or "")).encode('utf-8')).hexdigest()
         temp_rule_hash = hashlib.md5((custom_rule_content or "").encode('utf-8')).hexdigest()
         user_hint_hash = hashlib.md5((user_prompt or "").encode('utf-8')).hexdigest()

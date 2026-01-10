@@ -156,6 +156,95 @@ class APIService {
     }
 
     /**
+     * 并行分块批量翻译（优化版本）
+     * 将文本数组分块后并行发起多个翻译请求，显著提升翻译速度
+     * 
+     * @param {string[]} texts - 待翻译的文本数组
+     * @param {string} from - 源语言
+     * @param {string} to - 目标语言
+     * @param {Object} options - 配置选项
+     * @param {number} options.chunkSize - 每块包含的文本数量（默认5）
+     * @param {number} options.concurrency - 最大并发数（默认3）
+     * @param {Function} options.onProgress - 进度回调 (completedChunks, totalChunks)
+     * @returns {Promise<{success: boolean, data?: {translations: string[]}, error?: string}>}
+     */
+    static async llmParallelBatchTranslate(texts, from = 'auto', to = 'zh', options = {}) {
+        const { chunkSize = 5, concurrency = 3, onProgress = null } = options;
+
+        try {
+            if (!Array.isArray(texts) || texts.length === 0) {
+                throw new Error('待翻译文本数组不能为空');
+            }
+
+            // 1. 分块
+            const chunks = [];
+            for (let i = 0; i < texts.length; i += chunkSize) {
+                chunks.push({
+                    startIndex: i,
+                    texts: texts.slice(i, i + chunkSize)
+                });
+            }
+
+            logger.log(`[APIService] 并行分块翻译 | 总文本数:${texts.length} | 分块数:${chunks.length} | 每块:${chunkSize} | 并发:${concurrency}`);
+
+            // 2. 创建结果数组
+            const allTranslations = new Array(texts.length).fill('');
+            let completedChunks = 0;
+            let hasError = false;
+            let lastError = null;
+
+            // 3. 并发控制函数
+            const translateChunk = async (chunk) => {
+                try {
+                    const result = await this.llmBatchTranslate(chunk.texts, from, to);
+
+                    if (result.success && result.data && result.data.translations) {
+                        // 将翻译结果填充到对应位置
+                        result.data.translations.forEach((translation, idx) => {
+                            allTranslations[chunk.startIndex + idx] = translation || '';
+                        });
+                    } else {
+                        // 单块失败，记录但不中断
+                        hasError = true;
+                        lastError = result.error || '翻译失败';
+                        logger.warn(`[APIService] 分块翻译失败 | 起始索引:${chunk.startIndex} | 错误:${lastError}`);
+                    }
+                } catch (err) {
+                    hasError = true;
+                    lastError = err.message;
+                    logger.error(`[APIService] 分块翻译异常 | 起始索引:${chunk.startIndex} | 错误:${err.message}`);
+                } finally {
+                    completedChunks++;
+                    if (onProgress) {
+                        onProgress(completedChunks, chunks.length);
+                    }
+                }
+            };
+
+            // 4. 分批并发执行（控制最大并发数）
+            for (let i = 0; i < chunks.length; i += concurrency) {
+                const batch = chunks.slice(i, i + concurrency);
+                await Promise.all(batch.map(chunk => translateChunk(chunk)));
+            }
+
+            // 5. 检查结果
+            const successCount = allTranslations.filter(t => t && t.trim()).length;
+            logger.log(`[APIService] 并行翻译完成 | 成功:${successCount}/${texts.length}`);
+
+            // 即使部分失败也返回成功（有翻译结果）
+            if (successCount === 0 && texts.length > 0) {
+                return { success: false, error: lastError || '所有文本翻译失败' };
+            }
+
+            return { success: true, data: { translations: allTranslations } };
+
+        } catch (error) {
+            logger.error(`[APIService] 并行批量翻译失败: ${error.message}`);
+            return { success: false, error: error.message };
+        }
+    }
+
+    /**
      * 从字符串中提取并解析首个JSON数组
      */
     static _extractJsonArray(text) {
@@ -485,6 +574,289 @@ class APIService {
             };
         } finally {
             // 请求完成后从Map中移除
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
+        }
+    }
+
+    // ---流式输出API方法（SSE）---
+
+    /**
+     * 流式视觉分析图像
+     * 使用 SSE 逐 token 接收分析结果
+     * @param {string} imageData - Base64 编码的图像数据
+     * @param {string} prompt - 分析提示词
+     * @param {string} request_id - 请求ID
+     * @param {Function} onChunk - 接收每个 chunk 的回调函数
+     * @returns {Promise<Object>} - 完整的分析结果
+     */
+    static async llmAnalyzeImageStream(imageData, prompt, request_id = null, onChunk = null) {
+        if (!request_id) {
+            request_id = this.generateRequestId('icap');
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
+        try {
+            if (!imageData) {
+                throw new Error('未找到有效的图像');
+            }
+
+            logger.debug(`发起流式视觉分析请求 | 请求ID:${request_id}`);
+
+            const apiUrl = this.getApiUrl('vlm/analyze/stream');
+            const requestData = {
+                image: imageData,
+                prompt: prompt,
+                request_id: request_id
+            };
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestData),
+                signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalResult = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.chunk && onChunk) {
+                                onChunk(data.chunk);
+                            }
+                            if (data.done) {
+                                finalResult = data.result;
+                            }
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                        } catch (parseError) {
+                            if (parseError.message !== 'Unexpected end of JSON input') {
+                                logger.warn(`解析 SSE 数据失败: ${parseError.message}`);
+                            }
+                        }
+                    }
+                }
+            }
+
+            logger.debug(`流式视觉分析请求完成 | 请求ID:${request_id}`);
+            return finalResult;
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                logger.debug(`流式视觉分析请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
+            logger.error(`流式视觉分析请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            return { success: false, error: error.message || '请求失败' };
+        } finally {
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
+        }
+    }
+
+    /**
+     * 流式LLM扩写提示词
+     * 使用 SSE 逐 token 接收扩写结果
+     * @param {string} prompt - 要扩写的提示词
+     * @param {string} request_id - 请求ID
+     * @param {Function} onChunk - 接收每个 chunk 的回调函数
+     * @returns {Promise<Object>} - 完整的扩写结果
+     */
+    static async llmExpandPromptStream(prompt, request_id = null, onChunk = null) {
+        if (!request_id) {
+            request_id = this.generateRequestId('exp');
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
+        try {
+            if (!prompt || prompt.trim() === '') {
+                throw new Error('请输入要优化的提示词');
+            }
+
+            logger.debug(`发起流式LLM提示词优化请求 | 请求ID:${request_id}`);
+
+            const apiUrl = this.getApiUrl('llm/expand/stream');
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt, request_id }),
+                signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalResult = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.chunk && onChunk) {
+                                onChunk(data.chunk);
+                            }
+                            if (data.done) {
+                                finalResult = data.result;
+                            }
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                        } catch (parseError) {
+                            if (parseError.message !== 'Unexpected end of JSON input') {
+                                logger.warn(`解析 SSE 数据失败: ${parseError.message}`);
+                            }
+                        }
+                    }
+                }
+            }
+
+            logger.debug(`流式LLM提示词优化请求完成 | 请求ID:${request_id}`);
+            return finalResult;
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                logger.debug(`流式LLM提示词优化请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
+            logger.error(`流式LLM提示词优化请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            return { success: false, error: error.message };
+        } finally {
+            if (runningRequests.has(request_id)) {
+                runningRequests.delete(request_id);
+            }
+        }
+    }
+
+    /**
+     * 流式LLM翻译
+     * 使用 SSE 逐 token 接收翻译结果
+     * 注意：仅支持LLM翻译服务，百度翻译不支持流式
+     * @param {string} text - 要翻译的文本
+     * @param {string} fromLang - 源语言
+     * @param {string} toLang - 目标语言
+     * @param {string} request_id - 请求ID
+     * @param {Function} onChunk - 接收每个 chunk 的回调函数
+     * @returns {Promise<Object>} - 完整的翻译结果
+     */
+    static async llmTranslateStream(text, fromLang, toLang, request_id = null, onChunk = null) {
+        if (!request_id) {
+            request_id = this.generateRequestId('trans');
+        }
+
+        const controller = new AbortController();
+        const signal = controller.signal;
+        runningRequests.set(request_id, controller);
+
+        try {
+            if (!text || text.trim() === '') {
+                throw new Error('请输入要翻译的内容');
+            }
+
+            logger.debug(`发起流式LLM翻译请求 | 请求ID:${request_id} | ${fromLang}→${toLang}`);
+
+            const apiUrl = this.getApiUrl('llm/translate/stream');
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text,
+                    from: fromLang,
+                    to: toLang,
+                    request_id
+                }),
+                signal
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let finalResult = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(line.slice(6));
+                            if (data.chunk && onChunk) {
+                                onChunk(data.chunk);
+                            }
+                            if (data.done) {
+                                finalResult = data.result;
+                            }
+                            if (data.error) {
+                                throw new Error(data.error);
+                            }
+                        } catch (parseError) {
+                            if (parseError.message !== 'Unexpected end of JSON input') {
+                                logger.warn(`解析 SSE 数据失败: ${parseError.message}`);
+                            }
+                        }
+                    }
+                }
+            }
+
+            logger.debug(`流式LLM翻译请求完成 | 请求ID:${request_id}`);
+            return finalResult;
+
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                logger.debug(`流式LLM翻译请求被用户中止 | ID: ${request_id}`);
+                return { success: false, error: '请求已取消', cancelled: true };
+            }
+            logger.error(`流式LLM翻译请求失败 | 请求ID:${request_id || 'unknown'} | 错误:${error.message}`);
+            return { success: false, error: error.message };
+        } finally {
             if (runningRequests.has(request_id)) {
                 runningRequests.delete(request_id);
             }

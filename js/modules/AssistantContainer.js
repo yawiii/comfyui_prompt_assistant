@@ -2,6 +2,13 @@ import { app } from "../../../scripts/app.js";
 import { EventManager } from "../utils/eventManager.js";
 import "../lib/Sortable.min.js";
 
+/**
+ * 调试开关：禁止自动折叠
+ * 在控制台输入 window.PA_DEBUG_NO_COLLAPSE = true 可禁止自动折叠
+ * 输入 window.PA_DEBUG_NO_COLLAPSE = false 可恢复自动折叠
+ */
+window.PA_DEBUG_NO_COLLAPSE = window.PA_DEBUG_NO_COLLAPSE || false;
+
 // 锚点位置枚举
 export const ANCHOR_POSITION = {
     TOP_LEFT_H: 'top-left-h',
@@ -33,6 +40,7 @@ export class AssistantContainer {
         // 状态
         this.isCollapsed = true;
         this.isTransitioning = false;
+        this.isDestroyed = false;
         this.buttons = [];
         this.element = null;
         this.container = null;
@@ -52,6 +60,9 @@ export class AssistantContainer {
     }
 
     render() {
+        // 检查是否已销毁
+        if (this.isDestroyed) return null;
+
         // 主容器
         this.element = document.createElement('div');
         this.element.className = `assistant-container-common ${this.type}-assistant-container`;
@@ -155,8 +166,12 @@ export class AssistantContainer {
     updatePosition() {
         if (!this.element) return;
 
-        // 重置类名
-        this.element.className = `assistant-container-common ${this.type}-assistant-container collapsed`;
+        // 保存当前展开/折叠状态
+        const wasExpanded = !this.isCollapsed;
+
+        // 重置类名，保持当前状态
+        const stateClass = wasExpanded ? 'expanded' : 'collapsed';
+        this.element.className = `assistant-container-common ${this.type}-assistant-container ${stateClass}`;
 
         // 添加布局类名
         this.element.classList.add(`layout-${this.anchorPosition}`);
@@ -191,10 +206,72 @@ export class AssistantContainer {
         });
     }
 
+    /**
+     * 更新容器尺寸 (优化版：常量布局模式)
+     * 根据当前启用的按钮组合直接计算尺寸，避免 DOM 克隆测量带来的开销
+     */
     updateDimensions() {
         if (!this.element || !this.content) return;
 
-        // 测量内容尺寸
+        // --- 1. 获取当前状态统计 ---
+        const buttons = Array.from(this.content.children).filter(el =>
+            el.style.display !== 'none' &&
+            !el.classList.contains('assistant-indicator')
+        );
+
+        const totalCount = buttons.length;
+        if (totalCount === 0) return;
+
+        // 统计功能组
+        const hasHistoryGroup = buttons.some(el => el.dataset.id === 'history' || el.dataset.id === 'undo' || el.dataset.id === 'redo');
+        const hasDivider = buttons.some(el => el.classList.contains('prompt-assistant-divider') || el.classList.contains('image-assistant-divider'));
+
+        // 计算非历史且非分隔线的有效功能按钮数量
+        const otherFeaturesCount = buttons.filter(el =>
+            !['history', 'undo', 'redo'].includes(el.dataset.id) &&
+            !el.classList.contains('prompt-assistant-divider') &&
+            !el.classList.contains('image-assistant-divider')
+        ).length;
+
+        // --- 2. 基于预设常量的尺寸映射 ---
+        let finalDimension = 28; // 默认单个按钮宽度 (或折叠尺寸)
+
+        // 逻辑规则匹配 (根据用户提供的精确测量值)
+        if (hasHistoryGroup && otherFeaturesCount === 3) {
+            finalDimension = 143; // 所有功能全开 (历史3 + 分隔线1 + 其它3)
+        } else if (hasHistoryGroup && otherFeaturesCount === 2) {
+            finalDimension = 121; // 历史 + 两个其它
+        } else if (hasHistoryGroup && otherFeaturesCount === 1) {
+            finalDimension = 99;  // 历史 + 一个其它
+        } else if (hasHistoryGroup && otherFeaturesCount === 0) {
+            finalDimension = 77;  // 只有历史功能
+        } else if (!hasHistoryGroup && otherFeaturesCount === 3) {
+            finalDimension = 72;  // 关闭历史的三个功能
+        } else if (!hasHistoryGroup && otherFeaturesCount === 2) {
+            finalDimension = 50;  // 只有两个按钮
+        } else if (!hasHistoryGroup && otherFeaturesCount === 1) {
+            finalDimension = 28;  // 只有一个按钮
+        } else {
+            // 兜底动态计算逻辑: 基础28 + (额外按钮 * 22) + (如果有分隔线 ? 5 : 0)
+            const extraCount = totalCount - 1;
+            finalDimension = 28 + (extraCount * 22);
+            if (hasDivider) finalDimension += 5;
+        }
+
+        // --- 3. 应用尺寸 ---
+        const isVertical = this.anchorPosition.endsWith('-v');
+        if (isVertical) {
+            // 竖向布局：宽度固定，高度动态
+            this.element.style.setProperty('--expanded-width', `28px`);
+            this.element.style.setProperty('--expanded-height', `${finalDimension}px`);
+        } else {
+            // 横向布局：高度固定，宽度动态
+            this.element.style.setProperty('--expanded-width', `${finalDimension}px`);
+            this.element.style.setProperty('--expanded-height', `28px`);
+        }
+
+        /* 
+        // --- 原有自动测量代码 (已注释，备用) ---
         const clone = this.content.cloneNode(true);
         clone.style.cssText = `
             position: absolute; 
@@ -207,44 +284,30 @@ export class AssistantContainer {
             gap: 0;
         `;
 
-        // 根据方向设置 flex-direction
-        const isVertical = this.anchorPosition.endsWith('-v');
-        clone.style.flexDirection = isVertical ? 'column' : 'row';
+        const isVerticalMeasure = this.anchorPosition.endsWith('-v');
+        clone.style.flexDirection = isVerticalMeasure ? 'column' : 'row';
 
         document.body.appendChild(clone);
         const contentWidth = clone.scrollWidth;
         const contentHeight = clone.scrollHeight;
         document.body.removeChild(clone);
 
-        // 容器的 padding
-        const containerPadding = 4; // 2px padding * 2
-
-        // 按钮的 margin (每个按钮都有 margin: 2px)
-        // 注意：scrollWidth/scrollHeight 不包含最后一个子元素的 margin-right/margin-bottom
-        // 所以需要手动添加最后一个按钮的 margin
-        const lastButtonMargin = 2; // 最后一个按钮的 margin-right 或 margin-bottom
-
-        // 折叠状态的固定尺寸
+        const containerPadding = 4;
+        const lastButtonMargin = 2;
         const collapsedSize = 28;
 
-        // 根据布局方向计算展开后的尺寸
         let expandedWidth, expandedHeight;
-
-        if (isVertical) {
-            // 竖向布局：宽度固定为折叠尺寸，高度根据内容计算
+        if (isVerticalMeasure) {
             expandedWidth = collapsedSize;
-            // contentHeight 不包含最后一个按钮的 margin-bottom，需要手动添加
             expandedHeight = Math.max(contentHeight + containerPadding + lastButtonMargin, collapsedSize);
         } else {
-            // 横向布局：高度固定为折叠尺寸，宽度根据内容计算
-            // contentWidth 不包含最后一个按钮的 margin-right，需要手动添加
             expandedWidth = Math.max(contentWidth + containerPadding + lastButtonMargin, collapsedSize);
             expandedHeight = collapsedSize;
         }
 
-        // 更新 CSS 变量
         this.element.style.setProperty('--expanded-width', `${expandedWidth}px`);
         this.element.style.setProperty('--expanded-height', `${expandedHeight}px`);
+        */
     }
 
     _bindEvents() {
@@ -259,6 +322,9 @@ export class AssistantContainer {
     }
 
     expand() {
+        // 检查是否已销毁
+        if (this.isDestroyed) return;
+
         // 清除任何挂起的折叠定时器
         if (this._collapseTimer) {
             clearTimeout(this._collapseTimer);
@@ -326,6 +392,12 @@ export class AssistantContainer {
     }
 
     collapse() {
+        // 检查是否已销毁
+        if (this.isDestroyed) return;
+
+        // 调试模式：禁止自动折叠
+        if (window.PA_DEBUG_NO_COLLAPSE) return;
+
         // 检查是否应阻止折叠（例如：激活的菜单）
         if (this.shouldCollapse && !this.shouldCollapse()) {
             return;
@@ -354,7 +426,36 @@ export class AssistantContainer {
                 this.content.style.opacity = '0';
                 this.content.style.pointerEvents = 'none';
             }
+
+            // 折叠完成后，检测鼠标是否仍在热区内
+            // 解决自动折叠后鼠标仍在热区，但需要移出再移入才能展开的问题
+            this._checkMouseStillInHoverArea();
         }, 150); // 为了易用性设置的小延迟
+    }
+
+    // ---检测鼠标是否仍在热区内---
+    _checkMouseStillInHoverArea() {
+        if (!this.element) return;
+
+        // 使用 requestAnimationFrame 确保 DOM 已更新
+        requestAnimationFrame(() => {
+            // 获取当前鼠标位置下的元素
+            const hoveredElements = document.querySelectorAll(':hover');
+
+            // 检查小助手容器或其子元素是否被悬停
+            let isMouseInside = false;
+            for (const el of hoveredElements) {
+                if (this.element.contains(el) || el === this.element) {
+                    isMouseInside = true;
+                    break;
+                }
+            }
+
+            // 如果鼠标仍在热区内，且当前是折叠状态，则触发展开
+            if (isMouseInside && this.isCollapsed) {
+                this.expand();
+            }
+        });
     }
 
     _setupSortable() {
@@ -428,11 +529,25 @@ export class AssistantContainer {
 
             this.updateDimensions();
         } catch (e) {
-            console.warn("[PromptAssistant] 恢复按钮顺序失败:", e);
+            logger.warn("[PromptAssistant] 恢复按钮顺序失败:", e);
         }
     }
 
     destroy() {
+        // 防止重复销毁
+        if (this.isDestroyed) return;
+        this.isDestroyed = true;
+
+        // 清理定时器
+        if (this._collapseTimer) {
+            clearTimeout(this._collapseTimer);
+            this._collapseTimer = null;
+        }
+        if (this._expandTimer) {
+            clearTimeout(this._expandTimer);
+            this._expandTimer = null;
+        }
+
         // 清理监听器
         this._cleanupFunctions.forEach(fn => fn && fn());
         this._cleanupFunctions = [];
@@ -447,5 +562,13 @@ export class AssistantContainer {
         if (this.element && this.element.parentNode) {
             this.element.parentNode.removeChild(this.element);
         }
+
+        // 清空所有引用
+        this.element = null;
+        this.container = null;
+        this.content = null;
+        this.indicator = null;
+        this.hoverArea = null;
+        this.buttons = [];
     }
 }

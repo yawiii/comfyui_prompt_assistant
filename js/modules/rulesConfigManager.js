@@ -1763,11 +1763,9 @@ class RulesConfigManager {
             chosenClass: 'sortable-chosen',
             dragClass: 'sortable-drag',
             handle: '.prompt-list-row',
-            // 移除 handle 限制，允许整行拖拽
-            // handle: '.prompt-list-row',
-            // 禁用固定项目，确保所有项目都可以拖拽
-            filter: '',
-            preventOnFilter: false,
+            // 排除状态列和操作列，只允许从名称和内容列拖拽
+            filter: '.status-cell, .action-cell',
+            preventOnFilter: true,
             onStart: (evt) => {
                 logger.debug(`开始拖拽: 类型=${type}, 索引=${evt.oldIndex}`);
             },

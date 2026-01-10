@@ -63,6 +63,16 @@ class UIToolkit {
             reason = 'Vue node2.0 mode widget';
         }
 
+        // ---可见性检测补救---
+        // 如果基本检测通过，但元素本身是隐藏的，则视为无效
+        if (isValid) {
+            const element = widget.inputEl || widget.element;
+            if (element && !this.isElementVisible(element)) {
+                isValid = false;
+                reason += ' (but element is hidden)';
+            }
+        }
+
         if (debug) {
             const widgetName = widget.name || widget.id || 'unknown';
             const nodeType = node?.type || widget.node?.type || 'unknown';
@@ -416,7 +426,7 @@ class UIToolkit {
             const oldInfo = this.#activeButtonInfo;
             // 重置旧按钮状态
             this.setButtonState(oldInfo.widget, oldInfo.buttonId, 'active', false);
-            logger.debug(`按钮状态重置 | 按钮:${oldInfo.buttonId} | 节点:${oldInfo.widget.nodeId}`);
+            // logger.debug(`按钮状态重置 | 按钮:${oldInfo.buttonId} | 节点:${oldInfo.widget.nodeId}`);
         }
 
         // 设置新的激活按钮
@@ -425,7 +435,7 @@ class UIToolkit {
         // 如果有新的按钮信息，设置其状态为激活
         if (buttonInfo) {
             this.setButtonState(buttonInfo.widget, buttonInfo.buttonId, 'active', true);
-            logger.debug(`按钮激活 | 按钮:${buttonInfo.buttonId} | 节点:${buttonInfo.widget.nodeId}`);
+            // logger.debug(`按钮激活 | 按钮:${buttonInfo.buttonId} | 节点:${buttonInfo.widget.nodeId}`);
         }
     }
 
@@ -445,7 +455,7 @@ class UIToolkit {
         e.preventDefault();
         e.stopPropagation();
 
-        logger.debug(`弹窗按钮点击 | 按钮: ${buttonId} | 节点: ${widget.nodeId}`);
+        // logger.debug(`弹窗按钮点击 | 按钮: ${buttonId} | 节点: ${widget.nodeId}`);
 
         // 检查当前按钮状态
         const isCurrentActive = this.isActiveButton(widget, buttonId);
@@ -626,7 +636,7 @@ class UIToolkit {
 
         // 设置按钮为处理中状态
         this.setButtonState(widget, buttonId, 'processing', true);
-        logger.debug(`按钮操作 | 动作:开始 | 按钮:${buttonId}`);
+        // logger.debug(`按钮操作 | 动作:开始 | 按钮:${buttonId}`);
 
         // 执行操作（接收一个回调函数用于处理操作完成后的逻辑）
         try {
@@ -637,7 +647,7 @@ class UIToolkit {
                 // 如果操作成功且有结果，将结果写入历史记录
                 if (success && widget.inputEl && widget.inputEl.value) {
                     // 添加到历史
-                    logger.debug(`准备写入历史｜ ${buttonId}操作完成｜ node_id=${widget.nodeId}`);
+                    // logger.debug(`准备写入历史｜ ${buttonId}操作完成｜ node_id=${widget.nodeId}`);
                     LocalHistoryService.addHistory({
                         workflow_id: '',
                         node_id: widget.nodeId,
@@ -656,7 +666,7 @@ class UIToolkit {
                         null
                     );
                 } else {
-                    logger.debug(`按钮操作完成 | 结果:${success ? '成功' : '失败'} | 按钮:${buttonId}`);
+                    // logger.debug(`按钮操作完成 | 结果:${success ? '成功' : '失败'} | 按钮:${buttonId}`);
                     this.showStatusTip(
                         e.currentTarget,
                         'success',
@@ -667,7 +677,7 @@ class UIToolkit {
             };
 
             // 执行操作并传入回调
-            logger.debug(`历史缓存 ｜ 按钮操作准备执行 node_id=${widget.nodeId} input_id=${widget.inputId} type=${buttonId}`);
+            // logger.debug(`历史缓存 ｜ 按钮操作准备执行 node_id=${widget.nodeId} input_id=${widget.inputId} type=${buttonId}`);
             operation(callback);
         } catch (error) {
             // 出现异常时重置按钮状态
@@ -842,19 +852,40 @@ class UIToolkit {
      * 为输入框添加高亮动画效果
      */
     static _highlightInput(inputEl) {
-        // 移除可能存在的旧动画类
-        inputEl.classList.remove('input-highlight');
+        if (!inputEl) return;
 
-        // 强制重绘
+        // 移除旧的高亮状态
+        this.removeHighlight(inputEl);
+
+        // 强制重绘，确保动画可以重新开始
         void inputEl.offsetWidth;
 
         // 添加动画类
         inputEl.classList.add('input-highlight');
 
         // 动画结束后移除类
-        setTimeout(() => {
-            inputEl.classList.remove('input-highlight');
-        }, 800); // 与CSS中的动画时长匹配
+        // 使用 200ms 匹配 CSS 中的动画时长 (common.css: L181)
+        inputEl._highlightTimer = setTimeout(() => {
+            this.removeHighlight(inputEl);
+        }, 200);
+    }
+
+    /**
+     * 显式移除元素的高亮状态并清理定时器
+     * 用于在布局重排（如滚动条出现）前清理渲染负担
+     * @param {HTMLElement} inputEl 目标元素
+     */
+    static removeHighlight(inputEl) {
+        if (!inputEl) return;
+
+        // 移除动画类
+        inputEl.classList.remove('input-highlight');
+
+        // 清理定时器
+        if (inputEl._highlightTimer) {
+            clearTimeout(inputEl._highlightTimer);
+            inputEl._highlightTimer = null;
+        }
     }
 
     /**

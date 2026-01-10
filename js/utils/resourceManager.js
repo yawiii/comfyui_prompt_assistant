@@ -421,12 +421,12 @@ class ResourceManager {
             const response = await fetch(APIService.getApiUrl('/config/tags_selection'));
             const result = await response.json();
             if (result.success) {
-                return result.selection?.selected_file || 'default.csv';
+                return result.selection?.selected_file || '用户标签.csv';
             }
-            return 'default.csv';
+            return '用户标签.csv';
         } catch (error) {
             logger.error(`获取标签选择失败 | ${error.message}`);
-            return 'default.csv';
+            return '用户标签.csv';
         }
     }
 

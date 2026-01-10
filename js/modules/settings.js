@@ -58,12 +58,21 @@ const SERVICE_TYPES = {
 const serviceSelector = {
     _servicesCache: null,
     _cacheTime: 0,
-    _cacheDuration: 5000, // 缓存5秒
+    _cacheDuration: 2000, // 缓存2秒
+
+    /**
+     * 清除服务缓存
+     */
+    clearCache() {
+        this._servicesCache = null;
+        this._cacheTime = 0;
+        logger.debug('服务列表缓存已清除');
+    },
 
     // 获取服务列表（带缓存）
-    async getServices() {
+    async getServices(forceRefresh = false) {
         const now = Date.now();
-        if (this._servicesCache && (now - this._cacheTime) < this._cacheDuration) {
+        if (!forceRefresh && this._servicesCache && (now - this._cacheTime) < this._cacheDuration) {
             return this._servicesCache;
         }
 
@@ -117,6 +126,12 @@ const serviceSelector = {
 
             if (response.ok) {
                 logger.log(`${config.name}服务切换 | 服务ID: ${serviceId}`);
+
+                // 派发全局事件通知其他组件同步
+                window.dispatchEvent(new CustomEvent('pa-service-changed', {
+                    detail: { service_type: config.serviceType, service_id: serviceId }
+                }));
+
                 return true;
             }
         } catch (error) {
@@ -155,31 +170,52 @@ const serviceSelector = {
     }
 };
 
+// 将服务选择器挂载到全局 app 对象，方便其他模块（如 PromptAssistant.js, imageCaption.js）调用，
+// 同时避免模块间的循环引用问题。
+app.paServiceSelector = serviceSelector;
+
 // ---版本检查工具函数---
 
+// 版本检查状态缓存
+let versionCheckCache = {
+    checked: false,        // 是否已检查过
+    latestVersion: null,   // 最新版本号
+    hasUpdate: false       // 是否有更新
+};
+
 /**
- * 从 GitHub 获取最新发布版本号
+ * 从 jsDelivr 获取最新版本号（通过读取 pyproject.toml）
  * @returns {Promise<string|null>} 返回最新版本号，格式如 "1.2.3"，失败返回 null
  */
 async function fetchLatestVersion() {
+    // 如果已经检查过，直接返回缓存结果
+    if (versionCheckCache.checked) {
+        return versionCheckCache.latestVersion;
+    }
+
     try {
-        const response = await fetch('https://api.github.com/repos/yawiii/comfyui_prompt_assistant/releases/latest', {
-            headers: { 'Accept': 'application/vnd.github.v3+json' },
+        const response = await fetch('https://cdn.jsdelivr.net/gh/yawiii/ComfyUI-Prompt-Assistant@main/pyproject.toml', {
             cache: 'no-cache'
         });
 
         if (!response.ok) {
-            logger.warn(`[版本检查] GitHub API 请求失败: ${response.status}`);
+            logger.warn(`[版本检查] 请求失败: ${response.status}`);
+            versionCheckCache.checked = true;
             return null;
         }
 
-        const data = await response.json();
-        // 移除 tag_name 中的 'v' 前缀（如果有）
-        const version = data.tag_name?.replace(/^v/, '');
-        logger.debug(`[版本检查] 获取到最新版本: ${version}`);
-        return version || null;
+        const tomlContent = await response.text();
+        const versionMatch = tomlContent.match(/^version\s*=\s*["']([^"']+)["']/m);
+        const version = versionMatch ? versionMatch[1] : null;
+
+        // 缓存检查结果
+        versionCheckCache.checked = true;
+        versionCheckCache.latestVersion = version;
+
+        return version;
     } catch (error) {
-        logger.warn(`[版本检查] 获取最新版本失败: ${error.message}`);
+        logger.warn(`[版本检查] 获取失败: ${error.message}`);
+        versionCheckCache.checked = true;
         return null;
     }
 }
@@ -272,16 +308,34 @@ function createServiceSelector(type, label) {
     selectCell.appendChild(container);
     row.appendChild(selectCell);
 
-    // 异步加载服务列表
-    (async () => {
+    let currentOptions = []; // 存储当前选项引用
+    let updateDropdownOptions = null; // 存储更新函数
+
+    /**
+     * 更新下拉框内容
+     * @param {boolean} force - 是否强制刷新数据
+     */
+    const updateContent = async (force = false) => {
         try {
+            if (force) {
+                // 如果是强制刷新（如配置变更或点击触发），先清除缓存
+                serviceSelector.clearCache();
+            }
+
             // 获取服务列表和当前选中的服务
             const [options, currentService] = await Promise.all([
                 serviceSelector.getServiceOptions(type),
                 serviceSelector.getCurrentService(type)
             ]);
 
-            // 清空容器
+            // 如果已经存在下拉框实例，则尝试增量更新
+            if (updateDropdownOptions) {
+                updateDropdownOptions(options, currentService);
+                currentOptions = options;
+                return;
+            }
+
+            // ---首次加载逻辑---
             container.innerHTML = '';
 
             if (options.length === 0) {
@@ -289,12 +343,23 @@ function createServiceSelector(type, label) {
                 return;
             }
 
-            // 使用 createSelectGroup 创建下拉框（不显示浮动标签，与官方样式一致）
-            const { group, select } = createSelectGroup(label, options, currentService, { showLabel: false });
+            currentOptions = options;
+            const res = createSelectGroup(label, options, currentService, { showLabel: false });
+            const { group, select } = res;
+            updateDropdownOptions = res.updateOptions;
 
-            // 将 group 的子元素添加到容器（不需要外层 group 的样式）
+            // 将 group 的子元素添加到容器
             while (group.firstChild) {
                 container.appendChild(group.firstChild);
+            }
+
+            // 监听点击/按下事件：当用户准备点击下拉框时，尝试静默同步最新配置
+            const dropdownContainer = container.querySelector('.pa-dropdown');
+            if (dropdownContainer) {
+                dropdownContainer.addEventListener('mousedown', () => {
+                    // 点击时触发刷新，但不显示“同步中”以避免干扰 UI
+                    updateContent(true);
+                });
             }
 
             // 监听变更事件
@@ -302,11 +367,10 @@ function createServiceSelector(type, label) {
                 const newValue = select.value;
                 if (!newValue) return;
 
-                // 获取下拉框容器并添加禁用样式
-                const dropdownContainer = container.querySelector('.pa-dropdown');
-                if (dropdownContainer) {
-                    dropdownContainer.style.opacity = '0.6';
-                    dropdownContainer.style.pointerEvents = 'none';
+                const dropdown = container.querySelector('.pa-dropdown');
+                if (dropdown) {
+                    dropdown.style.opacity = '0.6';
+                    dropdown.style.pointerEvents = 'none';
                 }
 
                 try {
@@ -315,34 +379,41 @@ function createServiceSelector(type, label) {
                         logger.log(`设置${label}服务 | 服务: ${newValue}`);
                     } else {
                         logger.error(`设置${label}服务失败`);
-                        // 还原选择
                         const oldValue = await serviceSelector.getCurrentService(type);
-                        if (oldValue) {
-                            select.value = oldValue;
-                            // 更新显示的标签
-                            const dropdownLabel = container.querySelector('.pa-dropdown-label');
-                            const selectedOption = options.find(o => o.value === oldValue);
-                            if (dropdownLabel && selectedOption) {
-                                dropdownLabel.textContent = selectedOption.text;
-                            }
+                        if (oldValue && updateDropdownOptions) {
+                            updateDropdownOptions(currentOptions, oldValue);
                         }
                     }
                 } catch (error) {
                     logger.error(`设置${label}服务异常: ${error.message}`);
                 } finally {
-                    // 恢复可用状态
-                    if (dropdownContainer) {
-                        dropdownContainer.style.opacity = '';
-                        dropdownContainer.style.pointerEvents = '';
+                    if (dropdown) {
+                        dropdown.style.opacity = '';
+                        dropdown.style.pointerEvents = '';
                     }
                 }
             });
 
         } catch (error) {
-            logger.error(`加载${label}服务列表失败: ${error.message}`);
-            container.innerHTML = '<span style="color: var(--p-red-400); font-size: 12px;">加载失败</span>';
+            logger.error(`同步${label}配置失败: ${error.message}`);
+            if (!updateDropdownOptions) {
+                container.innerHTML = '<span style="color: var(--p-red-400); font-size: 12px;">加载失败</span>';
+            }
         }
-    })();
+    };
+
+    // 初始加载
+    updateContent();
+
+    // 监听配置更新事件（当 API 配置管理器修改配置后触发）
+    const onConfigUpdated = () => {
+        logger.debug(`收到配置更新通知，同步${label}状态...`);
+        updateContent(true);
+    };
+    window.addEventListener('pa-config-updated', onConfigUpdated);
+
+    // 销毁监听器的清理函数（简单处理，因为设置面板通常随页面销毁）
+    // 如果之后有更复杂的组件挂载逻辑，可以在这里返回一个清理函数给外部调用
 
     return row;
 }
@@ -684,6 +755,40 @@ export function registerSettings() {
                     }
                 },
 
+                // 混合语言缓存选项
+                {
+                    id: "PromptAssistant.Features.CacheMixedLangTranslation",
+                    name: "混合语言翻译进行缓存",
+                    category: ["✨提示词小助手", " 翻译功能设置", "混合语言缓存"],
+                    type: "boolean",
+                    defaultValue: false,
+                    tooltip: "关闭时，中英文混合内容的翻译结果不会写入缓存，避免污染缓存。开启后会正常缓存。",
+                    onChange: (value) => {
+                        FEATURES.cacheMixedLangTranslation = value;
+                        logger.log(`混合语言缓存 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
+                // 混合语言翻译规则
+                {
+                    id: "PromptAssistant.Features.MixedLangTranslateRule",
+                    name: "混合语言翻译规则",
+                    category: ["✨提示词小助手", " 翻译功能设置", "混合语言规则"],
+                    type: "combo",
+                    options: [
+                        { text: "翻译成英文", value: "to_en" },
+                        { text: "翻译成中文", value: "to_zh" },
+                        { text: "自动翻译小比例语言", value: "auto_minor" },
+                        { text: "自动翻译大比例语言", value: "auto_major" }
+                    ],
+                    defaultValue: "to_en",
+                    tooltip: "根据个人使用偏好设置混合中英文内容的翻译规则",
+                    onChange: (value) => {
+                        FEATURES.mixedLangTranslateRule = value;
+                        logger.log(`混合语言翻译规则 - 已设置为:${value}`);
+                    }
+                },
+
                 // 翻译格式化选项
                 {
                     id: "PromptAssistant.Features.TranslateFormatPunctuation",
@@ -792,10 +897,10 @@ export function registerSettings() {
                 // 显示流式输出进度
                 {
                     id: "PromptAssistant.Settings.ShowStreamingProgress",
-                    name: "显示流式输出进度",
+                    name: "控制台流式输出进度日志",
                     category: ["✨提示词小助手", "系统", "终端日志"],
                     type: "boolean",
-                    defaultValue: true,
+                    defaultValue: false,
                     tooltip: "开启后，控制台会显示流式输出过程，在某些终端可能导致刷屏；关闭后只显示静态的'生成中...'。",
                     onChange: async (value) => {
                         FEATURES.showStreamingProgress = value;
@@ -810,6 +915,20 @@ export function registerSettings() {
                             logger.error(`更新流式进度设置失败: ${error.message}`);
                         }
                         logger.log(`流式输出进度 - 已${value ? "启用" : "禁用"}`);
+                    }
+                },
+
+                // 流式输出开关
+                {
+                    id: "PromptAssistant.Settings.EnableStreaming",
+                    name: "流式输出开关",
+                    category: ["✨提示词小助手", "系统", "流式体验"],
+                    type: "boolean",
+                    defaultValue: true,
+                    tooltip: "开启时，翻译、扩写、识别等功能将以逐字生成的流式效果显示；关闭时则恢复为全部生成后一次性显示的阻塞模式。",
+                    onChange: (value) => {
+                        FEATURES.enableStreaming = value;
+                        logger.log(`流式输出开关 - 已${value ? "启用" : "禁用"}`);
                     }
                 },
 
@@ -841,7 +960,7 @@ export function registerSettings() {
                     id: "PromptAssistant.Settings.ClearCache",
                     name: "清理历史、标签、翻译缓存",
                     category: ["✨提示词小助手", "系统", "清理缓存"],
-                    tooltip: "清理所有缓存，包括历史记录、标签、翻译缓存",
+                    tooltip: "清理所有缓存，包括历史记录、标签、翻译缓存、节点文档翻译缓存",
                     type: () => {
                         const row = document.createElement("tr");
                         row.className = "promptwidget-settings-row";
@@ -857,7 +976,8 @@ export function registerSettings() {
                                 const beforeStats = {
                                     history: HistoryCacheService.getHistoryStats(),
                                     tags: 0,
-                                    translate: TranslateCacheService.getTranslateCacheStats()
+                                    translate: TranslateCacheService.getTranslateCacheStats(),
+                                    nodeHelpTranslate: 0 // 节点文档翻译缓存
                                 };
 
                                 // 统计所有标签数量
@@ -878,6 +998,17 @@ export function registerSettings() {
                                     }
                                 });
 
+                                // 统计节点文档翻译缓存数量
+                                try {
+                                    const nodeHelpCache = sessionStorage.getItem('pa_node_help_translations');
+                                    if (nodeHelpCache) {
+                                        const parsed = JSON.parse(nodeHelpCache);
+                                        beforeStats.nodeHelpTranslate = Object.keys(parsed).length;
+                                    }
+                                } catch (e) {
+                                    // 静默处理
+                                }
+
                                 // 执行历史记录清理操作
                                 HistoryCacheService.clearAllHistory();
 
@@ -886,6 +1017,9 @@ export function registerSettings() {
 
                                 // 清理翻译缓存
                                 TranslateCacheService.clearAllTranslateCache();
+
+                                // 清理节点文档翻译缓存（sessionStorage）
+                                sessionStorage.removeItem('pa_node_help_translations');
 
                                 // 清理旧版本的标签缓存（以PromptAssistant_tag_cache_开头的所有记录）
                                 Object.keys(localStorage)
@@ -908,9 +1042,10 @@ export function registerSettings() {
                                 const clearedHistory = beforeStats.history.total - afterStats.history.total;
                                 const clearedTags = beforeStats.tags;
                                 const clearedTranslate = beforeStats.translate.total - afterStats.translate.total;
+                                const clearedNodeHelp = beforeStats.nodeHelpTranslate;
 
                                 // 只输出最终统计结果
-                                logger.log(`缓存清理完成 | 历史记录: ${clearedHistory}条 | 标签: ${clearedTags}个 | 翻译: ${clearedTranslate}条`);
+                                logger.log(`缓存清理完成 | 历史记录: ${clearedHistory}条 | 标签: ${clearedTags}个 | 翻译: ${clearedTranslate}条 | 节点文档: ${clearedNodeHelp}个`);
 
                                 // 更新所有实例的撤销/重做按钮状态
                                 PromptAssistant.instances.forEach((instance) => {
@@ -975,36 +1110,40 @@ export function registerSettings() {
                             versionContainer.appendChild(versionBadge);
                         } else {
                             const currentVersion = window.PromptAssistant_Version;
-                            // 初始显示当前版本
                             versionBadge.src = `https://img.shields.io/badge/%E7%89%88%E6%9C%AC-${currentVersion}-green?style=flat`;
-                            logger.debug(`[版本检查] 当前版本: ${currentVersion}`);
                             versionContainer.appendChild(versionBadge);
 
-                            // 异步检查最新版本
-                            fetchLatestVersion().then(latestVersion => {
-                                if (latestVersion && compareVersion(latestVersion, currentVersion) > 0) {
-                                    // 发现新版本，使用单个徽标展示“有新版本” + "当前版本→最新版本"
-
-                                    const labelText = "有新版本";
-                                    const messageText = `${currentVersion}→${latestVersion}`;
-                                    const labelEncoded = encodeURIComponent(labelText);
-                                    const messageEncoded = encodeURIComponent(messageText);
-
-                                    // shields.io: /badge/label-message-color
-                                    // label 使用与默认徽标相同的深灰色(#555555)，message 使用橙色
-                                    versionBadge.src = `https://img.shields.io/badge/${labelEncoded}-${messageEncoded}-orange?style=flat&labelColor=555555`;
-                                    versionBadge.style.cursor = "pointer";
-                                    versionBadge.title = `当前版本: ${currentVersion}\n最新版本: ${latestVersion}\n点击前往下载`;
-
-                                    logger.info(`[版本检查] 发现新版本 ${currentVersion} → ${latestVersion}`);
-                                } else if (latestVersion) {
-                                    // 已是最新版本
-                                    versionBadge.title = `当前已是最新版本: ${currentVersion}`;
-                                    logger.debug(`[版本检查] 当前已是最新版本: ${currentVersion}`);
-                                }
-                            }).catch(error => {
-                                logger.warn(`[版本检查] 版本检查过程出错: ${error.message}`);
-                            });
+                            // 使用缓存检查版本，避免重复请求
+                            if (versionCheckCache.checked && versionCheckCache.hasUpdate) {
+                                // 已检查过且有更新，直接应用缓存的结果
+                                const latestVersion = versionCheckCache.latestVersion;
+                                const labelEncoded = encodeURIComponent("有新版本");
+                                const messageEncoded = encodeURIComponent(`${currentVersion}→${latestVersion}`);
+                                versionBadge.src = `https://img.shields.io/badge/${labelEncoded}-${messageEncoded}-orange?style=flat&labelColor=555555`;
+                                versionBadge.style.cursor = "pointer";
+                                versionBadge.title = `当前版本: ${currentVersion}\n最新版本: ${latestVersion}\n点击前往下载`;
+                            } else if (!versionCheckCache.checked) {
+                                // 首次检查，发起异步请求
+                                fetchLatestVersion().then(latestVersion => {
+                                    if (latestVersion && compareVersion(latestVersion, currentVersion) > 0) {
+                                        versionCheckCache.hasUpdate = true;
+                                        const labelEncoded = encodeURIComponent("有新版本");
+                                        const messageEncoded = encodeURIComponent(`${currentVersion}→${latestVersion}`);
+                                        versionBadge.src = `https://img.shields.io/badge/${labelEncoded}-${messageEncoded}-orange?style=flat&labelColor=555555`;
+                                        versionBadge.style.cursor = "pointer";
+                                        versionBadge.title = `当前版本: ${currentVersion}\n最新版本: ${latestVersion}\n点击前往下载`;
+                                        logger.log(`[版本检查] 发现新版本: ${currentVersion} → ${latestVersion}`);
+                                    } else if (latestVersion) {
+                                        versionBadge.title = `当前已是最新版本: ${currentVersion}`;
+                                        logger.debug(`[版本检查] 当前版本: ${currentVersion}`);
+                                    }
+                                }).catch(error => {
+                                    logger.warn(`[版本检查] 出错: ${error.message}`);
+                                });
+                            } else {
+                                // 已检查过但没有更新
+                                versionBadge.title = `当前已是最新版本: ${currentVersion}`;
+                            }
                         }
 
                         cell.appendChild(versionLink);

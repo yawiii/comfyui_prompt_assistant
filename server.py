@@ -453,7 +453,7 @@ async def add_model_to_service_api(request):
         model_name = data.get('model_name')
         temperature = data.get('temperature', 0.7)
         top_p = data.get('top_p', 0.9)
-        max_tokens = data.get('max_tokens', 512)
+        max_tokens = data.get('max_tokens', 1024)
         
         if not model_type or not model_name:
             return web.json_response({
@@ -1379,6 +1379,389 @@ async def vlm_analyze(request):
     except Exception as e:
         error_msg = str(e)
         print(f"{ERROR_PREFIX} 视觉分析请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
+        return web.json_response({"success": False, "error": error_msg})
+    finally:
+        if request_id and request_id in ACTIVE_TASKS:
+            del ACTIVE_TASKS[request_id]
+
+# ---流式输出API（SSE）---
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/vlm/analyze/stream')
+async def vlm_analyze_stream(request):
+    """
+    视觉分析API（流式版本）
+    使用 Server-Sent Events (SSE) 逐 token 推送分析结果
+    """
+    request_id = None
+    response = None
+    try:
+        data = await request.json()
+        image_data = data.get("image")
+        request_id = data.get("request_id")
+        prompt_content = data.get("prompt")
+
+        if not request_id:
+            return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
+
+        # 创建 SSE 响应
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',  # 禁用 nginx 缓冲
+            }
+        )
+        await response.prepare(request)
+
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        vision_config = config_manager.get_vision_config()
+        if vision_config:
+            provider = vision_config.get('provider', 'ollama')
+            model = vision_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            # 获取规则名称
+            rule_name = "默认规则"
+            if prompt_content:
+                system_prompts = config_manager.get_system_prompts()
+                if system_prompts and 'vision_prompts' in system_prompts:
+                    for prompt_id, prompt_data in system_prompts['vision_prompts'].items():
+                        if prompt_data.get('content') == prompt_content:
+                            rule_name = prompt_data.get('name', prompt_id)
+                            break
+                    else:
+                        rule_name = "自定义规则"
+            
+            log_prepare(TASK_IMAGE_CAPTION, request_id, SOURCE_FRONTEND, provider_display, model_display, rule_name)
+
+        # 用于收集完整内容
+        full_content = []
+        
+        # 定义流式回调
+        def stream_callback(chunk):
+            full_content.append(chunk)
+            # 将 chunk 作为 SSE 事件发送（同步版本，由调用者处理）
+            return chunk
+
+        # 创建任务
+        async def run_analysis():
+            return await VisionService.analyze_image(
+                image_data=image_data,
+                request_id=request_id,
+                prompt_content=prompt_content,
+                stream_callback=stream_callback,
+                task_type=TASK_IMAGE_CAPTION,
+                source=SOURCE_FRONTEND
+            )
+
+        task = asyncio.create_task(run_analysis())
+        ACTIVE_TASKS[request_id] = task
+
+        # 轮询并发送流式内容
+        last_sent_index = 0
+        while not task.done():
+            # 发送新的 chunks
+            while last_sent_index < len(full_content):
+                chunk = full_content[last_sent_index]
+                sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+                await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+                last_sent_index += 1
+            await asyncio.sleep(0.05)  # 50ms 轮询间隔
+
+        # 发送剩余的 chunks
+        while last_sent_index < len(full_content):
+            chunk = full_content[last_sent_index]
+            sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+            await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+            last_sent_index += 1
+
+        # 获取结果
+        result = await task
+        
+        # 发送完成信号
+        done_data = json.dumps({"done": True, "result": result}, ensure_ascii=False)
+        await response.write(f"data: {done_data}\n\n".encode('utf-8'))
+        
+        await response.write_eof()
+        return response
+
+    except asyncio.CancelledError:
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} 流式视觉分析任务被取消 | ID:{request_id}", flush=True)
+        if response:
+            error_data = json.dumps({"error": "请求已取消", "cancelled": True}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+        return response if response else web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
+    except Exception as e:
+        error_msg = str(e)
+        print(f"{ERROR_PREFIX} 流式视觉分析请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
+        if response:
+            error_data = json.dumps({"error": error_msg}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+            return response
+        return web.json_response({"success": False, "error": error_msg})
+    finally:
+        if request_id and request_id in ACTIVE_TASKS:
+            del ACTIVE_TASKS[request_id]
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/llm/expand/stream')
+async def llm_expand_stream(request):
+    """
+    LLM扩写API（流式版本）
+    使用 Server-Sent Events (SSE) 逐 token 推送扩写结果
+    """
+    request_id = None
+    response = None
+    try:
+        data = await request.json()
+        prompt = data.get("prompt")
+        request_id = data.get("request_id")
+
+        if not request_id:
+            return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
+
+        # 创建 SSE 响应
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            }
+        )
+        await response.prepare(request)
+
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        llm_config = config_manager.get_llm_config()
+        if llm_config:
+            provider = llm_config.get('provider', 'ollama')
+            model = llm_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            # 获取规则名称
+            system_prompts = config_manager.get_system_prompts()
+            rule_name = "未知规则"
+            if system_prompts and 'expand_prompts' in system_prompts:
+                active_prompt_id = system_prompts.get('active_prompts', {}).get('expand', 'expand_default')
+                if active_prompt_id in system_prompts['expand_prompts']:
+                    rule_name = system_prompts['expand_prompts'][active_prompt_id].get('name', active_prompt_id)
+                elif len(system_prompts['expand_prompts']) > 0:
+                    first_id = list(system_prompts['expand_prompts'].keys())[0]
+                    rule_name = system_prompts['expand_prompts'][first_id].get('name', first_id)
+            
+            log_prepare(TASK_EXPAND, request_id, SOURCE_FRONTEND, provider_display, model_display, rule_name, {"长度": len(prompt)})
+
+        # 用于收集完整内容
+        full_content = []
+        
+        # 定义流式回调
+        def stream_callback(chunk):
+            full_content.append(chunk)
+            return chunk
+
+        # 创建任务
+        async def run_expand():
+            return await LLMService.expand_prompt(
+                prompt=prompt,
+                request_id=request_id,
+                stream_callback=stream_callback,
+                task_type=TASK_EXPAND,
+                source=SOURCE_FRONTEND
+            )
+
+        task = asyncio.create_task(run_expand())
+        ACTIVE_TASKS[request_id] = task
+
+        # 轮询并发送流式内容
+        last_sent_index = 0
+        while not task.done():
+            while last_sent_index < len(full_content):
+                chunk = full_content[last_sent_index]
+                sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+                await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+                last_sent_index += 1
+            await asyncio.sleep(0.05)
+
+        # 发送剩余的 chunks
+        while last_sent_index < len(full_content):
+            chunk = full_content[last_sent_index]
+            sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+            await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+            last_sent_index += 1
+
+        # 获取结果
+        result = await task
+        
+        # 发送完成信号
+        done_data = json.dumps({"done": True, "result": result}, ensure_ascii=False)
+        await response.write(f"data: {done_data}\n\n".encode('utf-8'))
+        
+        await response.write_eof()
+        return response
+
+    except asyncio.CancelledError:
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} 流式LLM扩写任务被取消 | ID:{request_id}", flush=True)
+        if response:
+            error_data = json.dumps({"error": "请求已取消", "cancelled": True}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+        return response if response else web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
+    except Exception as e:
+        error_msg = str(e)
+        print(f"{ERROR_PREFIX} 流式LLM扩写请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
+        if response:
+            error_data = json.dumps({"error": error_msg}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+            return response
+        return web.json_response({"success": False, "error": error_msg})
+    finally:
+        if request_id and request_id in ACTIVE_TASKS:
+            del ACTIVE_TASKS[request_id]
+
+@PromptServer.instance.routes.post(f'{API_PREFIX}/llm/translate/stream')
+async def llm_translate_stream(request):
+    """
+    LLM翻译API（流式版本）
+    使用 Server-Sent Events (SSE) 逐 token 推送翻译结果
+    注意：仅支持LLM翻译，百度翻译不支持流式，请使用原有接口
+    """
+    request_id = None
+    response = None
+    try:
+        data = await request.json()
+        text = data.get("text")
+        from_lang = data.get("from", "auto")
+        to_lang = data.get("to", "zh")
+        request_id = data.get("request_id")
+
+        if not request_id:
+            return web.json_response({"success": False, "error": "缺少request_id"}, status=400)
+
+        if not text or text.strip() == '':
+            return web.json_response({"success": False, "error": "缺少翻译文本"}, status=400)
+
+        # 创建 SSE 响应
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache',
+                'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
+            }
+        )
+        await response.prepare(request)
+
+        # 准备阶段日志
+        from .services.thinking_control import build_thinking_suppression
+        from .utils.common import format_model_with_thinking
+        from .services.openai_base import OpenAICompatibleService
+        
+        # 使用翻译服务配置（而非LLM配置）
+        translate_config = config_manager.get_translate_config()
+        if translate_config:
+            provider = translate_config.get('provider', 'ollama')
+            model = translate_config.get('model', '')
+            provider_display = OpenAICompatibleService.get_provider_display_name(provider)
+            
+            service = config_manager.get_service(provider)
+            disable_thinking_enabled = service.get('disable_thinking', True) if service else True
+            
+            thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
+            model_display = format_model_with_thinking(model, bool(thinking_extra))
+            
+            log_prepare(TASK_TRANSLATE, request_id, SOURCE_FRONTEND, provider_display, model_display, f"{from_lang}→{to_lang}", {"长度": len(text)})
+
+        # 用于收集完整内容
+        full_content = []
+        
+        # 定义流式回调
+        def stream_callback(chunk):
+            full_content.append(chunk)
+            return chunk
+
+        # 创建任务
+        async def run_translate():
+            return await LLMService.translate(
+                text=text,
+                from_lang=from_lang,
+                to_lang=to_lang,
+                request_id=request_id,
+                stream_callback=stream_callback,
+                task_type=TASK_TRANSLATE,
+                source=SOURCE_FRONTEND
+            )
+
+        task = asyncio.create_task(run_translate())
+        ACTIVE_TASKS[request_id] = task
+
+        # 轮询并发送流式内容
+        last_sent_index = 0
+        while not task.done():
+            while last_sent_index < len(full_content):
+                chunk = full_content[last_sent_index]
+                sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+                await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+                last_sent_index += 1
+            await asyncio.sleep(0.05)
+
+        # 发送剩余的 chunks
+        while last_sent_index < len(full_content):
+            chunk = full_content[last_sent_index]
+            sse_data = json.dumps({"chunk": chunk}, ensure_ascii=False)
+            await response.write(f"data: {sse_data}\n\n".encode('utf-8'))
+            last_sent_index += 1
+
+        # 获取结果
+        result = await task
+        
+        # 发送完成信号
+        done_data = json.dumps({"done": True, "result": result}, ensure_ascii=False)
+        await response.write(f"data: {done_data}\n\n".encode('utf-8'))
+        
+        await response.write_eof()
+        return response
+
+    except asyncio.CancelledError:
+        print(f"\r{_ANSI_CLEAR_EOL}{WARN_PREFIX} 流式LLM翻译任务被取消 | ID:{request_id}", flush=True)
+        if response:
+            error_data = json.dumps({"error": "请求已取消", "cancelled": True}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+        return response if response else web.json_response({"success": False, "error": "请求已取消", "cancelled": True}, status=400)
+    except Exception as e:
+        error_msg = str(e)
+        print(f"{ERROR_PREFIX} 流式LLM翻译请求异常 | 请求ID:{request_id if request_id else '未知'} | 错误:{error_msg}")
+        if response:
+            error_data = json.dumps({"error": error_msg}, ensure_ascii=False)
+            await response.write(f"data: {error_data}\n\n".encode('utf-8'))
+            await response.write_eof()
+            return response
         return web.json_response({"success": False, "error": error_msg})
     finally:
         if request_id and request_id in ACTIVE_TASKS:
