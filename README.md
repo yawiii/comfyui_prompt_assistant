@@ -3,21 +3,44 @@
 <h1 align="center">ComfyUI Prompt Assistant✨提示词小助手V2.0</h1>
 
 <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/yawiii/ComfyUI-Prompt-Assistant">
-<a href="https://space.bilibili.com/520680644"><img alt="bilibili" src="https://img.shields.io/badge/%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B-blue?style=flat&logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF&color=%2307A3D7"></a>
-<a href="https://https://data.xflow.cc/wechat.png"><img alt="weChat" src="https://img.shields.io/badge/%E4%BA%A4%E6%B5%81%E5%8F%8D%E9%A6%88-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7"></a>
+<a href="https://space.bilibili.com/520680644"><img alt="bilibili" src="https://img.shields.io/badge/详细视频教程-blue?style=flat&logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF&color=%2307A3D7"></a>
+<a href="https://https://data.xflow.cc/wechat.png"><img alt="weChat" src="https://img.shields.io/badge/欢迎加入交流群-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7"></a>
 <a href="https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy"><img alt="bug" src="https://img.shields.io/badge/Bug-反馈-orange"></a>
 
 </div>
 
 <h4 align="center">🎉🎉全新版本的提示词小助手上线啦！功能更强，响应速度更快！适配ComfyUI node2.0！🎉🎉</h4>
 
-> 支持调用云端大模型API、本地Ollama大模型。实现提示词、markdown节点、节点文档翻译；提示词优化、图像/视频反推；常用标签预设、历史记录等功能。是一个全能all in one的提示词插件！
+> 支持调用云端大模型API、本地Ollama大模型。实现提示词、Markdown节点、节点文档翻译；提示词优化、图像反推和视频反推；常用标签收藏、历史记录等功能。是一个全能all in one的提示词插件！
 
 
 ## **📣更新**
 
 <details open>
-<summary><strong>[2025-12-21] 🔥V2.0.0</strong></summary>
+<summary><strong>[2025-1-10] 🔥V2.0.1</strong></summary>
+
+* **标签模块**：修复格式问题，现在可以在自由新建分类和管理标签了。修复预设创建和迁移出错问题；
+  
+* **小助手UI**：优化node2.0下的挂载方法，修复子图无法创建小助手和某些情况下不稳定的问题，并提升性能；
+  
+* **交互优化**：请求过程新增流式输入效果、优化交互细节；
+  
+* **翻译模块**：新增混合语言翻译规则参数，可以设置默认翻译成中文\英文、完善了节点文档翻译；
+
+* **内置规则**：修复部分规则，出现中英混合、kontext输出没有翻译等问题；
+  
+* **API请求**：修复gemimi-3-pro无法请求的问题；修复ollama404问题；
+  
+* **节点优化**：完善视频反推节点、所有节点加入“[R]”触发词，用于强制节点始终可被执行；
+  
+* **控制台日志**：优化日志输出，修复进度日志无限输出的bug；
+ 
+* **依赖更新**：避免缺少依赖无法启动问题；
+
+</details>
+
+<details>
+<summary><strong>[2025-12-21] V2.0.0</strong></summary>
 
 * **调用优化**：全面重构小助手，提升API、Ollama调用和稳定度、响应速度；
   
@@ -266,20 +289,22 @@
 #### **🔹视频反推节点**
 `✨Prompt Assistant → 视频反推提示词`
 
-`（⚠️beta：目前仅能实现关键字反推，反推结果仍不稳，持续优化中）`
-
 <img width="1700" height="1080" alt="视频反推节点" src="https://github.com/user-attachments/assets/0143096b-24d5-4308-82ff-e0a99144db0b" />
 <img width="1700" height="1102" alt="选取帧工具" src="https://github.com/user-attachments/assets/96c2bd08-b26c-4df1-b32c-be8e20328c97" />
 
 
 
+> 💡在任意节点输入框中输入[R],在节点输入和参数没有发生变化的情况下，每次都被执行（类似随机种子）
+>
+> 
+
 ## **📦 安装方法**
 
 ### ⚠️旧版本迁移注意事项
 
-`如果您安装过提示词小助手2.0.0之前的版本，请注意备份原插件目录下的config目录。避免api配置、自定义规则、自定义标签数据丢失！`
+`如果您安装过提示词小助手2.0之前的版本，请注意备份原插件目录下的config目录。避免api配置、自定义规则、自定义标签数据丢失！`
 
-如果您之前是通过**Manager**安装则直接更新即可，如果您使用的是手动安装，建议删除旧的插件目录（记得备份config目录！！）将新的插件放入到`custom\_nodes`目录，再将需要恢复的配置文件放回config目录
+如果您之前是通过**Manager**安装则直接更新即可，如果您使用的是手动安装，建议删除旧的插件目录（记得备份config目录！！）将新的插件放入到`custom\custom_nodes`目录，再将需要恢复的配置文件放回config目录
 
 #### **从ComfyUI Manager中安装**
 
@@ -289,7 +314,22 @@
 
 
 
-#### **手动安装**
+#### **克隆代码仓库**
+
+
+1. 导航到您的ComfyUI自定义节点文件夹:
+   ```bash
+   cd ComfyUI/custom_nodes
+   ```
+
+2. 克隆这个代码仓库:
+   ```bash
+   git clone https://github.com/yawiii/ComfyUI-Prompt-Assistant.git
+   ```
+
+3. 重启 ComfyUI：
+
+#### **下载插件压缩包**
 
 1.  从[克隆仓库](https://github.com/yawiii/comfyui_prompt_assistant/releases)中下载最新版本
 
@@ -297,7 +337,6 @@
 
     `⚠️注意：建议将插件目录名称修改为：prompt-assistant，以符合ComfyUI规范`
 <img width="600" height="276" alt="github安装" src="https://github.com/user-attachments/assets/99783a78-6e0b-42aa-8f9e-7146ebcef5fd" />
-
 
 
 2. 重启 ComfyUI
@@ -330,23 +369,26 @@
 `⚠️免责声明：本插件仅提供API调用工具，第三方服务责任与本插件无关，插件所涉用户配置信息均存储于本地。对于因账号使用产生的任何问题，本插件不承担责任！`
 
 
-​**百度翻译（机器翻译**​**）：[百度通用文本翻译申请入口](https://fanyi-api.baidu.com/product/11)
+​**百度翻译（机器翻译**​）：[百度通用文本翻译申请入口](https://fanyi-api.baidu.com/product/11)
 
 `速度快，但是翻译质量一般。使用魔法时可能会导致无法请求每个月有免费500w额度`
 
 
 **​智谱（大语言模型模型）：​**[智谱API申请入口](https://www.bigmodel.cn/invite?icode=Wz1tQAT40T9M8vwp%2F1db7nHEaazDlIZGj9HxftzTbt4%3D)
 
-`速度快，无限额度；注意：模型有审查，如果请求内容违规，会返回空结果。并非插件bug`
+`速度快，无限额度；注意：模型有审查，如果请求内容违规，会返回空结果。并非插件bug。最近智谱开始限制请求频率了。`
 
 
 **​xFlow-API聚合：​**[xFlow API申请入口](https://api.xflow.cc/register?aff=Z063)
 
-`提供各类模型api聚合（如Gemini、nano Bannana、Grok、ChatGTP...），实现一个apikey调用，无需解决网络问题；`
+`提供各类模型API聚合（如Gemini、nano Bannana、Grok、ChatGTP...），实现一个APIkey调用所有主流大模型，无需解决网络问题；`
+
+**其他服务商可自行添加**
 
 
 
 ## **🎀特别感谢以下朋友！**
 
 感谢群友为V2.0.0版本提供规则模板：阿丹、CJL、诺曼底
+
 
