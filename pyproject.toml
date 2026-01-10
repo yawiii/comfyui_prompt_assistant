@@ -1,6 +1,6 @@
 [project]
-name = "prompt-assistant"
-version = "2.0.1"
+name = "Prompt-Assistant"
+version = "2.0.2"
 description = "提示词小助手可以一键调用智谱、硅基流动、gemini、本地ollama、百度等大语言模型服务，实现提示词、markdown节点翻译、润色扩写、图片视频反推。支持提示词预设实现一键插入、历史提示词查找等功能。是一个全能型提示词插件。The Prompt Assistant is an all-in-one prompt plugin that enables one-click access to large language model services including Zhipu AI, Silicon Flow, Gemini, local Ollama, and Baidu AI. It supports prompt generation, Markdown node translation, text polishing and expansion, as well as reverse prompt engineering for images and videos. Additionally, it offers features like one-click insertion of preset prompts and historical prompt retrieval."
 readme = "README.md"
 license = {text = "GNU General Public License v3"}
