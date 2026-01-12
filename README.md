@@ -355,7 +355,7 @@
 
 ## **⚙️ 配置说明**
 
-### 配置AIP Key，并配置模型
+### 配置API Key，并配置模型
 
 <img width="1593" height="1119" alt="进入配置页面" src="https://github.com/user-attachments/assets/ea01c0bc-fe0f-40be-991c-d7833965213a" />
 
@@ -390,6 +390,7 @@
 ## **🎀特别感谢以下朋友！**
 
 感谢群友为V2.0.0版本提供规则模板：阿丹、CJL、诺曼底
+
 
 
 
