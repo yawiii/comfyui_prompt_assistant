@@ -4,7 +4,7 @@
 
 <img alt="GitHub Repo stars" src="https://img.shields.io/github/stars/yawiii/ComfyUI-Prompt-Assistant">
 <a href="https://space.bilibili.com/520680644"><img alt="bilibili" src="https://img.shields.io/badge/详细视频教程-blue?style=flat&logo=bilibili&logoColor=2300A5DC&labelColor=%23FFFFFF&color=%2307A3D7"></a>
-<a href="https://https://data.xflow.cc/wechat.png"><img alt="weChat" src="https://img.shields.io/badge/欢迎加入交流群-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7"></a>
+<a href="https://data.xflow.cc/wechat.png"><img alt="weChat" src="https://img.shields.io/badge/欢迎加入交流群-blue?logo=wechat&logoColor=green&labelColor=%23FFFFFF&color=%2307A3D7"></a>
 <a href="https://ycn58r88iss5.feishu.cn/share/base/form/shrcnJ1AzbUJCynW9qrNJ2zPugy"><img alt="bug" src="https://img.shields.io/badge/Bug-反馈-orange"></a>
 
 </div>
@@ -390,6 +390,7 @@
 ## **🎀特别感谢以下朋友！**
 
 感谢群友为V2.0.0版本提供规则模板：阿丹、CJL、诺曼底
+
 
 
 
