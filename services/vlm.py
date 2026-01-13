@@ -133,12 +133,21 @@ class VisionService(OpenAICompatibleService):
             # [Debug] 输出多图请求信息
             print(f"{PREFIX} 🐏 视觉请求 | 图片数量:{len(images_b64)} | num_ctx:{num_ctx} | 模型:{model}")
             
-            # 构建基础请求体
-            payload = {
-                "model": model,
-                "messages": [{"role": "user", "content": system_prompt, "images": images_b64}],
-                "stream": True
-            }
+            # 构建基础请求体（根据是否有图像选择格式）
+            if len(images_b64) > 0:
+                # 图像模式：发送文本+图像
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": system_prompt, "images": images_b64}],
+                    "stream": True
+                }
+            else:
+                # 纯文本模式：只发送文本
+                payload = {
+                    "model": model,
+                    "messages": [{"role": "user", "content": system_prompt}],
+                    "stream": True
+                }
             
             # ---构建 options---
             # 基础参数：num_ctx（动态上下文窗口大小）
@@ -353,11 +362,16 @@ class VisionService(OpenAICompatibleService):
             thinking_disabled = _thinking_check is not None
             model_display = format_model_with_thinking(model, thinking_disabled)
 
-            # 预处理图像
-            processed_image = preprocess_image(image_data, request_id=request_id)
-
             # 获取系统提示词
             system_prompt = prompt_content or "请详细描述这张图片的内容，包括主要对象、场景、颜色、氛围等。"
+
+            # 检查是否为纯文本模式（无图像）
+            is_text_only = image_data is None
+
+            # 预处理图像（如果有）
+            processed_image = None
+            if not is_text_only:
+                processed_image = preprocess_image(image_data, request_id=request_id)
 
             # Ollama走原生API (通过服务类型判断)
             if service and service.get('type') == 'ollama':
@@ -365,9 +379,6 @@ class VisionService(OpenAICompatibleService):
                 enable_advanced_params = service.get('enable_advanced_params', False)
                 filter_thinking_output = service.get('filter_thinking_output', True)
                 _ollama_thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
-                
-                # 提取纯base64
-                b64 = processed_image.split(',')[1] if ',' in processed_image else processed_image
                 
                 # 提前计算auto_unload配置
                 native_base = base_url[:-3] if base_url.endswith('/v1') else (base_url or 'http://localhost:11434')
@@ -378,10 +389,16 @@ class VisionService(OpenAICompatibleService):
                 }
                 auto_unload = _cfg['auto_unload']
 
+                # 纯文本模式：使用空图像列表
+                images_b64 = []
+                if not is_text_only:
+                    b64 = processed_image.split(',')[1] if ',' in processed_image else processed_image
+                    images_b64 = [b64]
+
                 result = await VisionService._call_ollama_native_vision(
                     model=model,
                     system_prompt=system_prompt,
-                    images_b64=[b64],
+                    images_b64=images_b64,
                     temperature=temperature,
                     top_p=top_p,
                     max_tokens=max_tokens,
@@ -416,16 +433,26 @@ class VisionService(OpenAICompatibleService):
             if not base_url:
                 base_url = VisionService.get_provider_base_url(provider, custom_provider_config if custom_provider else None)
             
-            # 构建消息（图像格式）
-            messages = [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": system_prompt},
-                        {"type": "image_url", "image_url": {"url": processed_image}}
-                    ]
-                }
-            ]
+            # 构建消息（根据是否有图像选择格式）
+            if is_text_only:
+                # 纯文本模式：只发送文本
+                messages = [
+                    {
+                        "role": "user",
+                        "content": system_prompt
+                    }
+                ]
+            else:
+                # 图像模式：发送文本+图像
+                messages = [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": system_prompt},
+                            {"type": "image_url", "image_url": {"url": processed_image}}
+                        ]
+                    }
+                ]
             
             # 检查disable_thinking、enable_advanced_params和filter_thinking_output配置
             from ..config_manager import config_manager
