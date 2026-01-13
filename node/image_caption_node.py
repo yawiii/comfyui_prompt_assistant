@@ -12,7 +12,6 @@ import torch
 import numpy as np
 from PIL import Image
 from comfy.model_management import InterruptProcessingException
-
 from ..services.vlm import VisionService
 from ..utils.common import format_api_error, format_model_with_thinking, generate_request_id, log_prepare, log_error, TASK_IMAGE_CAPTION, SOURCE_NODE
 from ..services.thinking_control import build_thinking_suppression
@@ -60,7 +59,6 @@ class ImageCaptionNode(VLMNodeBase):
 
         return {
             "required": {
-                "image": ("IMAGE",),
                 "rule": (prompt_template_options, {"default": prompt_template_options[0] if prompt_template_options else "默认中文反推提示词", "tooltip": "Choose a preset rule for image captioning"}),
                 "custom_rule": ("BOOLEAN", {"default": False, "label_on": "Enable", "label_off": "Disable", "tooltip": "Enable to use custom rule content below"}),
                 "custom_rule_content": ("STRING", {"multiline": True, "default": "", "placeholder": "在此输入临时规则，仅在启用'临时规则'时生效", "tooltip": "在此输入您的自定义规则内容; 💡输入触发词[R],可以让节点每次都被执行"}),
@@ -68,6 +66,9 @@ class ImageCaptionNode(VLMNodeBase):
                 "vlm_service": (service_options, {"default": default_service, "tooltip": "Select VLM service and model"}),
                 # Ollama Automatic VRAM Unload
                 "ollama_auto_unload": ("BOOLEAN", {"default": True, "label_on": "Enable", "label_off": "Disable", "tooltip": "Auto unload Ollama model after generation"}),
+            },
+            "optional": {
+                "image": ("IMAGE",),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -172,7 +173,7 @@ class ImageCaptionNode(VLMNodeBase):
             log_error(TASK_IMAGE_CAPTION, request_id, error_msg, source=SOURCE_NODE)
             raise RuntimeError(f"分析失败: {error_msg}")
 
-    def analyze_image(self, image, rule, custom_rule, custom_rule_content, user_prompt, vlm_service, ollama_auto_unload, unique_id=None):
+    def analyze_image(self, image=None, rule=None, custom_rule=None, custom_rule_content=None, user_prompt=None, vlm_service=None, ollama_auto_unload=None, unique_id=None):
         """
         分析图像并生成提示词（支持 batch 遍历）
 
@@ -192,10 +193,6 @@ class ImageCaptionNode(VLMNodeBase):
         request_id = None  # 初始化，用于异常处理
         
         try:
-            # 检查输入
-            if image is None:
-                raise ValueError("输入图像不能为空")
-
             # ---准备提示词模板---
             prompt_template = None
             rule_name = "Custom Rule" if (custom_rule and custom_rule_content) else rule
@@ -273,6 +270,51 @@ class ImageCaptionNode(VLMNodeBase):
             
             if service.get('type') == 'ollama':
                 provider_config['auto_unload'] = ollama_auto_unload
+
+            # ---检查是否有图片输入---
+            if image is None:
+                # 纯文本模式：直接调用VLM服务
+                request_id = generate_request_id("icap", None, unique_id)
+                
+                # 检查是否关闭思维链
+                model_full_name = provider_config.get('model')
+                disable_thinking_enabled = service.get('disable_thinking', True)
+                thinking_extra = build_thinking_suppression(service_id, model_full_name) if disable_thinking_enabled else None
+                model_display = format_model_with_thinking(model_full_name, bool(thinking_extra))
+                
+                # 获取服务显示名称
+                service_display_name = service.get('name', service_id)
+                
+                # 准备阶段日志
+                log_prepare(TASK_IMAGE_CAPTION, request_id, SOURCE_NODE, service_display_name, model_display, rule_name + " [纯文本模式]")
+
+                # 执行纯文本分析
+                result = self._run_vision_task(
+                    VisionService.analyze_image,
+                    service_id,
+                    image_data=None,
+                    request_id=request_id,
+                    stream_callback=None,
+                    prompt_content=prompt_template,
+                    custom_provider=service_id,
+                    custom_provider_config=provider_config,
+                    task_type=TASK_IMAGE_CAPTION,
+                    source=SOURCE_NODE
+                )
+
+                if result and result.get('success'):
+                    description = result.get('data', {}).get('description', '').strip()
+                    if not description:
+                        error_msg = 'API返回结果为空，请检查API密钥、模型配置或网络连接'
+                        log_error(TASK_IMAGE_CAPTION, request_id, error_msg, source=SOURCE_NODE)
+                        raise RuntimeError(f"分析失败: {error_msg}")
+                    return (description, [description])
+                else:
+                    error_msg = result.get('error', '分析失败，未知错误') if result else '分析服务未返回结果'
+                    if error_msg == "任务被中断":
+                        raise InterruptProcessingException()
+                    log_error(TASK_IMAGE_CAPTION, request_id, error_msg, source=SOURCE_NODE)
+                    raise RuntimeError(f"分析失败: {error_msg}")
 
             # ---处理 batch 输入---
             # 检查是否为 4D tensor（batch 格式）
