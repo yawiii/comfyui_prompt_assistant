@@ -545,6 +545,47 @@ export function createInputGroup(label, placeholder, type = 'text') {
     // 使用空格作为 placeholder 以触发 :not(:placeholder-shown) 选择器
     input.placeholder = ' ';
 
+    const getStepPrecision = () => {
+        const stepAttr = input.step;
+        if (!stepAttr) return 0;
+        const stepStr = String(stepAttr);
+        if (stepStr.includes('e-')) {
+            const [, expStr] = stepStr.split('e-');
+            const exp = parseInt(expStr, 10);
+            return Number.isFinite(exp) ? exp : 0;
+        }
+        const dotIndex = stepStr.indexOf('.');
+        return dotIndex >= 0 ? Math.max(0, stepStr.length - dotIndex - 1) : 0;
+    };
+
+    const formatNumberForInput = (value) => {
+        const precision = getStepPrecision();
+        if (!Number.isFinite(value)) return '';
+        return precision > 0 ? value.toFixed(precision) : String(value);
+    };
+
+    const stepNumberInput = (direction) => {
+        const step = parseFloat(input.step) || 1;
+        const currentValue = parseFloat(input.value) || 0;
+        const min = input.min ? parseFloat(input.min) : -Infinity;
+        const max = input.max ? parseFloat(input.max) : Infinity;
+
+        const precision = getStepPrecision();
+        const factor = precision > 0 ? 10 ** precision : 1;
+
+        const scaledCurrent = Math.round(currentValue * factor);
+        const scaledStep = Math.round(step * factor);
+        const scaledMin = Number.isFinite(min) ? Math.round(min * factor) : -Infinity;
+        const scaledMax = Number.isFinite(max) ? Math.round(max * factor) : Infinity;
+
+        const nextScaled = scaledCurrent + direction * scaledStep;
+        const clampedScaled = Math.min(Math.max(nextScaled, scaledMin), scaledMax);
+        const nextValue = clampedScaled / factor;
+
+        input.value = formatNumberForInput(nextValue);
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
     // 创建浮动标签
     const floatLabel = document.createElement('label');
     floatLabel.textContent = label;
@@ -564,13 +605,7 @@ export function createInputGroup(label, placeholder, type = 'text') {
         increaseBtn.type = 'button';
         increaseBtn.innerHTML = '<i class="pi pi-chevron-up"></i>';
         increaseBtn.addEventListener('click', () => {
-            const step = parseFloat(input.step) || 1;
-            const max = input.max ? parseFloat(input.max) : Infinity;
-            const currentValue = parseFloat(input.value) || 0;
-            const newValue = Math.min(currentValue + step, max);
-            input.value = newValue;
-            // 触发change事件以保存数据
-            input.dispatchEvent(new Event('change', { bubbles: true }));
+            stepNumberInput(1);
         });
 
         // 减少按钮
@@ -579,13 +614,7 @@ export function createInputGroup(label, placeholder, type = 'text') {
         decreaseBtn.type = 'button';
         decreaseBtn.innerHTML = '<i class="pi pi-chevron-down"></i>';
         decreaseBtn.addEventListener('click', () => {
-            const step = parseFloat(input.step) || 1;
-            const min = input.min ? parseFloat(input.min) : -Infinity;
-            const currentValue = parseFloat(input.value) || 0;
-            const newValue = Math.max(currentValue - step, min);
-            input.value = newValue;
-            // 触发change事件以保存数据
-            input.dispatchEvent(new Event('change', { bubbles: true }));
+            stepNumberInput(-1);
         });
 
         buttonsContainer.appendChild(increaseBtn);

@@ -294,6 +294,10 @@ class VideoCaptionNode(VLMNodeBase):
                 'temperature': target_model.get('temperature', 0.7),
                 'max_tokens': target_model.get('max_tokens', 500),
                 'top_p': target_model.get('top_p', 0.9),
+                'send_temperature': target_model.get('send_temperature', True),
+                'send_top_p': target_model.get('send_top_p', True),
+                'send_max_tokens': target_model.get('send_max_tokens', True),
+                'custom_params': target_model.get('custom_params', ''),
             }
             
             # Ollama特殊处理:添加auto_unload配置

@@ -42,6 +42,10 @@ class VisionService(OpenAICompatibleService):
                 'temperature': provider_config.get('temperature', 0.7),
                 'top_p': provider_config.get('top_p', 0.9),
                 'max_tokens': provider_config.get('max_tokens', 2000),
+                'send_temperature': provider_config.get('send_temperature', True),
+                'send_top_p': provider_config.get('send_top_p', True),
+                'send_max_tokens': provider_config.get('send_max_tokens', True),
+                'custom_params': provider_config.get('custom_params', ''),
                 'auto_unload': provider_config.get('auto_unload', True)
             }
         else:
@@ -56,6 +60,9 @@ class VisionService(OpenAICompatibleService):
         top_p: float,
         max_tokens: int,
         base_url: str,
+        send_temperature: bool = True,
+        send_top_p: bool = True,
+        send_max_tokens: bool = True,
         stream_callback: Optional[Callable[[str], None]] = None,
         request_id: Optional[str] = None,
         is_multi: bool = False,
@@ -152,9 +159,12 @@ class VisionService(OpenAICompatibleService):
             # - top_p: 核采样，默认0.9，限制候选词概率范围
             # - num_predict: 最大生成Token数，默认-1（无限）
             if enable_advanced_params:
-                options["temperature"] = temperature
-                options["top_p"] = top_p
-                options["num_predict"] = max_tokens
+                if send_temperature:
+                    options["temperature"] = temperature
+                if send_top_p:
+                    options["top_p"] = top_p
+                if send_max_tokens:
+                    options["num_predict"] = max_tokens
             
             payload["options"] = options
             
@@ -319,12 +329,16 @@ class VisionService(OpenAICompatibleService):
         try:
             # 获取配置
             if custom_provider and custom_provider_config:
+                config = None
                 provider = custom_provider
                 api_key = custom_provider_config.get('api_key')
                 model = custom_provider_config.get('model')
                 temperature = custom_provider_config.get('temperature', 0.7)
                 top_p = custom_provider_config.get('top_p', 0.9)
                 max_tokens = custom_provider_config.get('max_tokens', 2000)
+                send_temperature = custom_provider_config.get('send_temperature', True)
+                send_top_p = custom_provider_config.get('send_top_p', True)
+                send_max_tokens = custom_provider_config.get('send_max_tokens', True)
                 base_url = custom_provider_config.get('base_url', '')
             else:
                 config = VisionService._get_config()
@@ -334,6 +348,9 @@ class VisionService(OpenAICompatibleService):
                 temperature = config.get('temperature', 0.7)
                 top_p = config.get('top_p', 0.9)
                 max_tokens = config.get('max_tokens', 2000)
+                send_temperature = config.get('send_temperature', True)
+                send_top_p = config.get('send_top_p', True)
+                send_max_tokens = config.get('send_max_tokens', True)
                 base_url = config.get('base_url', '')
 
             # 注：允许空API Key，支持无认证服务商
@@ -386,6 +403,9 @@ class VisionService(OpenAICompatibleService):
                     top_p=top_p,
                     max_tokens=max_tokens,
                     base_url=base_url,
+                    send_temperature=send_temperature,
+                    send_top_p=send_top_p,
+                    send_max_tokens=send_max_tokens,
                     stream_callback=stream_callback,
                     request_id=request_id,
                     is_multi=False,
@@ -433,6 +453,25 @@ class VisionService(OpenAICompatibleService):
             disable_thinking_enabled = service.get('disable_thinking', True) if service else True
             enable_advanced_params = service.get('enable_advanced_params', False) if service else False
             filter_thinking_output = service.get('filter_thinking_output', True) if service else True
+            
+            debug_mode = None
+            custom_params_text = None
+            if custom_provider_config:
+                debug_mode = custom_provider_config.get('debug_mode')
+                custom_params_text = custom_provider_config.get('custom_params')
+            if debug_mode is None:
+                debug_mode = service.get('debug_mode', False) if service else False
+            if custom_params_text is None:
+                custom_params_text = config.get('custom_params', '') if config else ''
+            
+            custom_params = None
+            if custom_params_text and str(custom_params_text).strip():
+                try:
+                    custom_params = json.loads(custom_params_text)
+                    if not isinstance(custom_params, dict):
+                        return {"success": False, "error": "自定义请求参数(JSON)必须是对象"}
+                except Exception as e:
+                    return {"success": False, "error": f"自定义请求参数(JSON)格式错误: {str(e)}"}
             thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
             
             result = await VisionService._http_request_chat_completions(
@@ -443,12 +482,17 @@ class VisionService(OpenAICompatibleService):
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
+                send_temperature=send_temperature,
+                send_top_p=send_top_p,
+                send_max_tokens=send_max_tokens,
                 thinking_extra=thinking_extra,
                 enable_advanced_params=enable_advanced_params,
                 stream_callback=stream_callback,
                 request_id=request_id,
                 provider_display_name=provider_display_name,
                 cancel_event=cancel_event,
+                debug_mode=debug_mode,
+                custom_request_params=custom_params,
                 task_type=task_type or TASK_IMAGE_CAPTION,
                 source=source
             )
@@ -497,12 +541,16 @@ class VisionService(OpenAICompatibleService):
         try:
             # 获取配置
             if custom_provider and custom_provider_config:
+                config = None
                 provider = custom_provider
                 api_key = custom_provider_config.get('api_key')
                 model = custom_provider_config.get('model')
                 temperature = custom_provider_config.get('temperature', 0.7)
                 top_p = custom_provider_config.get('top_p', 0.9)
                 max_tokens = custom_provider_config.get('max_tokens', 2000)
+                send_temperature = custom_provider_config.get('send_temperature', True)
+                send_top_p = custom_provider_config.get('send_top_p', True)
+                send_max_tokens = custom_provider_config.get('send_max_tokens', True)
                 base_url = custom_provider_config.get('base_url', '')
             else:
                 config = VisionService._get_config()
@@ -512,6 +560,9 @@ class VisionService(OpenAICompatibleService):
                 temperature = config.get('temperature', 0.7)
                 top_p = config.get('top_p', 0.9)
                 max_tokens = config.get('max_tokens', 2000)
+                send_temperature = config.get('send_temperature', True)
+                send_top_p = config.get('send_top_p', True)
+                send_max_tokens = config.get('send_max_tokens', True)
                 base_url = config.get('base_url', '')
 
             # 注：允许空API Key，支持无认证服务商
@@ -587,6 +638,9 @@ class VisionService(OpenAICompatibleService):
                     top_p=top_p,
                     max_tokens=max_tokens,
                     base_url=base_url,
+                    send_temperature=send_temperature,
+                    send_top_p=send_top_p,
+                    send_max_tokens=send_max_tokens,
                     stream_callback=stream_callback,
                     request_id=request_id,
                     is_multi=True,
@@ -630,6 +684,25 @@ class VisionService(OpenAICompatibleService):
             disable_thinking_enabled = service.get('disable_thinking', True) if service else True
             enable_advanced_params = service.get('enable_advanced_params', False) if service else False
             filter_thinking_output = service.get('filter_thinking_output', True) if service else True
+            
+            debug_mode = None
+            custom_params_text = None
+            if custom_provider_config:
+                debug_mode = custom_provider_config.get('debug_mode')
+                custom_params_text = custom_provider_config.get('custom_params')
+            if debug_mode is None:
+                debug_mode = service.get('debug_mode', False) if service else False
+            if custom_params_text is None:
+                custom_params_text = config.get('custom_params', '') if config else ''
+            
+            custom_params = None
+            if custom_params_text and str(custom_params_text).strip():
+                try:
+                    custom_params = json.loads(custom_params_text)
+                    if not isinstance(custom_params, dict):
+                        return {"success": False, "error": "自定义请求参数(JSON)必须是对象"}
+                except Exception as e:
+                    return {"success": False, "error": f"自定义请求参数(JSON)格式错误: {str(e)}"}
             thinking_extra = build_thinking_suppression(provider, model) if disable_thinking_enabled else None
             
             result = await VisionService._http_request_chat_completions(
@@ -640,12 +713,17 @@ class VisionService(OpenAICompatibleService):
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
+                send_temperature=send_temperature,
+                send_top_p=send_top_p,
+                send_max_tokens=send_max_tokens,
                 thinking_extra=thinking_extra,
                 enable_advanced_params=enable_advanced_params,
                 stream_callback=stream_callback,
                 request_id=request_id,
                 provider_display_name=provider_display_name,
                 cancel_event=cancel_event,
+                debug_mode=debug_mode,
+                custom_request_params=custom_params,
                 task_type=task_type or TASK_VIDEO_CAPTION,
                 source=source
             )

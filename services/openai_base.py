@@ -6,8 +6,11 @@ OpenAI兼容服务基类
 import json
 import time
 import asyncio
+import os
 import httpx
 from typing import Optional, Dict, Any, List, Callable
+from pathlib import Path
+from datetime import datetime
 from .core import BaseAPIService, HTTPClientPool
 from ..utils.common import (
     format_api_error, ProgressBar, log_complete, log_error,
@@ -35,13 +38,16 @@ def filter_thinking_content(text: str) -> str:
     
     # 1. 优先匹配成对的思维链标签
     # 匹配 <think>...</think> 等成对结构
-    pattern_pair = r'<(think|thinking|reasoning|thoughts?)>[\s\S]*?</\1>'
+    pattern_pair = r'<(think|thinking|reasoning|thoughts?)\b[^>]*>[\s\S]*?</\1\s*>'
     text = re.sub(pattern_pair, '', text, flags=re.IGNORECASE)
     
-    # 2. 兜底处理：如果还有残留的结束标签（可能缺少开始标签），则移除该标签及其之前的所有内容
-    # 假设：思考过程总是出现在回答的最前面
-    pattern_orphan_end = r'^[\s\S]*?</(think|thinking|reasoning|thoughts?)>'
-    text = re.sub(pattern_orphan_end, '', text, flags=re.IGNORECASE)
+    # 2. 兜底处理：如果存在未闭合的开头标签（通常出现在最开头），移除从该标签起的全部内容
+    pattern_leading_open = r'^\s*<(think|thinking|reasoning|thoughts?)\b[^>]*>[\s\S]*$'
+    text = re.sub(pattern_leading_open, '', text, flags=re.IGNORECASE)
+    
+    # 3. 移除残留的孤立标签本身（避免误删正文内容）
+    pattern_orphan_tags = r'</?(think|thinking|reasoning|thoughts?)\b[^>]*>'
+    text = re.sub(pattern_orphan_tags, '', text, flags=re.IGNORECASE)
     
     return text.strip()
 
@@ -54,6 +60,48 @@ class OpenAICompatibleService(BaseAPIService):
     
     # ---已知的API端点路径（用于智能检测）---
     _known_endpoints = ['/chat/completions', '/v1/messages', '/completions']
+
+    @staticmethod
+    def _sanitize_filename_part(value: str) -> str:
+        if value is None:
+            return "none"
+        s = str(value).strip()
+        if not s:
+            return "empty"
+        s = re.sub(r'[^a-zA-Z0-9._-]+', '_', s)
+        return s[:120] or "empty"
+
+    @classmethod
+    def _get_debug_log_file(cls, provider_display_name: str, request_id: Optional[str]) -> Path:
+        base_dir = Path(__file__).resolve().parent.parent
+        log_dir = base_dir / "debug_logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        provider_part = cls._sanitize_filename_part(provider_display_name)
+        req_part = cls._sanitize_filename_part(request_id) if request_id else "no_request_id"
+        pid_part = str(os.getpid())
+        return log_dir / f"api_debug_{ts}_{provider_part}_{req_part}_{pid_part}.log"
+
+    @staticmethod
+    def _append_debug_log(path: Optional[Path], title: str, data: Any = None) -> None:
+        if not path:
+            return
+        try:
+            ts = datetime.now().isoformat(timespec="milliseconds")
+            with path.open("a", encoding="utf-8", newline="\n") as f:
+                f.write(f"\n[{ts}] {title}\n")
+                if data is None:
+                    return
+                if isinstance(data, str):
+                    f.write(data)
+                    if not data.endswith("\n"):
+                        f.write("\n")
+                    return
+                f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                f.write("\n")
+        except Exception:
+            return
     
     @staticmethod
     def parse_api_url(raw_url: str) -> str:
@@ -157,6 +205,9 @@ class OpenAICompatibleService(BaseAPIService):
         temperature: float = 0.7,
         top_p: float = 0.9,
         max_tokens: int = 2000,
+        send_temperature: bool = True,
+        send_top_p: bool = True,
+        send_max_tokens: bool = True,
         thinking_extra: Optional[Dict[str, Any]] = None,
         enable_advanced_params: bool = False,
         stream_callback: Optional[Callable[[str], None]] = None,
@@ -164,7 +215,9 @@ class OpenAICompatibleService(BaseAPIService):
         provider_display_name: str = "未知服务",
         cancel_event: Optional[Any] = None,
         task_type: str = None,
-        source: str = None
+        source: str = None,
+        debug_mode: bool = False,
+        custom_request_params: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         使用HTTP直连调用/chat/completions接口
@@ -176,6 +229,19 @@ class OpenAICompatibleService(BaseAPIService):
         from ..server import is_streaming_progress_enabled
         
         try:
+            debug_enabled = bool(debug_mode)
+            debug_log_file = cls._get_debug_log_file(provider_display_name, request_id) if debug_enabled else None
+            if debug_enabled:
+                cls._append_debug_log(
+                    debug_log_file,
+                    "debug_start",
+                    {
+                        "provider": provider_display_name,
+                        "base_url": base_url,
+                        "model": model,
+                        "request_id": request_id
+                    }
+                )
             # 构建请求URL
             url = cls.parse_api_url(base_url)
             
@@ -191,13 +257,22 @@ class OpenAICompatibleService(BaseAPIService):
             
             # 仅在用户开启"启用高级参数"时才发送 temperature、top_p、max_tokens
             if enable_advanced_params:
-                initial_payload["temperature"] = temperature
-                initial_payload["top_p"] = top_p
-                initial_payload["max_tokens"] = max_tokens
+                if send_temperature:
+                    initial_payload["temperature"] = temperature
+                if send_top_p:
+                    initial_payload["top_p"] = top_p
+                if send_max_tokens:
+                    initial_payload["max_tokens"] = max_tokens
             
             # 添加思维链控制参数
             if thinking_extra:
                 initial_payload.update(thinking_extra)
+            
+            if custom_request_params:
+                for k, v in custom_request_params.items():
+                    if k in {"model", "messages", "stream"}:
+                        continue
+                    initial_payload[k] = v
             
             # 构建请求头
             headers = {"Content-Type": "application/json"}
@@ -232,6 +307,16 @@ class OpenAICompatibleService(BaseAPIService):
             for retry_level in range(3):
                 current_payload = cls._filter_payload(initial_payload, retry_level)
                 
+                if debug_enabled:
+                    try:
+                        cls._append_debug_log(
+                            debug_log_file,
+                            f"request_json level={retry_level} url={url}",
+                            current_payload
+                        )
+                    except Exception:
+                        pass
+                
                 # 如果不是Level 0，打印降级重试警告（换行输出）
                 if retry_level > 0:
                     removed_keys = set(initial_payload.keys()) - set(current_payload.keys())
@@ -258,6 +343,7 @@ class OpenAICompatibleService(BaseAPIService):
                 
                 async def _do_stream_request():
                     nonlocal pbar
+                    debug_response_chunks = [] if debug_enabled else None
                     
                     # 定义请求核心逻辑
                     async def _request_core():
@@ -275,11 +361,37 @@ class OpenAICompatibleService(BaseAPIService):
                                 if response.status_code == 401 or _is_auth_error(msg.lower()):
                                     msg = "API Key无效或缺失"
                                 
+                                debug_info = None
+                                if debug_enabled:
+                                    try:
+                                        debug_info = {
+                                            "request": current_payload,
+                                            "response": {
+                                                "status_code": response.status_code,
+                                                "body": error_text.decode("utf-8", errors="ignore")
+                                            }
+                                        }
+                                        cls._append_debug_log(
+                                            debug_log_file,
+                                            f"response_error status={response.status_code}",
+                                            debug_info
+                                        )
+                                    except Exception:
+                                        pass
+                                
+                                error_msg = msg
+                                if debug_enabled and debug_info is not None:
+                                    try:
+                                        error_msg = f"{msg}\n\n[DEBUG]\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}"
+                                    except Exception:
+                                        error_msg = msg
+                                
                                 return {
                                     "success": False, 
-                                    "error": msg, 
+                                    "error": error_msg,
                                     "status_code": response.status_code,
-                                    "should_retry": response.status_code == 400
+                                    "should_retry": response.status_code == 400,
+                                    "debug": debug_info
                                 }
                             
                             full_content = ""
@@ -296,12 +408,31 @@ class OpenAICompatibleService(BaseAPIService):
                                 
                                 try:
                                     chunk = json.loads(line)
+                                    if debug_enabled and debug_response_chunks is not None:
+                                        debug_response_chunks.append(chunk)
                                     # --- 调试日志 (2级): 输出原始流式数据 ---
                                     # print(f"[DEBUG-2] Chunk: {line[:200]}...", flush=True)
                                     
                                     if chunk.get('choices'):
-                                        delta = chunk['choices'][0].get('delta', {})
-                                        content = delta.get('content', '') or ''
+                                        choice0 = chunk['choices'][0] or {}
+                                        delta = choice0.get('delta') or {}
+                                        message = choice0.get('message') or {}
+                                        
+                                        content = delta.get('content', '') or delta.get('text', '') or ''
+                                        if not content and message:
+                                            content = message.get('content', '') or message.get('text', '') or ''
+                                        if not content:
+                                            content = choice0.get('text', '') or ''
+                                        
+                                        if isinstance(content, list):
+                                            merged = []
+                                            for part in content:
+                                                if isinstance(part, dict):
+                                                    merged.append(part.get('text', '') or '')
+                                                else:
+                                                    merged.append(str(part))
+                                            content = "".join(merged)
+                                        
                                         # 针对不同厂商的推理字段进行广谱捕获
                                         reasoning = (
                                             delta.get('reasoning_content', '') or 
@@ -310,6 +441,14 @@ class OpenAICompatibleService(BaseAPIService):
                                             delta.get('thinking_process', '') or  # 备选
                                             ''
                                         )
+                                        if not reasoning and message:
+                                            reasoning = (
+                                                message.get('reasoning_content', '') or
+                                                message.get('reasoning', '') or
+                                                message.get('thinking', '') or
+                                                message.get('thinking_process', '') or
+                                                ''
+                                            )
                                         if reasoning: reasoning_content += reasoning
                                         if content:
                                             full_content += content
@@ -317,6 +456,8 @@ class OpenAICompatibleService(BaseAPIService):
                                             pbar.set_generating(len(full_content))
                                             pbar.update(len(full_content))
                                 except:
+                                    if debug_enabled and debug_response_chunks is not None:
+                                        debug_response_chunks.append({"_raw": line})
                                     continue
                             
                             final_content = full_content
@@ -326,12 +467,62 @@ class OpenAICompatibleService(BaseAPIService):
                             elapsed_ms = int((time.perf_counter() - start_time) * 1000)
                             if not final_content.strip():
                                 pbar.error("响应内容为空")
-                                # --- 调试日志 (1级): 警告响应内容为空 ---
-                                print(f"\n{WARN_PREFIX} [API响应调试] 模型:{model} | 状态:成功 | 但最终内容为空字符串", flush=True)
-                            else:
-                                pbar.done(char_count=len(final_content), elapsed_ms=elapsed_ms)
+                                debug_info = None
+                                if debug_enabled:
+                                    try:
+                                        debug_info = {
+                                            "request": current_payload,
+                                            "response": {
+                                                "status_code": 200,
+                                                "chunks": debug_response_chunks or [],
+                                                "aggregated": {
+                                                    "reasoning": reasoning_content,
+                                                    "content": full_content
+                                                }
+                                            }
+                                        }
+                                        cls._append_debug_log(
+                                            debug_log_file,
+                                            "response_empty_content",
+                                            debug_info
+                                        )
+                                    except Exception:
+                                        pass
+                                
+                                error_msg = "API返回内容为空"
+                                if debug_enabled and debug_info is not None:
+                                    try:
+                                        error_msg = f"{error_msg}\n\n[DEBUG]\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}"
+                                    except Exception:
+                                        pass
+                                
+                                return {"success": False, "error": error_msg, "debug": debug_info}
                             
-                            return {"success": True, "content": final_content}
+                            pbar.done(char_count=len(final_content), elapsed_ms=elapsed_ms)
+                            
+                            debug_info = None
+                            if debug_enabled:
+                                try:
+                                    debug_info = {
+                                        "request": current_payload,
+                                        "response": {
+                                            "status_code": 200,
+                                            "chunks": debug_response_chunks or [],
+                                            "aggregated": {
+                                                "reasoning": reasoning_content,
+                                                "content": full_content
+                                            }
+                                        }
+                                    }
+                                    cls._append_debug_log(
+                                        debug_log_file,
+                                        "response_success_aggregated",
+                                        debug_info
+                                    )
+                                except Exception:
+                                    pass
+                            
+                            return {"success": True, "content": final_content, "debug": debug_info}
 
                     # 定义监视器逻辑：每100ms检查一次中断信号
                     async def _monitor_interrupts(target_task):
@@ -375,13 +566,27 @@ class OpenAICompatibleService(BaseAPIService):
                 try:
                     result = await _do_stream_request()
                 except Exception as req_err:
-                    # 网络层面的异常（非HTTP响应），通常不适合通过参数降级解决，除非确认是特定的协议问题
-                    # 这里选择继续抛出或作为错误返回，不盲目重试
-                    # 但为了稳健，如果是非连接已建立后的错误，可以选择不重试
-                    # 为简单起见，仅记录错误
                     if 'pbar' in locals() and pbar:
                         pbar.error(f"网络请求异常: {req_err}")
-                    return {"success": False, "error": f"网络请求异常: {req_err}"}
+                    
+                    debug_info = None
+                    error_msg = f"网络请求异常: {req_err}"
+                    if debug_enabled:
+                        try:
+                            debug_info = {
+                                "request": current_payload,
+                                "error": str(req_err)
+                            }
+                            cls._append_debug_log(
+                                debug_log_file,
+                                "network_exception",
+                                debug_info
+                            )
+                            error_msg = f"{error_msg}\n\n[DEBUG]\n{json.dumps(debug_info, ensure_ascii=False, indent=2)}"
+                        except Exception:
+                            pass
+                    
+                    return {"success": False, "error": error_msg, "debug": debug_info}
 
                 # 检查结果
                 if result["success"]:

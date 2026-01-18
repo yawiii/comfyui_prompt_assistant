@@ -692,6 +692,10 @@ class ConfigManager:
             "temperature": target_model.get('temperature', 0.7),
             "max_tokens": target_model.get('max_tokens', 1000),
             "top_p": target_model.get('top_p', 0.9),
+            "send_temperature": target_model.get('send_temperature', True),
+            "send_top_p": target_model.get('send_top_p', True),
+            "send_max_tokens": target_model.get('send_max_tokens', True),
+            "custom_params": target_model.get('custom_params', service.get('custom_params', '')),
             "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
             "providers": {}  # v2.0中不再使用此字段
         }
@@ -707,6 +711,7 @@ class ConfigManager:
             "temperature": 0.7,
             "max_tokens": 1000,
             "top_p": 0.9,
+            "custom_params": "",
             "providers": {}
         }
     
@@ -775,6 +780,10 @@ class ConfigManager:
             "temperature": target_model.get('temperature', 0.7),
             "max_tokens": target_model.get('max_tokens', 1024),
             "top_p": target_model.get('top_p', 0.9),
+            "send_temperature": target_model.get('send_temperature', True),
+            "send_top_p": target_model.get('send_top_p', True),
+            "send_max_tokens": target_model.get('send_max_tokens', True),
+            "custom_params": target_model.get('custom_params', service.get('custom_params', '')),
             "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
             "providers": {}  # v2.0中不再使用此字段
         }
@@ -789,6 +798,7 @@ class ConfigManager:
             "temperature": 0.7,
             "max_tokens": 1024,
             "top_p": 0.9,
+            "custom_params": "",
             "providers": {}
         }
 
@@ -881,6 +891,10 @@ class ConfigManager:
             "temperature": target_model.get('temperature', 0.7),
             "max_tokens": target_model.get('max_tokens', 1000),
             "top_p": target_model.get('top_p', 0.9),
+            "send_temperature": target_model.get('send_temperature', True),
+            "send_top_p": target_model.get('send_top_p', True),
+            "send_max_tokens": target_model.get('send_max_tokens', True),
+            "custom_params": target_model.get('custom_params', service.get('custom_params', '')),
             "auto_unload": service.get('auto_unload', True) if service.get('type') == 'ollama' else None,
             "providers": {}
         }
@@ -1454,6 +1468,12 @@ class ConfigManager:
             if 'filter_thinking_output' in kwargs:
                 service['filter_thinking_output'] = kwargs['filter_thinking_output']
             
+            if 'debug_mode' in kwargs:
+                service['debug_mode'] = kwargs['debug_mode']
+            
+            if 'custom_params' in kwargs:
+                service['custom_params'] = kwargs['custom_params'] or ""
+            
             # 更新services数组
             config['model_services'][service_index] = service
             
@@ -1623,7 +1643,11 @@ class ConfigManager:
                         "is_default": len(service[model_list_key]) == 0,
                         "temperature": temperature,
                         "top_p": top_p,
-                        "max_tokens": max_tokens
+                        "max_tokens": max_tokens,
+                        "send_temperature": True,
+                        "send_top_p": True,
+                        "send_max_tokens": True,
+                        "custom_params": ""
                     }
                     service[model_list_key].append(new_model)
                     config['model_services'][i] = service

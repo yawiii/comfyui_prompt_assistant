@@ -1190,6 +1190,61 @@ class APIConfigManager {
         filterThinkingContainer.appendChild(filterThinkingLabelWrapper);
         filterThinkingContainer.appendChild(filterThinkingSwitchWrapper);
         settingsInlineContainer.appendChild(filterThinkingContainer);
+        
+        const debugModeContainer = document.createElement('div');
+        debugModeContainer.className = 'service-setting-item';
+        
+        const debugModeLabel = document.createElement('span');
+        debugModeLabel.className = 'service-setting-label';
+        debugModeLabel.textContent = '调试模式';
+        
+        const debugModeIcon = document.createElement('i');
+        debugModeIcon.className = 'pi pi-info-circle service-setting-info-icon';
+        
+        createTooltip({
+            target: debugModeIcon,
+            content: '启用后将把请求JSON与响应JSON写入后端文件（debug_logs/api_debug_*.log），便于排查 OpenRouter/Gemini 等兼容问题。',
+            position: 'top'
+        });
+        
+        const debugModeLabelWrapper = document.createElement('div');
+        debugModeLabelWrapper.className = 'service-setting-label-wrapper';
+        debugModeLabelWrapper.appendChild(debugModeLabel);
+        debugModeLabelWrapper.appendChild(debugModeIcon);
+        
+        const debugModeSwitchWrapper = document.createElement('label');
+        debugModeSwitchWrapper.className = 'switch-wrapper';
+        
+        const debugModeInput = document.createElement('input');
+        debugModeInput.type = 'checkbox';
+        debugModeInput.checked = service.debug_mode ?? false;
+        
+        const debugModeSlider = document.createElement('span');
+        debugModeSlider.className = `switch-slider${debugModeInput.checked ? ' checked' : ''}`;
+        
+        const debugModeButton = document.createElement('span');
+        debugModeButton.className = `switch-button${debugModeInput.checked ? ' checked' : ''}`;
+        debugModeSlider.appendChild(debugModeButton);
+        
+        debugModeInput.addEventListener('change', async (e) => {
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                debugModeSlider.classList.add('checked');
+                debugModeButton.classList.add('checked');
+            } else {
+                debugModeSlider.classList.remove('checked');
+                debugModeButton.classList.remove('checked');
+            }
+            await this._updateService(service.id, { debug_mode: isChecked });
+            service.debug_mode = isChecked;
+        });
+        
+        debugModeSwitchWrapper.appendChild(debugModeInput);
+        debugModeSwitchWrapper.appendChild(debugModeSlider);
+        
+        debugModeContainer.appendChild(debugModeLabelWrapper);
+        debugModeContainer.appendChild(debugModeSwitchWrapper);
+        settingsInlineContainer.appendChild(debugModeContainer);
 
         // Ollama专属:自动释放模型开关(仅前端UI)
         if (service.type === 'ollama') {
@@ -1252,7 +1307,7 @@ class APIConfigManager {
         }
 
         card.appendChild(settingsInlineContainer);
-
+        
         // LLM模型部分
         const llmSection = this._createModelSection(service, 'llm');
         card.appendChild(llmSection);
@@ -1455,6 +1510,54 @@ class APIConfigManager {
             renderFormContent: (formContainer) => {
                 // 为表单容器添加横向布局类
                 formContainer.classList.add('model-params-form');
+                formContainer.style.flexWrap = 'wrap';
+
+                const createSendToggleRow = (fieldName, checked) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'space-between';
+                    row.style.marginTop = '8px';
+                    row.style.fontSize = '12px';
+                    row.style.opacity = '0.9';
+
+                    const label = document.createElement('span');
+                    label.textContent = '发送';
+
+                    const switchWrapper = document.createElement('label');
+                    switchWrapper.className = 'switch-wrapper';
+                    switchWrapper.style.marginLeft = '0';
+
+                    const input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.checked = checked;
+                    input.dataset.fieldName = fieldName;
+
+                    const slider = document.createElement('span');
+                    slider.className = `switch-slider${checked ? ' checked' : ''}`;
+
+                    const button = document.createElement('span');
+                    button.className = `switch-button${checked ? ' checked' : ''}`;
+                    slider.appendChild(button);
+
+                    input.addEventListener('change', (e) => {
+                        const isChecked = e.target.checked;
+                        if (isChecked) {
+                            slider.classList.add('checked');
+                            button.classList.add('checked');
+                        } else {
+                            slider.classList.remove('checked');
+                            button.classList.remove('checked');
+                        }
+                    });
+
+                    switchWrapper.appendChild(input);
+                    switchWrapper.appendChild(slider);
+
+                    row.appendChild(label);
+                    row.appendChild(switchWrapper);
+                    return row;
+                };
 
                 // 温度 (Temperature)
                 const tempInput = createInputGroup('温度 (Temperature)', '0.0 - 2.0', 'number');
@@ -1464,6 +1567,7 @@ class APIConfigManager {
                 tempInput.input.value = selectedModel.temperature ?? 0.7;
                 tempInput.input.dataset.fieldName = 'temperature';
                 tempInput.group.style.width = '135px';
+                tempInput.group.appendChild(createSendToggleRow('send_temperature', selectedModel.send_temperature ?? true));
                 formContainer.appendChild(tempInput.group);
 
                 // 核采样 (Top-P)
@@ -1474,6 +1578,7 @@ class APIConfigManager {
                 topPInput.input.value = selectedModel.top_p ?? 0.9;
                 topPInput.input.dataset.fieldName = 'top_p';
                 topPInput.group.style.width = '135px';
+                topPInput.group.appendChild(createSendToggleRow('send_top_p', selectedModel.send_top_p ?? true));
                 formContainer.appendChild(topPInput.group);
 
                 // 最大Token数
@@ -1484,7 +1589,44 @@ class APIConfigManager {
                 maxTokensInput.input.value = selectedModel.max_tokens ?? 1024;
                 maxTokensInput.input.dataset.fieldName = 'max_tokens';
                 maxTokensInput.group.style.width = '135px';
+                maxTokensInput.group.appendChild(createSendToggleRow('send_max_tokens', selectedModel.send_max_tokens ?? true));
                 formContainer.appendChild(maxTokensInput.group);
+
+                const customParamsGroup = document.createElement('div');
+                customParamsGroup.className = 'settings-form-group';
+                customParamsGroup.style.flexBasis = '100%';
+                customParamsGroup.style.marginTop = '12px';
+
+                const customParamsLabelWrapper = document.createElement('div');
+                customParamsLabelWrapper.className = 'service-setting-label-wrapper';
+
+                const customParamsLabel = document.createElement('label');
+                customParamsLabel.className = 'settings-form-label';
+                customParamsLabel.textContent = '自定义请求参数(JSON)';
+
+                const customParamsIcon = document.createElement('i');
+                customParamsIcon.className = 'pi pi-info-circle service-setting-info-icon';
+                customParamsIcon.style.marginTop = '2px';
+
+                createTooltip({
+                    target: customParamsIcon,
+                    content: '以 JSON 形式追加到请求体中（不会覆盖 model/messages/stream）。示例：{"provider":{"order":["google"]}}',
+                    position: 'top'
+                });
+
+                customParamsLabelWrapper.appendChild(customParamsLabel);
+                customParamsLabelWrapper.appendChild(customParamsIcon);
+
+                const customParamsTextarea = document.createElement('textarea');
+                customParamsTextarea.className = 'p-inputtext p-component settings-form-textarea';
+                customParamsTextarea.rows = 6;
+                customParamsTextarea.placeholder = '{"provider":{"order":["google"]}}';
+                customParamsTextarea.value = selectedModel.custom_params ?? service.custom_params ?? '';
+                customParamsTextarea.dataset.fieldName = 'custom_params';
+
+                customParamsGroup.appendChild(customParamsLabelWrapper);
+                customParamsGroup.appendChild(customParamsTextarea);
+                formContainer.appendChild(customParamsGroup);
             },
             onConfirm: async (formContainer) => {
                 try {
@@ -1492,6 +1634,10 @@ class APIConfigManager {
                     const temperature = parseFloat(formContainer.querySelector('[data-field-name="temperature"]').value);
                     const top_p = parseFloat(formContainer.querySelector('[data-field-name="top_p"]').value);
                     const max_tokens = parseInt(formContainer.querySelector('[data-field-name="max_tokens"]').value);
+                    const send_temperature = !!formContainer.querySelector('[data-field-name="send_temperature"]').checked;
+                    const send_top_p = !!formContainer.querySelector('[data-field-name="send_top_p"]').checked;
+                    const send_max_tokens = !!formContainer.querySelector('[data-field-name="send_max_tokens"]').checked;
+                    const custom_params = formContainer.querySelector('[data-field-name="custom_params"]').value || '';
 
                     // 验证数据
                     if (isNaN(temperature) || temperature < 0 || temperature > 2) {
@@ -1528,13 +1674,21 @@ class APIConfigManager {
                     await self._updateModelParams(service.id, modelType, modelName, {
                         temperature,
                         top_p,
-                        max_tokens
+                        max_tokens,
+                        send_temperature,
+                        send_top_p,
+                        send_max_tokens,
+                        custom_params
                     });
 
                     // 更新本地数据
                     selectedModel.temperature = temperature;
                     selectedModel.top_p = top_p;
                     selectedModel.max_tokens = max_tokens;
+                    selectedModel.send_temperature = send_temperature;
+                    selectedModel.send_top_p = send_top_p;
+                    selectedModel.send_max_tokens = send_max_tokens;
+                    selectedModel.custom_params = custom_params;
 
                     app.extensionManager.toast.add({
                         severity: "success",
@@ -1712,7 +1866,11 @@ class APIConfigManager {
                 is_default: updatedList.length === 0,
                 temperature: 0.7,
                 top_p: 0.9,
-                max_tokens: 1024
+                max_tokens: 1024,
+                send_temperature: true,
+                send_top_p: true,
+                send_max_tokens: true,
+                custom_params: ''
             });
 
             // 移除空提示
